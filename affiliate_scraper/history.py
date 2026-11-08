@@ -61,15 +61,22 @@ def compute_stats(observations: list[tuple[str, float]], now: Optional[datetime]
         return st
     st.first_seen = obs[0][0].isoformat()
     st.days_covered = round((obs[-1][0] - obs[0][0]).total_seconds() / 86400, 2)
-    current_dt, st.current_price = obs[-1]
-    if len(obs) >= 2:
-        st.previous_price = obs[-2][1]
+    st.current_price = obs[-1][1]
+    # The current price "period" starts at the first of the trailing observations at (about) the
+    # current price. Reference prices must come from BEFORE that period - otherwise seeing the
+    # same new price twice would make it its own reference and hide real drops / discounts.
+    k = len(obs) - 1
+    while k > 0 and abs(obs[k - 1][1] - st.current_price) <= 0.005 * st.current_price:
+        k -= 1
+    period_start = obs[k][0]
+    prior = obs[:k]
+    if prior:
+        st.previous_price = prior[-1][1]
 
     in30 = [p for dt, p in obs if dt >= now - timedelta(days=30)]
     in90 = [p for dt, p in obs if dt >= now - timedelta(days=90)]
-    prior = [(dt, p) for dt, p in obs if dt < current_dt]
-    prior30 = [p for dt, p in prior if dt >= current_dt - timedelta(days=30)]
-    prior90 = [p for dt, p in prior if dt >= current_dt - timedelta(days=90)]
+    prior30 = [p for dt, p in prior if dt >= period_start - timedelta(days=30)]
+    prior90 = [p for dt, p in prior if dt >= period_start - timedelta(days=90)]
 
     st.sufficient = st.n_obs >= MIN_OBSERVATIONS and st.days_covered >= MIN_DAYS
     st.status = "ok" if st.sufficient else "insufficient_data"
@@ -111,8 +118,12 @@ def check_discount_claim(st: HistoryStats, price: Optional[float], list_price: O
     if not price or not list_price or list_price <= price:
         return {"status": "no_claim"}
     claimed = round((list_price - price) / list_price * 100, 1)
-    if not st.sufficient or st.prior_min_30d is None:
+    if not st.sufficient:
         return {"status": "insufficient_data", "claimed_pct": claimed}
+    if st.prior_min_30d is None:
+        # price never changed during a sufficiently long observed period -> it was never the "was" price
+        return {"status": "misleading", "claimed_pct": claimed, "real_pct_vs_30d_low": 0.0,
+                "reason": f"price unchanged for {st.days_covered:g} observed days", "never_sold_at_list_price": True}
     ref = st.prior_min_30d
     real = round((ref - price) / ref * 100, 1) if ref else 0.0
     out = {"claimed_pct": claimed, "real_pct_vs_30d_low": real, "reference_price": ref}

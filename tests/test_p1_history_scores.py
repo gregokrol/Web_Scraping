@@ -154,7 +154,10 @@ def test_affiliate_score_insufficient_and_conversion_threshold():
     assert "conversion" not in few.components
     many = affiliate_score(p, d, performance={"clicks": 200, "conversions": 6, "level": "url"})
     assert many.components["conversion"]["points"] > 0
-    aud = affiliate_score(p, d, audience={"keywords": ["kettle"]})
+    # reviews + audience alone are not commercial data -> still insufficient
+    no_money = affiliate_score(p, d, audience={"keywords": ["kettle"]})
+    assert no_money.status == "insufficient_data" and "no_verified_commission_or_conversion_data" in no_money.reasons
+    aud = affiliate_score(p, d, {"commission_rate": 0.05, "commission_verified": True}, audience={"keywords": ["kettle"]})
     assert aud.components["audience"]["points"] == 10
     assert affiliate_score(prod(1), deal_score(prod(1))).status == "insufficient_data"
 
@@ -217,3 +220,12 @@ def test_no_db_flag_writes_nothing(local_site, tmp_path):
     rc = main([local_site.base + "/products/a", "--delay", "0", "--allow-private-hosts", "--no-db",
                "--db", str(tmp_path / "none.db"), "-o", str(tmp_path / "o")])
     assert rc == 0 and not (tmp_path / "none.db").exists()
+
+
+def test_repeated_observation_of_new_price_keeps_reference():
+    """Regression: seeing the new price twice must not make it its own 30-day reference."""
+    obs = [(ago(25), 120), (ago(15), 120), (ago(8), 120), (ago(2), 90), (ago(1), 90), (ago(0), 90)]
+    st = compute_stats(obs, now=NOW)
+    assert st.prior_min_30d == 120 and st.previous_price == 120
+    assert check_discount_claim(st, 90, 150)["status"] == "overstated"
+    assert detect_price_drop(st)["drop_pct"] == 25.0

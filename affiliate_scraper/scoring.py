@@ -10,7 +10,8 @@
 
 Each component is used ONLY when real data exists for it; missing components are
 left out (never guessed) and the score is normalised over the components that
-were available. ``confidence`` tells how much of the full model was covered.
+were available. The Affiliate Score additionally requires a verified commission
+or real conversion data - without knowing what you earn it is ``insufficient_data``. ``confidence`` tells how much of the full model was covered.
 If the essential data is missing the score is ``None`` with status
 ``insufficient_data``. Commission counts only when marked verified in your
 config; demand uses observed review counts only; conversions only from imported reports.
@@ -159,8 +160,11 @@ def affiliate_score(p: Product, deal: ScoreResult, program: Optional[dict] = Non
     elif performance:
         reasons.append("too_few_clicks_for_conversion_rate")
 
-    if len(comps) < 2:
-        return ScoreResult(None, "insufficient_data", reasons=["no_commercial_data", *reasons])
+    # Commercial value can't be judged without knowing what you earn: require a verified
+    # commission or real conversion data - never just "deal + reviews".
+    if "commission" not in comps and "conversion" not in comps:
+        return ScoreResult(None, "insufficient_data",
+                           reasons=["no_verified_commission_or_conversion_data", *reasons])
     return _finish(comps, W, reasons)
 
 
