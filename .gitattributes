@@ -1,0 +1,3 @@
+# keep Windows line endings byte-for-byte (also for raw downloads from GitHub)
+*.bat -text
+*.cmd -text

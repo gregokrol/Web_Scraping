@@ -560,6 +560,7 @@ def _dash_build(ap) -> None:
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--config", default="automation.json", help="Used for manual crawls / publishing settings")
+    ap.add_argument("--open", action="store_true", help="Open the dashboard in your browser")
 
 
 def _dash_run(args) -> int:
@@ -573,7 +574,12 @@ def _dash_run(args) -> int:
     if args.host not in ("127.0.0.1", "localhost", "::1"):
         _err(f"WARNING: binding to {args.host} exposes the dashboard to your network. It has no login.")
     app = create_app(args.db, automation_config=args.config, allowed_hosts=[args.host, "127.0.0.1", "localhost"])
-    print(f"Dashboard: http://{args.host}:{args.port}   (Ctrl+C to stop)")
+    url = f"http://{'127.0.0.1' if args.host in ('0.0.0.0', '::') else args.host}:{args.port}"
+    print(f"Dashboard: {url}   (Ctrl+C to stop)")
+    if args.open:
+        import threading
+        import webbrowser
+        threading.Timer(1.5, webbrowser.open, args=(url,)).start()
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
     return 0
 
