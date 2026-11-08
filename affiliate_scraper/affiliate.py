@@ -34,6 +34,7 @@ class AffiliateConfig:
     programs: dict[str, dict] = field(default_factory=dict)
     utm: dict[str, str] = field(default_factory=dict)
     only_affiliated: bool = False
+    audience: dict = field(default_factory=dict)   # {"keywords": [...], "categories": [...]} for Affiliate Score
 
     @classmethod
     def load(cls, path: str | Path | None) -> "AffiliateConfig":
@@ -44,6 +45,7 @@ class AffiliateConfig:
             programs={k.lower(): v for k, v in data.get("programs", {}).items()},
             utm=data.get("utm", {}),
             only_affiliated=bool(data.get("only_affiliated", False)),
+            audience=data.get("audience", {}) or {},
         )
 
     def program_for(self, domain: str) -> dict | None:

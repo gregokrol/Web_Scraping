@@ -185,14 +185,16 @@ def run_scrape(
 
     for p in raw:
         validate_product(p, max_age_hours=max_age_hours)
-    products = [p for p in dedupe(raw) if p.validation_status != "invalid"]
-    if filters:
-        products = [p for p in products if filters.accept(p)]
-    products = apply_affiliate_links(products, affiliate or AffiliateConfig())
-    comparisons = compare_prices(products, min_confidence=match_confidence)
-    if post_process:
-        post_process(products, comparisons)
+    observed = [p for p in dedupe(raw) if p.validation_status != "invalid"]
+    # links are set on every offer; with only_affiliated the returned list is the allowed subset
+    affiliated = {id(p) for p in apply_affiliate_links(observed, affiliate or AffiliateConfig())}
 
+    # comparisons, history and scores use ALL observed offers - display filters must not skew the market median
+    comparisons = compare_prices(observed, min_confidence=match_confidence)
+    if post_process:
+        post_process(observed, comparisons)
+
+    products = [p for p in observed if id(p) in affiliated and (filters is None or filters.accept(p))]
     key = SORT_KEYS.get(sort_by)
     if key:
         products.sort(key=key)

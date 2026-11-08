@@ -58,9 +58,12 @@ class Product:
     validation_issues: list[str] = field(default_factory=list)
     group_id: str = ""        # cross-store match group
     match_confidence: Optional[float] = None
-    deal_score: Optional[float] = None
-    affiliate_score: Optional[float] = None
-    deal_notes: str = ""
+    deal_score: Optional[float] = None        # consumer value 0-100 (None = insufficient data)
+    affiliate_score: Optional[float] = None   # commercial value 0-100 (None = insufficient data)
+    deal_status: str = ""                     # ok | insufficient_data | out_of_stock
+    affiliate_status: str = ""
+    deal_notes: str = ""                      # which data the scores were based on
+    discount_check: str = ""                  # no_claim | insufficient_data | verified | overstated | misleading
 
     def __post_init__(self) -> None:
         if not self.fetched_at:

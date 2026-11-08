@@ -90,3 +90,9 @@ def _chromium_path(monkeypatch):
     """Use the preinstalled Chromium in CI containers if present."""
     if not os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE") and os.path.exists("/opt/pw-browsers/chromium"):
         monkeypatch.setenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE", "/opt/pw-browsers/chromium")
+
+
+@pytest.fixture(autouse=True)
+def _isolated_cwd(tmp_path, monkeypatch):
+    """Default DB / cache / output paths are relative - keep them out of the repository."""
+    monkeypatch.chdir(tmp_path)

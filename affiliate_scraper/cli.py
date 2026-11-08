@@ -124,7 +124,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 _SCRAPE_ARG_HOOKS: list = []      # extra scrape options added by later modules (db, scoring)
-_SCRAPE_POST_HOOKS: list = []     # called with (args, result) after a successful scrape
+_SCRAPE_POST_HOOKS: list = []     # factories (args, stores, config, fetcher) -> object with post_process()/finish()
 
 
 def setup_logging(verbose: int) -> None:
@@ -252,14 +252,23 @@ def scrape_main(argv: list[str]) -> int:
     def progress(i: int, n: int, url: str) -> None:
         err(f"  [{i}/{n}] {url}")
 
-    post_process = None
-    for hook in _SCRAPE_POST_HOOKS:
-        post_process = hook(args, stores, config) or post_process
+    hooks = [h for h in (hook(args, stores, config, fetcher) for hook in _SCRAPE_POST_HOOKS) if h]
 
-    result = run_scrape(targets, fetcher, config, filters, sort_by=args.sort, limit=args.top, progress=progress,
-                        stores=stores, render=args.render, max_age_hours=args.max_age_hours,
-                        browser_path=args.browser_path, match_confidence=args.match_confidence,
-                        post_process=post_process)
+    def post_process(products, comparisons):
+        for h in hooks:
+            h.post_process(products, comparisons)
+
+    try:
+        result = run_scrape(targets, fetcher, config, filters, sort_by=args.sort, limit=args.top, progress=progress,
+                            stores=stores, render=args.render, max_age_hours=args.max_age_hours,
+                            browser_path=args.browser_path, match_confidence=args.match_confidence,
+                            post_process=post_process if hooks else None)
+    except BaseException:
+        for h in hooks:
+            h.finish(None)
+        raise
+    for h in hooks:
+        h.finish(result)
 
     name = args.name or f"products_{datetime.now():%Y%m%d_%H%M%S}"
     if not result.products:
