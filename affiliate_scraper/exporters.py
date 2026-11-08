@@ -59,6 +59,9 @@ def to_markdown(products: list[Product], path: Path, title: str = "Top Picks",
             price = f"**Price:** {_price(p)}"
             if p.discount_pct:
                 price += f" ~~{p.list_price:,.2f}~~ (-{p.discount_pct:.0f}%)"
+            if not p.price_verified:
+                price += " _(unverified - check the store)_"
+            price += f" _(as of {p.fetched_at[:10]})_"
             meta.append(price)
         if p.rating is not None:
             meta.append(f"**Rating:** {_stars(p.rating)} {p.rating:.1f}/5"
@@ -95,6 +98,8 @@ _HTML_TEMPLATE = """<!doctype html>
   .price {{ font-size:1.15rem; font-weight:700; }} .price s {{ color:var(--muted); font-weight:400; font-size:.9rem; }}
   .badge {{ background:var(--deal); color:#fff; border-radius:6px; padding:1px 6px; font-size:.75rem; margin-left:6px; }}
   .cta {{ margin-top:auto; text-align:center; background:var(--accent); color:#fff; text-decoration:none; padding:10px; border-radius:10px; font-weight:600; }}
+  .warn {{ color:var(--deal); font-size:.8rem; font-weight:600; }}
+  .asof {{ color:var(--muted); font-size:.75rem; }}
   footer {{ color:var(--muted); font-size:.8rem; margin-top:24px; }}
 </style>
 </head>
@@ -127,6 +132,12 @@ def _card(p: Product) -> str:
         deal = (f' <s>{p.list_price:,.2f}</s><span class="badge">-{p.discount_pct:.0f}%</span>'
                 if p.discount_pct else "")
         parts.append(f'<div class="price">{e(_price(p))}{deal}</div>')
+        if not p.price_verified:
+            why = "stale" if "stale" in p.validation_issues else "unverified"
+            parts.append(f'<div class="warn">Price {why} - check on the store</div>')
+        parts.append(f'<div class="asof">Price as of {e(p.fetched_at[:16].replace("T", " "))} UTC</div>')
+        if p.shipping_cost is not None:
+            parts.append(f'<div class="asof">{"Free shipping" if p.shipping_cost == 0 else "Shipping " + format(p.shipping_cost, ",.2f")}</div>')
     parts.append(f'<a class="cta" href="{link}" rel="sponsored nofollow noopener" target="_blank">Check price</a>')
     parts.append("</div></article>")
     return "".join(parts)
@@ -146,6 +157,35 @@ def to_html(products: list[Product], path: Path, title: str = "Top Picks",
 EXPORTERS = {"csv": to_csv, "json": to_json, "md": to_markdown, "html": to_html}
 
 
+COMPARISON_FIELDS = ["group_id", "title", "brand", "model", "gtin", "method", "confidence", "uncertain",
+                     "n_offers", "n_stores", "n_compared", "currency", "min_price", "median_price", "max_price",
+                     "spread", "savings_vs_median_pct", "savings_vs_max_pct", "min_total", "best_store",
+                     "best_offer_url", "partial", "partial_reasons"]
+
+
+def comparisons_to_csv(comparisons, path: Path) -> Path:
+    with path.open("w", newline="", encoding="utf-8-sig") as f:
+        w = csv.DictWriter(f, fieldnames=COMPARISON_FIELDS, extrasaction="ignore")
+        w.writeheader()
+        for c in comparisons:
+            w.writerow(c.to_dict(include_offers=False))
+    return path
+
+
+def comparisons_to_json(comparisons, path: Path) -> Path:
+    path.write_text(json.dumps([c.to_dict() for c in comparisons], ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
+
+
+def errors_to_csv(errors, path: Path) -> Path:
+    with path.open("w", newline="", encoding="utf-8-sig") as f:
+        w = csv.DictWriter(f, fieldnames=["url", "kind", "status", "message", "at"])
+        w.writeheader()
+        for e in errors:
+            w.writerow(e.to_dict())
+    return path
+
+
 def export(products: list[Product], out_dir: str | Path, basename: str, formats: list[str],
            title: str = "Top Picks", disclosure: str = DEFAULT_DISCLOSURE) -> list[Path]:
     out = Path(out_dir)
@@ -158,4 +198,20 @@ def export(products: list[Product], out_dir: str | Path, basename: str, formats:
             written.append(fn(products, path, title=title, disclosure=disclosure))
         else:
             written.append(fn(products, path))
+    return written
+
+
+def export_run(result, out_dir: str | Path, basename: str, formats: list[str], title: str = "Top Picks",
+               disclosure: str = DEFAULT_DISCLOSURE) -> list[Path]:
+    """Export products + cross-store comparisons (when 2+ stores) + per-URL error log."""
+    out = Path(out_dir)
+    written = export(result.products, out, basename, formats, title, disclosure)
+    multi = [c for c in result.comparisons if c.n_stores >= 2]
+    if multi:
+        if "csv" in formats:
+            written.append(comparisons_to_csv(multi, out / f"{basename}_comparison.csv"))
+        if "json" in formats:
+            written.append(comparisons_to_json(multi, out / f"{basename}_comparison.json"))
+    if result.errors:
+        written.append(errors_to_csv(result.errors, out / f"{basename}_errors.csv"))
     return written

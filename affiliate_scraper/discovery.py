@@ -10,6 +10,7 @@ from urllib.parse import urldefrag, urlparse
 from bs4 import BeautifulSoup
 
 from .fetcher import PoliteFetcher
+from .security import safe_regex
 from .utils import absolute_url, domain_of
 
 log = logging.getLogger(__name__)
@@ -40,7 +41,7 @@ def from_sitemaps(
     origin = f"{p.scheme}://{p.netloc}"
     queue = fetcher.sitemaps_from_robots(site_url) or [origin + "/sitemap.xml"]
     # Prefer product sitemaps (Shopify: sitemap_products_1.xml, Woo: product-sitemap.xml)
-    pattern = re.compile(include, re.I) if include else None
+    pattern = safe_regex(include)
     seen_maps: set[str] = set()
     found: list[str] = []
 
@@ -86,8 +87,8 @@ def from_listing_pages(
     Pagination links matching ``next_page_pattern`` on the same domain are followed
     (up to ``max_listing_pages``).
     """
-    product_re = re.compile(include, re.I)
-    next_re = re.compile(next_page_pattern, re.I) if next_page_pattern else None
+    product_re = safe_regex(include) or re.compile(".")
+    next_re = safe_regex(next_page_pattern)
     allowed_domains = {domain_of(u) for u in start_urls}
     queue = list(start_urls)
     visited: set[str] = set()

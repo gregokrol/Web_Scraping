@@ -18,6 +18,29 @@ _CURRENCY_SYMBOLS = {
 }
 
 
+AVAILABILITY_VALUES = {
+    "instock": "InStock", "outofstock": "OutOfStock", "preorder": "PreOrder", "presale": "PreSale",
+    "backorder": "BackOrder", "limitedavailability": "LimitedAvailability", "onlineonly": "OnlineOnly",
+    "instoreonly": "InStoreOnly", "soldout": "SoldOut", "discontinued": "Discontinued",
+    "madetoorder": "MadeToOrder", "reserved": "Reserved",
+    # common non-schema spellings (feeds, OpenGraph, Hebrew sites)
+    "in stock": "InStock", "available": "InStock", "out of stock": "OutOfStock", "oos": "OutOfStock",
+    "unavailable": "OutOfStock", "pre-order": "PreOrder", "back order": "BackOrder",
+    "available for order": "BackOrder", "sold out": "SoldOut",
+    "במלאי": "InStock", "זמין": "InStock", "זמין במלאי": "InStock", "אזל": "OutOfStock",
+    "אזל מהמלאי": "OutOfStock", "לא זמין": "OutOfStock", "לא במלאי": "OutOfStock",
+    "true": "InStock", "false": "OutOfStock", "yes": "InStock", "no": "OutOfStock",
+}
+
+
+def normalize_availability(value: Any) -> str:
+    """Map schema.org URLs, feed values and common words to schema.org availability names ('' if unknown)."""
+    if value is None or value == "":
+        return ""
+    key = str(value).strip().lower().rstrip("/").rsplit("/", 1)[-1].replace("_", " ")
+    return AVAILABILITY_VALUES.get(key) or AVAILABILITY_VALUES.get(key.replace(" ", "").replace("-", ""), "")
+
+
 def clean_text(value: Any, max_len: int = 0) -> str:
     if value is None:
         return ""

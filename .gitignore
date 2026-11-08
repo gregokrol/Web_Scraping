@@ -6,3 +6,8 @@ venv/
 .cache/
 output/
 affiliate_config.json
+sources.json
+data/
+*.db
+*.db-journal
+.env

@@ -10,4 +10,4 @@ HTML / Markdown ready for publishing.
 from .models import Product
 
 __all__ = ["Product"]
-__version__ = "2.0.0"
+__version__ = "3.0.0"

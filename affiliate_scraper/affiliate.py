@@ -73,16 +73,56 @@ def build_affiliate_url(product: Product, config: AffiliateConfig) -> str:
         return _add_params(clean, utm) if (utm and not config.only_affiliated) else ""
 
     target = _add_params(clean, utm) if utm else clean
+    try:
+        if "template" in program:
+            return program["template"].format(url=target, url_encoded=quote(target, safe=""), **fmt)
+        return _add_params(target, {k: str(v).format(**fmt) for k, v in program.get("params", {}).items()})
+    except (KeyError, IndexError, ValueError) as exc:
+        raise AffiliateLinkError(f"bad affiliate template/params for {domain}: {exc}") from None
+
+
+class AffiliateLinkError(ValueError):
+    pass
+
+
+def is_valid_affiliate_url(url: str, product: Product, config: AffiliateConfig) -> bool:
+    """Sanity-check a generated link: absolute http(s) URL and the configured tracking actually present."""
+    parts = urlparse(url)
+    if parts.scheme not in ("http", "https") or not parts.netloc or any(c in url for c in " \n\r\t"):
+        return False
+    program = config.program_for(product.domain)
+    if not program:
+        return True
     if "template" in program:
-        return program["template"].format(url=target, url_encoded=quote(target, safe=""), **fmt)
-    return _add_params(target, {k: str(v).format(**fmt) for k, v in program.get("params", {}).items()})
+        return "{" not in url and "}" not in url
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    return all(query.get(k) == str(v).format(domain=product.domain, sku=product.sku)
+               for k, v in program.get("params", {}).items())
 
 
 def apply_affiliate_links(products: list[Product], config: AffiliateConfig) -> list[Product]:
+    """Set ``affiliate_url`` on every product.
+
+    Links supplied by an official API / network feed (e.g. eBay ``itemAffiliateWebUrl``,
+    Awin ``aw_deep_link``) are kept as-is. Generated links are validated; invalid ones are
+    dropped (left empty) and noted in ``validation_issues``.
+    """
     kept = []
     for p in products:
-        p.affiliate_url = build_affiliate_url(p, config)
-        if config.only_affiliated and config.program_for(p.domain) is None:
+        network_link = p.affiliate_url if p.source_type in ("api", "feed") and p.affiliate_url else ""
+        if network_link:
+            p.affiliate_url = network_link
+        else:
+            try:
+                link = build_affiliate_url(p, config)
+            except AffiliateLinkError:
+                link = ""
+                p.validation_issues.append("affiliate_config_error")
+            if link and not is_valid_affiliate_url(link, p, config):
+                p.validation_issues.append("affiliate_url_invalid")
+                link = ""
+            p.affiliate_url = link
+        if config.only_affiliated and config.program_for(p.domain) is None and not network_link:
             continue
         kept.append(p)
     return kept

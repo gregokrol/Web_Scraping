@@ -62,7 +62,7 @@ def site():
 
 def test_robots_disallow_is_respected(site):
     base, hits = site
-    f = PoliteFetcher(min_delay=0)
+    f = PoliteFetcher(min_delay=0, allow_private=True)
     assert f.get(base + "/private/products/c") is None
     assert "/private/products/c" not in hits
     assert f.get(base + "/products/a") is not None
@@ -72,7 +72,7 @@ def test_cli_sitemap_discovery(site, tmp_path):
     base, hits = site
     cfg = tmp_path / "aff.json"
     cfg.write_text(json.dumps({"programs": {"127.0.0.1": {"params": {"ref": "me"}}}}))
-    rc = main([base, "--discover", "sitemap", "--delay", "0", "--cache-dir", "", "-c", str(cfg),
+    rc = main([base, "--discover", "sitemap", "--delay", "0", "--cache-dir", "", "-c", str(cfg), "--allow-private-hosts",
                "-o", str(tmp_path), "--name", "out", "--formats", "csv,json,html,md", "--min-rating", "4"])
     assert rc == 0
     data = json.loads((tmp_path / "out.json").read_text())
@@ -82,3 +82,10 @@ def test_cli_sitemap_discovery(site, tmp_path):
     html = (tmp_path / "out.html").read_text()
     assert 'rel="sponsored nofollow noopener"' in html and "Disclosure" in html
     assert (tmp_path / "out.csv").read_text(encoding="utf-8-sig").startswith("url,name")
+
+
+def test_private_hosts_blocked_by_default(site, tmp_path):
+    base, hits = site
+    assert main([base + "/products/a", "--delay", "0", "--cache-dir", "", "-o", str(tmp_path)]) == 2
+    assert PoliteFetcher(min_delay=0).get(base + "/products/a") is None
+    assert hits == []  # nothing was requested

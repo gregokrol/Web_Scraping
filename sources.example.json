@@ -1,0 +1,45 @@
+{
+  "_comment": "Copy to sources.json. Only enter facts you know - nothing here is guessed by the system. trust_score is YOUR 0-1 rating of the store.",
+  "stores": [
+    {
+      "domain": "example-shopify-store.com",
+      "name": "Example Store",
+      "type": "web",
+      "trust_score": 0.9,
+      "shipping_cost": 0,
+      "warranty_months": 12,
+      "start_urls": ["https://example-shopify-store.com"],
+      "discover": "sitemap",
+      "include": "/products/"
+    },
+    {
+      "domain": "example-merchant-feed.com",
+      "name": "Merchant with a product feed",
+      "type": "feed",
+      "trust_score": 0.85,
+      "feed_url": "https://example-merchant-feed.com/feeds/google.xml",
+      "feed_format": "google"
+    },
+    {
+      "domain": "example-no-schema-store.co.il",
+      "name": "Store without structured data",
+      "type": "web",
+      "trust_score": 0.7,
+      "selectors": {
+        "name": "h1.product-title",
+        "price": ".price .amount",
+        "currency": "meta[itemprop=priceCurrency]@content",
+        "availability": ".stock-status",
+        "image": "img.main-image@src",
+        "brand": ".brand a",
+        "model": ".model-number"
+      }
+    },
+    {
+      "domain": "example-dynamic-store.com",
+      "name": "JavaScript store that allows crawling",
+      "type": "browser",
+      "trust_score": 0.8
+    }
+  ]
+}
