@@ -1,0 +1,21 @@
+{
+  "utm": {
+    "utm_source": "my-site",
+    "utm_medium": "affiliate",
+    "utm_campaign": "{domain}"
+  },
+  "programs": {
+    "amazon.com": { "params": { "tag": "YOUR-AMAZON-TAG-20" } },
+    "ebay.com": {
+      "params": { "mkcid": "1", "mkrid": "711-53200-19255-0", "siteid": "0", "campid": "YOUR_CAMPAIGN_ID", "toolid": "10001", "mkevt": "1" }
+    },
+    "example-awin-merchant.com": {
+      "template": "https://www.awin1.com/cread.php?awinmid=MERCHANT_ID&awinaffid=YOUR_AFFILIATE_ID&ued={url_encoded}"
+    },
+    "example-impact-merchant.com": {
+      "template": "https://example.sjv.io/c/YOUR_ID/CAMPAIGN_ID/ADID?u={url_encoded}"
+    },
+    "example-shopify-store.com": { "params": { "ref": "YOUR_REF_CODE" } }
+  },
+  "only_affiliated": false
+}

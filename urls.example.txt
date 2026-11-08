@@ -1,0 +1,4 @@
+# One product URL per line. Lines starting with # are ignored.
+# Use with:  python main.py -f urls.txt -c affiliate_config.json
+https://example-shopify-store.com/products/some-product
+https://example-awin-merchant.com/p/another-product
