@@ -19,6 +19,8 @@
 
 ## התקנה
 
+**משתמשי Windows:** יש מדריך מלא להרצה ב-CMD, כולל פתרון תקלות, בקובץ [RUN_ON_WINDOWS.md](RUN_ON_WINDOWS.md).
+
 </div>
 
 ```bash
