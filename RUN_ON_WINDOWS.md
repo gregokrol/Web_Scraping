@@ -123,9 +123,16 @@ notepad affiliate_config.json
 py main.py --feed https://merchant.example/google_feed.xml -c affiliate_config.json
 py main.py --feed C:\feeds\awin.csv -c affiliate_config.json
 
-:: official eBay API (keys in environment variables - section 7)
-py main.py --ebay-gtin 4006381333931
-py main.py --ebay-search "electric kettle 1.7l"
+:: Amazon Creators API (keys in environment variables - section 7)
+py main.py --amazon-search "electric kettle"
+py main.py --amazon-asin B0XXXXXXXX,B0YYYYYYYY
+
+:: AliExpress Affiliate API (returns the affiliate link and the commission rate)
+py main.py --aliexpress-search "usb c hub"
+py main.py --aliexpress-id 1005001234567890
+
+:: Israeli store XML feed (the feed it gives price-comparison sites)
+py main.py --feed https://store.co.il/feeds/products.xml --sources sources.json
 
 :: public product pages
 py main.py https://store.example/products/kettle -c affiliate_config.json
@@ -288,16 +295,31 @@ py main.py schedule --remove
 </div>
 
 ```cmd
-setx EBAY_CLIENT_ID "your-client-id"
-setx EBAY_CLIENT_SECRET "your-client-secret"
-setx EBAY_CAMPAIGN_ID "your-epn-campaign-id"
+setx AMAZON_CREDENTIAL_ID "your-credential-id"
+setx AMAZON_CREDENTIAL_SECRET "your-credential-secret"
+setx AMAZON_CREDENTIAL_VERSION "2.1"
+setx AMAZON_PARTNER_TAG "yourtag-20"
+setx AMAZON_MARKETPLACE "www.amazon.com"
+setx ALIEXPRESS_APP_KEY "your-app-key"
+setx ALIEXPRESS_APP_SECRET "your-app-secret"
+setx ALIEXPRESS_TRACKING_ID "your-tracking-id"
 setx N8N_WEBHOOK_URL "http://localhost:5678/webhook/web-scraping"
 setx WEBHOOK_SECRET "a-long-random-string"
 ```
 
 <div dir="rtl">
 
-בדיקה בחלון חדש: `echo %EBAY_CLIENT_ID%`.
+בדיקה בחלון חדש: `echo %AMAZON_PARTNER_TAG%`.
+
+**מאיפה משיגים את המפתחות:**
+
+| מקור | איפה | הערות |
+|---|---|---|
+| **Amazon** | Associates Central, בתפריט Tools, תחת Creators API | `AMAZON_CREDENTIAL_VERSION` מופיע ליד המפתחות. Amazon נותנת גישה ל-API רק לחשבונות עם מכירות דרך הקישורים, וכדאי לבדוק את הדרישות העדכניות. המערכת **לא שומרת היסטוריית מחירים** של Amazon, כי התנאים שלה מגבילים שמירת נתונים. השוואה בין חנויות עובדת כרגיל |
+| **AliExpress** | AliExpress Portals, ואז פלטפורמת המפתחים, ושם מגישים בקשה ל-Affiliate API | ה-Tracking ID נמצא ב-Portals. בלעדיו מתקבלות תוצאות ריקות. ברירת המחדל: עברית (`HE`), משלוח לישראל (`IL`), מחיר ב-USD |
+| **חנויות ישראליות** | מבקשים מהחנות את קובץ ה-XML שהיא נותנת לאתרי השוואת מחירים | לא צריך מפתח. מגדירים את החנות ב-`sources.json` עם `"currency": "ILS"`. מחירים בפורמט `₪ 189.90` מזוהים אוטומטית |
+
+eBay עדיין נתמך (`EBAY_CLIENT_ID` ו-`EBAY_CLIENT_SECRET`), אבל הוא לא חובה.
 
 ---
 
@@ -331,6 +353,10 @@ setx WEBHOOK_SECRET "a-long-random-string"
 | `insufficient_data` בציון | חסרים נתונים: לחנות אחת אין השוואה, ההיסטוריה קצרה, ולציון השותפים חסרה עמלה מאומתת. זה צפוי בהתחלה, ואחרי כמה ימים של ריצות ההיסטוריה מצטברת |
 | עסקאות לא מתפרסמות | צריך לאשר אותן קודם (`py main.py approve <id>`) ולוודא ש-`N8N_WEBHOOK_URL` מוגדר |
 | Dashboard לא נפתח | בודקים שהפקודה עדיין רצה בחלון ה-CMD, ומנסים פורט אחר: `py main.py dashboard --port 8800` |
+| `credentials_missing` | חסר משתנה סביבה. ההודעה אומרת איזה. מגדירים עם `setx` ופותחים חלון CMD חדש |
+| AliExpress מחזיר `no_results` | בודקים את `ALIEXPRESS_TRACKING_ID`, ושה-App אושר ל-Affiliate API |
+| Amazon מחזיר `http_401` / `http_403` | המפתחות או ה-`AMAZON_CREDENTIAL_VERSION` לא נכונים, או שהחשבון עוד לא קיבל גישה ל-API |
+| Amazon מחזיר `http_429` | חרגת מקצב הבקשות. המערכת כבר שולחת לכל היותר בקשה בשנייה, אז מריצים פחות חיפושים בכל ריצה |
 | `--render js` נכשל | `py -m pip install -r requirements-js.txt` ואז `py -m playwright install chromium` |
 | `database is locked` | סוגרים ריצה אחרת (למשל משימה מתוזמנת) ומנסים שוב |
 | המשימה המתוזמנת לא רצה | בודקים את `logs\automation.log`. ב-Task Scheduler מסמנים "Run whether user is logged on or not" אם צריך |

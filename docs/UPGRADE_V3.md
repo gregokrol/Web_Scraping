@@ -24,7 +24,8 @@
 |---|---|---|
 | P0: באגים, מנוע סריקה, השוואת מחירים | ✅ | 66 עברו / 65 עברו ו-1 דולגה |
 | P1: SQLite, היסטוריה, ציונים | ✅ | 81 עברו / 80 עברו ו-1 דולגה |
-| P2: אוטומציה, n8n, Dashboard | ✅ | **106 עברו / 105 עברו ו-1 דולגה** |
+| P2: אוטומציה, n8n, Dashboard | ✅ | 106 עברו / 105 עברו ו-1 דולגה |
+| תוספת: Amazon, AliExpress, XML ישראלי | ✅ | **117 עברו / 116 עברו ו-1 דולגה** |
 
 הבדיקה שדולגה היא של Playwright, שהוא רכיב אופציונלי ולא הותקן בסביבת 3.11.
 
@@ -44,7 +45,7 @@
 | תאימות לפקודות CMD קיימות | ✅ | כל הפרמטרים של v2 נשמרו |
 | לבצע שינויים בענף פיתוח נפרד | ✅ | `claude/web-scraping-v3` |
 | בדיקות אוטומטיות לכל יכולת חדשה | ✅ | `tests/` עם 106 בדיקות |
-| להשתמש ב-API רשמי כשזמין | ⚠️ | eBay Browse API ו-Product Feeds מומשו. ל-Amazon אין adapter |
+| להשתמש ב-API רשמי כשזמין | ⚠️ | Amazon Creators API, AliExpress Affiliate API, eBay ו-Product Feeds מומשו. עוד לא נבדקו מול מפתחות אמיתיים |
 | לכבד robots.txt, תנאי שימוש והגבלות קצב | ✅ | `fetcher.py`: robots, Crawl-delay, השהיה לכל אתר |
 | לא לעקוף CAPTCHA, חסימות או הרשאות | ✅ | ב-403 או באתגר בוט, המערכת מפסיקה לפנות לאתר |
 | לא לשמור מפתחות וסיסמאות בקוד | ✅ | משתני סביבה בלבד, ו-`tests/test_no_secrets.py` בודק את המאגר |
@@ -70,7 +71,8 @@
 
 | סוג מקור | מצב | איפה |
 |---|---|---|
-| Official API | ⚠️ | `sources/ebay.py` (eBay Browse API). נבדק מול API מדומה בלבד |
+| Official API | ⚠️ | **Amazon Creators API** (`sources/amazon.py`) ו-**AliExpress Affiliate API** (`sources/aliexpress.py`), לפי הפרוטוקול של ה-SDK הרשמי של Amazon ושל ה-SDK הנפוץ של AliExpress. נשאר גם eBay. הכול נבדק מול API מדומה בלבד, בלי מפתחות אמיתיים |
+| XML של חנויות ישראליות | ✅ | `sources/feed.py`: זיהוי אוטומטי של תגיות באנגלית ובעברית, `xml_mapping` לתגיות מיוחדות, ומטבע ILS לכל חנות |
 | Product Feed | ✅ | `sources/feed.py`: Google Merchant XML ו-CSV של Awin/CJ |
 | JSON-LD / Schema.org | ✅ | `extractors.py` |
 | Microdata | ✅ | `extractors.py` |
@@ -212,7 +214,8 @@ P0 נבדק, ורק אז התחיל P1. P1 נבדק, ורק אז התחיל P2. 
 
 ## 13. עדיין לא מומש
 
-- adapter ל-API של Amazon (Creators/PA-API)
+- בדיקה של Amazon ושל AliExpress מול מפתחות אמיתיים
+- היסטוריית מחירים ל-Amazon (מושבתת בכוונה בגלל התנאים של Amazon)
 - מילוי אוטומטי של מסים
 - נתוני ביקוש מעבר למספר הביקורות (למשל נפח חיפושים)
 - קובץ workflow מוכן ל-n8n

@@ -13,6 +13,8 @@ Discover products from a site's sitemap, keep verified in-stock ones::
 
 Official sources (preferred)::
 
+    py main.py --amazon-search "electric kettle"     (needs AMAZON_* environment variables)
+    py main.py --aliexpress-search "usb c hub"       (needs ALIEXPRESS_* environment variables)
     py main.py --feed https://merchant.example/google_feed.xml
     py main.py --feed C:\\feeds\\awin_feed.csv
     py main.py --ebay-gtin 0885909950805          (needs EBAY_CLIENT_ID / EBAY_CLIENT_SECRET)
@@ -67,6 +69,10 @@ def build_parser() -> argparse.ArgumentParser:
     g = ap.add_argument_group("sources")
     g.add_argument("--sources", help="Store settings JSON (see sources.example.json)")
     g.add_argument("--feed", action="append", default=[], help="Product feed URL or file (Google XML / CSV). Repeatable")
+    g.add_argument("--amazon-search", action="append", default=[], help="Amazon Creators API keyword search. Repeatable")
+    g.add_argument("--amazon-asin", action="append", default=[], help="Amazon Creators API by ASIN(s), comma separated")
+    g.add_argument("--aliexpress-search", action="append", default=[], help="AliExpress Affiliate API search. Repeatable")
+    g.add_argument("--aliexpress-id", action="append", default=[], help="AliExpress product id(s), comma separated")
     g.add_argument("--ebay-search", action="append", default=[], help="eBay Browse API keyword search. Repeatable")
     g.add_argument("--ebay-gtin", action="append", default=[], help="eBay Browse API search by barcode. Repeatable")
     g.add_argument("--render", choices=["static", "js"], default="static",
@@ -177,6 +183,9 @@ def collect_targets(args, fetcher: PoliteFetcher, err) -> list[str] | None:
     else:
         urls = urls[: args.max_pages]
     urls += [f"feed:{f}" for f in args.feed]
+    urls += [f"amazon:search:{q}" for q in args.amazon_search] + [f"amazon:asin:{a}" for a in args.amazon_asin]
+    urls += [f"aliexpress:search:{q}" for q in args.aliexpress_search]
+    urls += [f"aliexpress:id:{i}" for i in args.aliexpress_id]
     urls += [f"ebay:search:{q}" for q in args.ebay_search] + [f"ebay:gtin:{g}" for g in args.ebay_gtin]
     return urls
 
@@ -189,9 +198,10 @@ def scrape_main(argv: list[str]) -> int:
     def err(msg: str) -> None:
         print(msg, file=sys.stderr)
 
-    if not (args.urls or args.from_file or args.feed or args.ebay_search or args.ebay_gtin):
+    if not (args.urls or args.from_file or args.feed or args.ebay_search or args.ebay_gtin or args.amazon_search
+            or args.amazon_asin or args.aliexpress_search or args.aliexpress_id):
         parser.print_usage(sys.stderr)
-        err("error: give at least one URL, --from-file, --feed or --ebay-search/--ebay-gtin")
+        err("error: give at least one URL, --from-file, --feed, --amazon-search, --aliexpress-search ...")
         return 2
 
     formats = [f.strip() for f in args.formats.split(",") if f.strip()]

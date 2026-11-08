@@ -201,6 +201,9 @@ def apply_scores(products: list[Product], comparisons: list[PriceComparison], db
         if program is None and db is not None:
             row = db.program_for(p.domain)
             program = dict(row) if row else None
+        if p.commission_rate is not None and p.source_type == "api" and not (program or {}).get("commission_verified"):
+            # the affiliate network's own API reported this rate -> verified at source
+            program = {"commission_rate": p.commission_rate, "commission_verified": True}
         perf = db.performance_for(p.url, p.domain) if db is not None else None
         a = affiliate_score(p, d, program, audience, perf)
 

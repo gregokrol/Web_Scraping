@@ -12,8 +12,8 @@ from .affiliate import AffiliateConfig, apply_affiliate_links
 from .fetcher import FetchError, PoliteFetcher
 from .matching import PriceComparison, compare_prices
 from .models import Product
-from .sources import (AdapterContext, BrowserPageAdapter, EbayBrowseAdapter, ProductFeedAdapter, SourceAdapter,
-                      StoreConfig, WebPageAdapter)
+from .sources import (AdapterContext, AliExpressAffiliateAdapter, AmazonCreatorsAdapter, BrowserPageAdapter,
+                      EbayBrowseAdapter, ProductFeedAdapter, SourceAdapter, StoreConfig, WebPageAdapter)
 from .sources.base import store_for
 from .utils import domain_of
 from .validation import validate_product
@@ -91,8 +91,9 @@ def dedupe(products: Iterable[Product]) -> list[Product]:
 
 def classify_target(target: str, stores: list[StoreConfig], render: str = "static") -> tuple[str, str]:
     """Return (adapter_name, normalised_target)."""
-    if target.startswith("ebay:"):
-        return "ebay", target
+    for prefix in ("ebay", "amazon", "aliexpress"):
+        if target.startswith(prefix + ":"):
+            return prefix, target
     if target.startswith("feed:"):
         return "feed", target[5:]
     if not target.startswith(("http://", "https://")):
@@ -126,7 +127,8 @@ class Collector:
     def adapter(self, name: str) -> SourceAdapter:
         if name not in self._adapters:
             cls = {"web": WebPageAdapter, "browser": BrowserPageAdapter, "feed": ProductFeedAdapter,
-                   "ebay": EbayBrowseAdapter}[name]
+                   "ebay": EbayBrowseAdapter, "amazon": AmazonCreatorsAdapter,
+                   "aliexpress": AliExpressAffiliateAdapter}[name]
             self._adapters[name] = cls(self.ctx)
         return self._adapters[name]
 

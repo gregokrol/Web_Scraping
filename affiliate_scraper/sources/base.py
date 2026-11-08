@@ -29,6 +29,8 @@ class StoreConfig:
     feed_url: str = ""
     feed_format: str = ""                   # google | csv | "" (auto)
     csv_mapping: dict[str, str] = field(default_factory=dict)
+    xml_mapping: dict = field(default_factory=dict)  # {"item": "product", "fields": {"name": "title", "image": "img@src"}}
+    currency: str = ""                      # currency of feed prices when the feed doesn't say (e.g. "ILS")
     enabled: bool = True
     start_urls: list[str] = field(default_factory=list)
     discover: str = "none"                  # none | sitemap | links
@@ -97,4 +99,6 @@ class SourceAdapter(ABC):
                 p.warranty_months = int(store.warranty_months)
             if store.name and (not p.store or p.store == p.domain):
                 p.store = store.name
+            if not p.currency and store.currency and p.price is not None:
+                p.currency = store.currency.upper()
         return products

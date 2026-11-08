@@ -4,6 +4,9 @@ Supported formats (auto-detected):
 
 * Google Merchant Center XML (RSS 2.0 / Atom with the ``g:`` namespace) - also used by
   many affiliate networks, Shopify/WooCommerce feed plugins and price-comparison sites
+* any other product-list XML - e.g. the feeds Israeli stores publish for price-comparison
+  sites. Common tag names (English + Hebrew) are recognised; others can be mapped with
+  ``"feed_format": "xml", "xml_mapping": {"item": "product", "fields": {"name": "title"}}``
 * CSV / TSV feeds (Awin, CJ, Impact, Rakuten, TradeTracker, Google Sheets...). Common column
   names are recognised automatically; anything else can be mapped in ``sources.json``
   (``"csv_mapping": {"name": "ProductTitle", "price": "Price"}``)
@@ -115,6 +118,91 @@ def parse_google_feed(xml: bytes | str) -> list[dict]:
     return out
 
 
+# Generic XML feeds (many Israeli stores publish their own XML for price-comparison sites).
+XML_ITEM_TAGS = ("product", "item", "offer", "entry", "row", "מוצר")
+XML_FIELD_TAGS: dict[str, tuple[str, ...]] = {
+    "name": ("name", "title", "product_name", "productname", "product_title", "שם", "שם_מוצר"),
+    "url": ("link", "url", "product_url", "producturl", "deeplink", "product_link", "קישור"),
+    "price": ("sale_price", "saleprice", "final_price", "current_price", "special_price", "price", "מחיר"),
+    "list_price": ("old_price", "original_price", "list_price", "regular_price", "price_before", "msrp"),
+    "currency": ("currency", "currency_code", "מטבע"),
+    "image": ("image", "image_url", "imageurl", "image_link", "picture", "img", "תמונה"),
+    "brand": ("brand", "manufacturer", "vendor", "יצרן", "מותג"),
+    "model": ("model", "mpn", "model_number", "דגם"),
+    "gtin": ("barcode", "ean", "gtin", "upc", "ברקוד"),
+    "sku": ("sku", "id", "product_id", "code", "catalog_number", "מקט"),
+    "availability": ("availability", "stock", "in_stock", "instock", "stock_status", "מלאי"),
+    "shipping_cost": ("shipping", "shipping_cost", "shipping_price", "delivery_price", "delivery_cost", "משלוח"),
+    "category": ("category", "category_name", "product_type", "קטגוריה"),
+    "description": ("description", "short_description", "תיאור"),
+    "warranty_months": ("warranty_months",),
+}
+
+
+def _local(tag) -> str:
+    return etree.QName(tag).localname.lower() if isinstance(tag, str) else ""
+
+
+def parse_generic_xml_feed(xml: bytes | str, mapping: Optional[dict] = None) -> list[dict]:
+    """Parse any 'list of products' XML. ``mapping`` = {"item": "<tag>", "fields": {"name": "<tag>", "image": "<tag>@<attr>"}}."""
+    data = xml.encode("utf-8") if isinstance(xml, str) else xml
+    root = etree.fromstring(data, parser=_secure_parser())
+    if root is None:
+        return []
+    mapping = mapping or {}
+    item_tag = (mapping.get("item") or "").lower()
+    if not item_tag:
+        counts: dict[str, int] = {}
+        for el in root.iter():
+            name = _local(el.tag)
+            if name in XML_ITEM_TAGS:
+                counts[name] = counts.get(name, 0) + 1
+        item_tag = max(counts, key=counts.get) if counts else ""
+    if not item_tag:
+        return []
+    custom = {k: str(v) for k, v in (mapping.get("fields") or {}).items()}
+    out = []
+    for item in (el for el in root.iter() if _local(el.tag) == item_tag):
+        children = {}
+        for ch in item:
+            children.setdefault(_local(ch.tag), ch)
+        def get(fieldname: str) -> str:
+            spec = custom.get(fieldname)
+            if spec:
+                tag, _, attr = spec.partition("@")
+                el = children.get(tag.lower()) if tag else item
+                if el is None:
+                    return ""
+                return clean_text(el.get(attr) if attr else "".join(el.itertext()))
+            for cand in XML_FIELD_TAGS.get(fieldname, ()):
+                if cand in children:
+                    return clean_text("".join(children[cand].itertext()))
+                if item.get(cand):  # attribute on the item element
+                    return clean_text(item.get(cand))
+            return ""
+        rec: dict = {}
+        for fieldname in XML_FIELD_TAGS:
+            raw = get(fieldname)
+            if not raw:
+                continue
+            if fieldname in ("price", "list_price", "shipping_cost"):
+                rec[fieldname] = parse_price(raw)
+                if fieldname == "price":
+                    rec.setdefault("currency", guess_currency(raw))
+            elif fieldname == "warranty_months":
+                rec[fieldname] = parse_int(raw)
+            elif fieldname == "availability" and raw.lower() in ("1", "0", "y", "n", "true", "false"):
+                rec[fieldname] = "InStock" if raw.lower() in ("1", "y", "true") else "OutOfStock"
+            elif fieldname == "description":
+                rec[fieldname] = clean_text(raw, 500)
+            else:
+                rec[fieldname] = raw
+        if rec.get("currency") == "" and "currency" in rec:
+            rec.pop("currency")
+        out.append(rec)
+    return out
+
+
 def parse_csv_feed(text: str, mapping: Optional[dict[str, str]] = None) -> list[dict]:
     sample = text[:20000]
     try:
@@ -173,15 +261,30 @@ class ProductFeedAdapter(SourceAdapter):
         mtime = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).replace(microsecond=0).isoformat()
         return path.read_text(encoding="utf-8-sig", errors="replace"), mtime
 
+    @staticmethod
+    def detect_format(text: str) -> str:
+        head = text.lstrip()[:5000]
+        if not head.startswith("<"):
+            return "csv"
+        return "google" if G_NS in head else "xml"
+
     def fetch(self, target: str) -> list[Product]:
         loaded = self._load(target)
         if loaded is None:
             return []
         text, fetched_at = loaded
-        store = store_for(domain_of(target), self.ctx.stores) if target.startswith("http") else None
-        fmt = (store.feed_format if store else "") or ("google" if text.lstrip()[:1] == "<" else "csv")
+        # the store whose feed_url is this target, else the store of the feed's domain
+        store = next((s for s in self.ctx.stores if s.feed_url and s.feed_url == target), None)
+        if store is None and target.startswith("http"):
+            store = store_for(domain_of(target), self.ctx.stores)
+        fmt = (store.feed_format if store else "") or self.detect_format(text)
         try:
-            records = parse_google_feed(text) if fmt == "google" else parse_csv_feed(text, store.csv_mapping if store else None)
+            if fmt == "google":
+                records = parse_google_feed(text)
+            elif fmt == "xml":
+                records = parse_generic_xml_feed(text, store.xml_mapping if store else None)
+            else:
+                records = parse_csv_feed(text, store.csv_mapping if store else None)
         except (etree.XMLSyntaxError, csv.Error, ValueError) as exc:
             self.ctx.fetcher.errors.append(FetchError(url=target, kind="feed_parse_error", message=str(exc)))
             return []

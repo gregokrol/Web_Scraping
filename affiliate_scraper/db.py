@@ -19,6 +19,7 @@ from .attributes import extract_attributes
 from .models import Product, now_iso
 
 DEFAULT_DB = "data/web_scraping.db"
+NO_HISTORY_SOURCES = {"amazon-api"}   # sources whose terms forbid keeping price history
 SCHEMA_VERSION = 1
 
 SCHEMA = """
@@ -55,7 +56,7 @@ CREATE TABLE IF NOT EXISTS offers (
     price REAL, list_price REAL, currency TEXT, shipping_cost REAL, tax REAL,
     availability TEXT, condition TEXT, color TEXT, size TEXT, warranty_months INTEGER,
     rating REAL, review_count INTEGER, image TEXT, category TEXT,
-    affiliate_url TEXT, price_verified INTEGER, validation_status TEXT, validation_issues TEXT,
+    affiliate_url TEXT, commission_rate REAL, price_verified INTEGER, validation_status TEXT, validation_issues TEXT,
     source TEXT, source_type TEXT, group_id TEXT, match_confidence REAL,
     deal_score REAL, affiliate_score REAL, deal_status TEXT, affiliate_status TEXT, deal_notes TEXT,
     first_seen TEXT, last_seen TEXT, last_fetched_at TEXT
@@ -122,7 +123,7 @@ CREATE INDEX IF NOT EXISTS ix_alerts_offer ON deal_alerts(offer_id, created_at);
 
 OFFER_COLUMNS = ("domain", "store", "store_url", "sku", "price", "list_price", "currency", "shipping_cost", "tax",
                  "availability", "condition", "color", "size", "warranty_months", "rating", "review_count",
-                 "image", "category", "affiliate_url", "price_verified", "validation_status", "source",
+                 "image", "category", "affiliate_url", "commission_rate", "price_verified", "validation_status", "source",
                  "source_type", "group_id", "match_confidence", "deal_score", "affiliate_score", "deal_notes")
 
 
@@ -156,9 +157,17 @@ class Database:
         if self.path != ":memory:":
             self.conn.execute("PRAGMA journal_mode = WAL")
         self.conn.executescript(SCHEMA)
+        self._migrate()
         if not self.conn.execute("SELECT 1 FROM schema_info").fetchone():
             self.conn.execute("INSERT INTO schema_info(version) VALUES (?)", (SCHEMA_VERSION,))
         self.conn.commit()
+
+    def _migrate(self) -> None:
+        """Add columns introduced after a database was created (safe to run every time)."""
+        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(offers)")}
+        for col, typ in (("commission_rate", "REAL"),):
+            if col not in cols:
+                self.conn.execute(f"ALTER TABLE offers ADD COLUMN {col} {typ}")
 
     def close(self) -> None:
         self.conn.close()
@@ -310,6 +319,9 @@ class Database:
                                     (p.url, *values.values(), now))
                     offer_id = int(cur.lastrowid)
                 ids[p.url] = offer_id
+                if p.source in NO_HISTORY_SOURCES:
+                    # e.g. Amazon: terms restrict storing product data long-term -> keep only the current offer row
+                    continue
                 if p.price is not None:
                     c.execute("INSERT OR IGNORE INTO price_history(offer_id, crawl_run_id, observed_at, price, list_price, "
                               "currency, shipping_cost, availability, price_verified, source) VALUES (?,?,?,?,?,?,?,?,?,?)",

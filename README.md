@@ -15,7 +15,7 @@
 
 | תחום | יכולות |
 |---|---|
-| **מקורות (Source Adapters)** | API רשמי (eBay Browse), Product Feeds (Google Merchant XML, CSV של Awin/CJ וכו'), JSON-LD, Microdata, OpenGraph, סלקטורים של CSS לחנויות שהגדרת, Playwright לאתרים דינמיים שמאפשרים סריקה |
+| **מקורות (Source Adapters)** | API רשמי (**Amazon Creators API**, **AliExpress Affiliate API**, eBay), **XML של חנויות ישראליות**, Product Feeds (Google Merchant XML, CSV של Awin/CJ וכו'), JSON-LD, Microdata, OpenGraph, סלקטורים של CSS לחנויות שהגדרת, Playwright לאתרים דינמיים שמאפשרים סריקה |
 | **אמינות** | Cache עם TTL ותאריך שליפה לכל מחיר, סימון מחירים ישנים, טיפול ב-Timeout/403/429 עם Circuit Breaker, יומן שגיאות לכל URL, הגנת SSRF, מגבלת גודל, `--in-stock-only` מתוקן |
 | **אימות נתונים** | מטבע ISO, טווחי מחיר, ספרת ביקורת של GTIN, זמינות, דירוג. לכל מוצר `validation_status` ו-`validation_issues` |
 | **השוואת מחירים** | התאמה לפי GTIN, אחר כך מותג+דגם, אחר כך מאפיינים, עם ציון ביטחון. וריאציות (נפח, מארז, צבע, מצב, אחריות, יבואן) לא מאוחדות. מחושבים מינימום, חציון, פער, חיסכון ומחיר כולל משלוח, ומסומן אם ההשוואה חלקית |
@@ -43,7 +43,10 @@ copy affiliate_config.example.json affiliate_config.json
 copy sources.example.json sources.json
 copy automation.example.json automation.json
 
-:: 2. collect (official feeds/APIs first, then public product pages)
+:: 2. collect (official APIs and feeds first, then public product pages)
+py main.py --amazon-search "electric kettle"
+py main.py --aliexpress-search "usb c hub"
+py main.py --feed https://store.co.il/feeds/products.xml --sources sources.json
 py main.py --feed https://merchant.example/google_feed.xml -c affiliate_config.json
 py main.py https://store.example --discover sitemap --max-pages 100 --sources sources.json -c affiliate_config.json
 
@@ -64,7 +67,7 @@ py main.py schedule --every daily --at 07:43 --create
 
 | Command | Purpose |
 |---|---|
-| `py main.py <urls> [options]` | Scrape (v2-compatible). New: `--dry-run`, `--no-cache`, `--cache-ttl-hours`, `--max-age-hours`, `--verified-only`, `--feed`, `--ebay-search`, `--ebay-gtin`, `--render js`, `--sources`, `--db`/`--no-db`, `--webhook`, `--sort deal/affiliate` |
+| `py main.py <urls> [options]` | Scrape (v2-compatible). New: `--dry-run`, `--no-cache`, `--cache-ttl-hours`, `--max-age-hours`, `--verified-only`, `--feed`, `--amazon-search`, `--amazon-asin`, `--aliexpress-search`, `--aliexpress-id`, `--ebay-search`, `--ebay-gtin`, `--render js`, `--sources`, `--db`/`--no-db`, `--webhook`, `--sort deal/affiliate` |
 | `db [stats\|runs\|errors]` | Database statistics, crawl runs, last errors |
 | `history <url\|barcode>` | 30/90-day low & median, drop detection, discount check |
 | `deals` | Current deals by Deal or Affiliate Score |
@@ -100,8 +103,10 @@ Hebrew displays correctly in Excel.
   CAPTCHA or blocks**. On 429 it honours Retry-After.
 * Official APIs and product feeds are preferred. Many programmes (e.g. Amazon Associates) forbid scraping and require
   their API. Check each site's and programme's terms.
-* No secrets in code or config: keys come from environment variables (`EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`,
-  `N8N_WEBHOOK_URL`, `WEBHOOK_SECRET`). `tests/test_no_secrets.py` checks the repository.
+* No secrets in code or config: keys come from environment variables (`AMAZON_*`, `ALIEXPRESS_*`, `EBAY_*`,
+  `N8N_WEBHOOK_URL`, `WEBHOOK_SECRET`). See RUN_ON_WINDOWS.md section 7 for where to get each key.
+* Amazon data is not kept as long-term price history, because Amazon's terms restrict storing product data. Check the
+  current terms yourself. `tests/test_no_secrets.py` checks the repository.
 * Nothing is published without your approval (`require_approval: true` by default). Each deal is published at most once.
 * Generated content states only verified facts, always includes the price date, and always includes an affiliate disclosure.
 
@@ -109,7 +114,8 @@ Hebrew displays correctly in Excel.
 
 ```
 affiliate_scraper/
-  sources/        source adapters: web, browser (Playwright), feed, ebay (official API)
+  sources/        source adapters: amazon (Creators API), aliexpress (Affiliate API), feed (Google XML,
+                  generic/Israeli XML, CSV), web, browser (Playwright), ebay
   fetcher.py      polite HTTP: robots, delays, TTL cache, 403/429/timeout handling, SSRF guard
   security.py     URL / input safety
   extractors.py   JSON-LD, microdata, OpenGraph, CSS selectors

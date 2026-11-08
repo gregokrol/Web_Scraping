@@ -2,13 +2,35 @@
   "_comment": "Copy to sources.json. Only enter facts you know - nothing here is guessed by the system. trust_score is YOUR 0-1 rating of the store.",
   "stores": [
     {
+      "domain": "example-israeli-store.co.il",
+      "name": "חנות ישראלית לדוגמה",
+      "type": "feed",
+      "trust_score": 0.9,
+      "currency": "ILS",
+      "shipping_cost": 0,
+      "feed_url": "https://example-israeli-store.co.il/feeds/products.xml",
+      "feed_format": "xml",
+      "_comment": "ask the store for the XML feed it gives price-comparison sites; map unusual tags with xml_mapping",
+      "xml_mapping": {
+        "item": "product",
+        "fields": {
+          "name": "name",
+          "price": "price",
+          "url": "link",
+          "gtin": "barcode"
+        }
+      }
+    },
+    {
       "domain": "example-shopify-store.com",
       "name": "Example Store",
       "type": "web",
       "trust_score": 0.9,
       "shipping_cost": 0,
       "warranty_months": 12,
-      "start_urls": ["https://example-shopify-store.com"],
+      "start_urls": [
+        "https://example-shopify-store.com"
+      ],
       "discover": "sitemap",
       "include": "/products/"
     },

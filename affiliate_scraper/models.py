@@ -49,6 +49,7 @@ class Product:
     store: str = ""
     store_url: str = ""
     affiliate_url: str = ""
+    commission_rate: Optional[float] = None   # only when supplied by the network API itself (e.g. AliExpress)
     source: str = ""          # extractors that supplied data, e.g. "json-ld+og"
     source_type: str = ""     # primary source: api | feed | json-ld | microdata | og | html
     scraped_at: str = field(default_factory=now_iso)

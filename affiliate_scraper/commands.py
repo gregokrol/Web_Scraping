@@ -388,6 +388,12 @@ def automation_scrape_jobs(cfg: dict) -> list[list[str]]:
         jobs.append(argv)
     for feed in cfg.get("feeds", []):
         jobs.append(["--feed", feed, "--name", "auto_feed", *common])
+    for q in cfg.get("amazon_searches", []):
+        jobs.append(["--amazon-search", str(q), "--name", "auto_amazon", *common])
+    for a in cfg.get("amazon_asins", []):
+        jobs.append(["--amazon-asin", str(a), "--name", "auto_amazon", *common])
+    for q in cfg.get("aliexpress_searches", []):
+        jobs.append(["--aliexpress-search", str(q), "--name", "auto_aliexpress", *common])
     for g in cfg.get("ebay_gtins", []):
         jobs.append(["--ebay-gtin", str(g), "--name", "auto_ebay", *common])
     return jobs
