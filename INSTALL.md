@@ -1,0 +1,109 @@
+# התקנה והפעלה: מדריך מהיר
+
+<div dir="rtl">
+
+מה צריך להתקין ואיך מפעילים את Web_Scraping במחשב Windows 10/11.
+
+## מה מתקינים
+
+| רכיב | חובה? | איך |
+|---|---|---|
+| **Python 3.11 ומעלה** | כן | ההתקנה האוטומטית מציעה להתקין אותו, או ידנית מ-[python.org](https://www.python.org/downloads/) עם סימון **"Add python.exe to PATH"** |
+| **הקוד של המערכת** | כן | ההתקנה האוטומטית מורידה אותו ל-`C:\Web_Scraping` |
+| **ספריות Python** | כן | ההתקנה האוטומטית מתקינה אותן (`requirements-dev.txt`) |
+| **Git** | לא | אם הוא חסר, הקוד יורד כקובץ ZIP |
+| **Playwright** | לא | רק לאתרים שבנויים ב-JavaScript. ההתקנה שואלת אם להתקין |
+
+## התקנה: 3 צעדים
+
+1. **מורידים** את [`install_windows.bat`](https://raw.githubusercontent.com/gregokrol/Web_Scraping/claude/web-scraping-v3/install_windows.bat): קליק ימני על הקישור, ואז "שמור קישור בשם".
+2. **לוחצים עליו לחיצה כפולה.** אם מופיע "Windows protected your PC", לוחצים **More info** ואז **Run anyway**.
+3. **ממתינים לסיום** (כמה דקות). בסוף מופיעה ההודעה `All tests passed`, ובשולחן העבודה נוצר קיצור דרך **Web Scraping**.
+
+> אם Python הותקן באמצע, סוגרים את החלון ומפעילים את `install_windows.bat` שוב.
+
+## הפעלה
+
+לוחצים על **Web Scraping** בשולחן העבודה, או על `C:\Web_Scraping\start_windows.bat`. נפתח תפריט, ובוחרים מספר:
+
+| מספר | פעולה |
+|---|---|
+| 1 | סריקת דף מוצר או חנות שלמה |
+| 2 | חיפוש ב-AliExpress |
+| 3 | חיפוש ב-Amazon |
+| 4 | ייבוא קובץ מוצרים (XML או CSV) |
+| 5 | פתיחת ממשק הניהול בדפדפן |
+| 6 | הרצת האוטומציה המלאה |
+| 7 | עסקאות שממתינות לאישור |
+| 8 | אישור עסקאות |
+| 9 | פרסום העסקאות המאושרות לטלגרם |
+| 10 | בדיקת החיבור לטלגרם |
+| 11 | תזמון הרצה יומית |
+| 12 | עריכת הגדרות |
+| 13 | פתיחת תיקיית התוצאות |
+| 14 | הרצת בדיקות |
+
+**ניסיון ראשון בלי מפתחות:** בוחרים **1** ומדביקים קישור לדף מוצר בחנות אונליין. התוצאות מופיעות בתפריט **13**.
+
+## חיבור מפתחות (כשיהיו לך)
+
+פותחים **CMD** ומגדירים רק את מה שרלוונטי לך:
+
+</div>
+
+```cmd
+:: AliExpress (AliExpress Portals -> API)
+setx ALIEXPRESS_APP_KEY "..."
+setx ALIEXPRESS_APP_SECRET "..."
+setx ALIEXPRESS_TRACKING_ID "..."
+
+:: Amazon (Associates Central -> Tools -> Creators API)
+setx AMAZON_CREDENTIAL_ID "..."
+setx AMAZON_CREDENTIAL_SECRET "..."
+setx AMAZON_CREDENTIAL_VERSION "2.1"
+setx AMAZON_PARTNER_TAG "yourtag-20"
+
+:: Telegram (@BotFather; add the bot as channel admin)
+setx TELEGRAM_BOT_TOKEN "..."
+setx TELEGRAM_CHANNEL "@my_channel"
+setx TELEGRAM_ADMIN_CHAT "your-chat-id"
+```
+
+<div dir="rtl">
+
+אחרי `setx` **סוגרים את כל החלונות ופותחים את התפריט מחדש**, כי רק אז המשתנים נקלטים. את החיבור לטלגרם בודקים בתפריט **10**.
+
+> מפתחות לא כותבים בקבצים ולא שולחים בצ'אט. מגדירים אותם רק עם `setx`.
+
+## הפעלה אוטומטית יומית
+
+1. בתפריט **12** פותחים את `automation.json` ומשנים:
+   - מה לחפש: `"aliexpress_searches": ["usb c hub", "קומקום"]`
+   - פרסום לטלגרם: `"telegram": {"enabled": true}`
+2. מריצים פעם אחת ידנית עם תפריט **6**, כדי לוודא שהכול עובד.
+3. בתפריט **11** קובעים שעה. מעכשיו זה ירוץ כל יום, כל עוד המחשב דלוק.
+
+**איך זה עובד ביום-יום:**
+1. עסקאות חדשות נשלחות אליך בפרטי בטלגרם.
+2. מאשרים בתפריט **8** או ב-Dashboard.
+3. העסקה מתפרסמת בערוץ, כל עסקה פעם אחת בלבד.
+
+## כשמשהו לא עובד
+
+| מה רואים | מה עושים |
+|---|---|
+| `'py' is not recognized` | מתקינים Python עם **Add to PATH** ומפעילים את ההתקנה שוב |
+| `Could not download the code` | בודקים את החיבור לאינטרנט ומנסים שוב |
+| `credentials_missing` | חסר מפתח. מגדירים עם `setx` ופותחים חלון חדש |
+| `No products found` | פותחים את `output\*_errors.csv` (תפריט 13). לרוב לאתר אין נתונים מובנים או שהוא חוסם בוטים |
+| `bot is admin: False` | מוסיפים את הבוט כמנהל בערוץ |
+| `Some tests failed` | מעתיקים את הטקסט מהחלון ושולחים ל-Claude |
+
+**עדכון לגרסה חדשה:** מפעילים שוב את `install_windows.bat`. הוא מעדכן את הקוד ושומר את ההגדרות שלך.
+
+**מדריכים מפורטים:**
+- [RUN_ON_WINDOWS.md](RUN_ON_WINDOWS.md): כל הפקודות ופתרון תקלות
+- [docs/N8N.md](docs/N8N.md): חיבור ל-n8n
+- [docs/UPGRADE_V3.md](docs/UPGRADE_V3.md): סטטוס הפיצ'רים
+
+</div>

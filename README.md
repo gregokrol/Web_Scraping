@@ -29,7 +29,7 @@
 ## Easiest: one-click install (Windows)
 
 Download [`install_windows.bat`](https://raw.githubusercontent.com/gregokrol/Web_Scraping/claude/web-scraping-v3/install_windows.bat)
-and double-click it. It installs Python if needed, the code, the libraries and the config files, then runs the
+and double-click it (step-by-step Hebrew guide: [INSTALL.md](INSTALL.md)). It installs Python if needed, the code, the libraries and the config files, then runs the
 self-tests and creates a **Web Scraping** desktop shortcut that opens a menu (`start_windows.bat`).
 
 ## Quick start (Windows CMD)
