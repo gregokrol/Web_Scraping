@@ -99,4 +99,4 @@ def build_content(offer: dict, history: Optional[dict] = None, comparison: Optio
                 + f'<a href="{e(link)}" rel="sponsored nofollow noopener" target="_blank">{e(t["cta"])}</a>'
                 + f'<p class="disclosure">{e(disc)}</p></div>')
     return {"title": title, "telegram": telegram, "markdown": markdown, "html": html_out, "claims": claims,
-            "link": link, "lang": lang}
+            "link": link, "lang": lang, "store": store, "disclosure": disc, "cta": t["cta"]}

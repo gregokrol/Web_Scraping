@@ -22,6 +22,7 @@ class LocalSite:
         self.hits: list[str] = []
         self.posts: list[dict] = []
         self.post_status: list[int] = []   # queue of status codes for POSTs (default 200)
+        self.post_reply = b"ok"
         self.base = ""
 
     def events(self, name=None):
@@ -85,9 +86,10 @@ def local_site():
             site.posts.append({"path": self.path, "headers": dict(self.headers), "body": body})
             status = site.post_status.pop(0) if site.post_status else 200
             self.send_response(status)
-            self.send_header("Content-Length", "2")
+            self.send_header("Content-Length", str(len(site.post_reply)))
+            self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(b"ok")
+            self.wfile.write(site.post_reply)
 
         def log_message(self, *a):
             pass

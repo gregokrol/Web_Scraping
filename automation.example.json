@@ -32,6 +32,10 @@
   "content": {
     "language": "he"
   },
+  "telegram": {
+    "enabled": false,
+    "_comment": "token/channel come from env TELEGRAM_BOT_TOKEN, TELEGRAM_CHANNEL, TELEGRAM_ADMIN_CHAT"
+  },
   "webhook_url": "",
   "require_approval": true
 }

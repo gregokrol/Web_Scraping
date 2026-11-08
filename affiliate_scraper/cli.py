@@ -135,6 +135,8 @@ _SCRAPE_POST_HOOKS: list = []     # factories (args, stores, config, fetcher) ->
 
 def setup_logging(verbose: int) -> None:
     logging.basicConfig(level=logging.WARNING - 10 * min(verbose, 2), format="%(levelname)s %(name)s: %(message)s")
+    # urllib3 debug logs contain full request URLs - the Telegram bot token is part of the URL
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 
 def make_fetcher(args) -> PoliteFetcher:

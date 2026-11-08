@@ -21,7 +21,7 @@
 | **השוואת מחירים** | התאמה לפי GTIN, אחר כך מותג+דגם, אחר כך מאפיינים, עם ציון ביטחון. וריאציות (נפח, מארז, צבע, מצב, אחריות, יבואן) לא מאוחדות. מחושבים מינימום, חציון, פער, חיסכון ומחיר כולל משלוח, ומסומן אם ההשוואה חלקית |
 | **היסטוריה (SQLite)** | מינימום וחציון ל-30 ול-90 יום, ירידות מחיר, "הנמוך ב-90 יום", בדיקת הנחה מול המחיר הנמוך ב-30 הימים הקודמים |
 | **ציונים** | Deal Score ו-Affiliate Score נפרדים, כל אחד 0 עד 100 או `insufficient_data` |
-| **אוטומציה** | `run` מלא, Windows Task Scheduler, Webhook ל-n8n עם חתימת HMAC, מניעת התראות כפולות, אישור ידני לפני פרסום |
+| **אוטומציה** | `run` מלא, Windows Task Scheduler, **פרסום ישיר לערוץ טלגרם**, Webhook ל-n8n עם חתימת HMAC, מניעת התראות כפולות, אישור ידני לפני פרסום |
 | **Dashboard** | ממשק מקומי ב-`127.0.0.1`: מוצרים, השוואה, גרף היסטוריה, סינון, ציונים, ניהול חנויות ותוכניות שותפים, אישור עסקאות, סריקה ידנית, ייצוא |
 
 </div>
@@ -74,7 +74,8 @@ py main.py schedule --every daily --at 07:43 --create
 | `import-performance report.csv` | Real clicks/conversions from your network report (feeds the Affiliate Score) |
 | `alerts [--detect] [--show ID]` | Deal alerts and the generated content (with the data basis of every claim) |
 | `approve ID...` / `reject ID...` | Manual approval |
-| `publish` | Send approved deals to n8n (`deal.publish`), once each |
+| `publish [--telegram]` | Post approved deals to your Telegram channel (or n8n), once each |
+| `telegram-check` | Verify bot token, channel and admin rights |
 | `run --config automation.json` | Full pipeline: scrape all sources, save history, score, detect deals, notify n8n |
 | `schedule` | Windows Task Scheduler task (prints by default, `--create` registers) |
 | `dashboard` | Local web UI on 127.0.0.1:8765 |
@@ -128,6 +129,7 @@ affiliate_scraper/
   content.py      fact-based promo content (he/en)
   alerts.py       deal detection, dedupe, approval & publishing
   webhook.py      n8n webhook (HMAC signed)
+  telegram.py     direct Telegram channel publishing (Bot API)
   scheduler.py    Windows Task Scheduler
   dashboard/      FastAPI + single-page UI
   cli.py, commands.py

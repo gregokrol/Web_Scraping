@@ -33,7 +33,11 @@ from .models import now_iso
 log = logging.getLogger(__name__)
 
 
-class WebhookError(RuntimeError):
+class PublishError(RuntimeError):
+    """Any failure to deliver to a publishing destination (webhook, Telegram...)."""
+
+
+class WebhookError(PublishError):
     pass
 
 

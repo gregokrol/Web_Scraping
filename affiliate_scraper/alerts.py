@@ -24,7 +24,7 @@ from .content import build_content
 from .db import Database
 from .history import check_discount_claim, detect_price_drop, is_lowest_in_90d, stats_for_offer
 from .models import now_iso
-from .webhook import WebhookError, send_event
+from .webhook import PublishError, send_event
 
 log = logging.getLogger(__name__)
 
@@ -140,13 +140,23 @@ def decide(db: Database, alert_ids: list[int], approve: bool) -> int:
     return n
 
 
-def publish_approved(db: Database, url: str, session=None, auto_approve: bool = False, limit: int = 20) -> dict:
-    """Send approved alerts as ``deal.publish`` events. Each alert is published at most once."""
+def _sender(target, session=None):
+    """``target``: webhook URL (str) or a callable(event, data) such as TelegramPublisher.send_event."""
+    if callable(target):
+        return target
+    return lambda event, data: send_event(target, event, data, session=session)
+
+
+def publish_approved(db: Database, url, session=None, auto_approve: bool = False, limit: int = 20) -> dict:
+    """Send approved alerts as ``deal.publish`` events to a webhook URL or a publisher
+    (e.g. Telegram). Each alert is published at most once."""
+    send = _sender(url, session)
     if auto_approve:
         with db.tx() as c:
             c.execute("UPDATE deal_alerts SET status='approved', decided_at=? WHERE status='pending'", (now_iso(),))
-    rows = db.query("SELECT a.*, o.url, o.affiliate_url, o.store FROM deal_alerts a JOIN offers o ON o.id=a.offer_id "
-                    "WHERE a.status IN ('approved','failed') AND a.decided_at IS NOT NULL ORDER BY a.id LIMIT ?", (limit,))
+    rows = db.query("SELECT a.*, o.url, o.affiliate_url, o.store, o.image FROM deal_alerts a JOIN offers o "
+                    "ON o.id=a.offer_id WHERE a.status IN ('approved','failed') AND a.decided_at IS NOT NULL "
+                    "ORDER BY a.id LIMIT ?", (limit,))
     sent, failed = 0, 0
     for r in rows:
         # claim the row first so a concurrent run cannot publish it twice
@@ -157,29 +167,29 @@ def publish_approved(db: Database, url: str, session=None, auto_approve: bool = 
             continue
         payload = {"alert_id": r["id"], "kind": r["kind"], "title": r["title"], "price": r["price"],
                    "currency": r["currency"], "deal_score": r["deal_score"], "affiliate_score": r["affiliate_score"],
-                   "store": r["store"], "url": r["url"], "affiliate_url": r["affiliate_url"],
+                   "store": r["store"], "url": r["url"], "affiliate_url": r["affiliate_url"], "image": r["image"],
                    "content": json.loads(r["content_json"] or "{}")}
         try:
-            send_event(url, "deal.publish", payload, session=session)
+            send("deal.publish", payload)
             with db.tx() as c:
                 c.execute("UPDATE deal_alerts SET status='published', published_at=?, error=NULL WHERE id=?",
                           (now_iso(), r["id"]))
             sent += 1
-        except WebhookError as exc:
+        except PublishError as exc:
             with db.tx() as c:
                 c.execute("UPDATE deal_alerts SET status='failed', error=? WHERE id=?", (str(exc)[:300], r["id"]))
             failed += 1
     return {"published": sent, "failed": failed}
 
 
-def notify_pending(db: Database, url: str, session=None) -> int:
-    """Internal notification: list alerts awaiting approval (sent once per alert)."""
+def notify_pending(db: Database, url, session=None) -> int:
+    """Internal notification to YOU (webhook or private Telegram chat): alerts awaiting approval, once each."""
     rows = db.query("SELECT a.id, a.kind, a.title, a.price, a.currency, a.deal_score, a.affiliate_score, o.url "
                     "FROM deal_alerts a JOIN offers o ON o.id=a.offer_id WHERE a.status='pending' AND a.notified_at IS NULL")
     if not rows:
         return 0
-    send_event(url, "deals.pending_approval", {"count": len(rows), "alerts": [dict(r) for r in rows],
-                                               "approve_with": "py main.py approve <id> | dashboard"}, session=session)
+    _sender(url, session)("deals.pending_approval", {"count": len(rows), "alerts": [dict(r) for r in rows],
+                                                     "approve_with": "py main.py approve <id> | dashboard"})
     with db.tx() as c:
         c.executemany("UPDATE deal_alerts SET notified_at=? WHERE id=?", [(now_iso(), r["id"]) for r in rows])
     return len(rows)

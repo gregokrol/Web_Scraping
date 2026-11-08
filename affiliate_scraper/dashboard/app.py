@@ -301,12 +301,19 @@ def create_app(db_path: str, automation_config: str = "automation.json", allowed
         cfg = {}
         if Path(automation_config).exists():
             cfg = json.loads(Path(automation_config).read_text(encoding="utf-8"))
-        url = webhook_url(cfg.get("webhook_url"))
-        if not url:
-            raise HTTPException(400, "no webhook configured (automation.json webhook_url or N8N_WEBHOOK_URL)")
+        target = webhook_url(cfg.get("webhook_url"))
+        tg_cfg = cfg.get("telegram") or {}
+        if tg_cfg is True or (isinstance(tg_cfg, dict) and tg_cfg.get("enabled")):
+            from ..telegram import TelegramPublisher
+            tg = TelegramPublisher()
+            if not tg.configured:
+                raise HTTPException(400, "Telegram enabled but TELEGRAM_BOT_TOKEN / TELEGRAM_CHANNEL not set")
+            target = tg.send_event
+        if not target:
+            raise HTTPException(400, "no destination (automation.json: telegram / webhook_url, or N8N_WEBHOOK_URL)")
         d = db()
         try:
-            return publish_approved(d, url)
+            return publish_approved(d, target)
         finally:
             d.close()
 

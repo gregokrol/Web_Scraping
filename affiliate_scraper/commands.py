@@ -312,6 +312,8 @@ def _decide(approve: bool):
 
 def _publish_build(ap) -> None:
     ap.add_argument("--db", default=DEFAULT_DB)
+    ap.add_argument("--telegram", action="store_true",
+                    help="Post to your Telegram channel (env TELEGRAM_BOT_TOKEN + TELEGRAM_CHANNEL)")
     ap.add_argument("--webhook", help="n8n webhook URL (default: env N8N_WEBHOOK_URL)")
     ap.add_argument("--auto-approve", action="store_true",
                     help="Publish ALL pending alerts without manual review (not recommended)")
@@ -320,12 +322,20 @@ def _publish_build(ap) -> None:
 def _publish_run(args) -> int:
     from .alerts import publish_approved
     from .webhook import webhook_url
-    url = webhook_url(args.webhook)
-    if not url:
-        _err("error: no webhook URL (use --webhook or set N8N_WEBHOOK_URL)")
-        return 2
+    if args.telegram:
+        from .telegram import TelegramPublisher
+        tg = TelegramPublisher()
+        if not tg.configured:
+            _err("error: set TELEGRAM_BOT_TOKEN and TELEGRAM_CHANNEL (see RUN_ON_WINDOWS.md, Telegram section)")
+            return 2
+        target = tg.send_event
+    else:
+        target = webhook_url(args.webhook)
+        if not target:
+            _err("error: no destination - use --telegram, or --webhook / N8N_WEBHOOK_URL")
+            return 2
     db = Database(args.db)
-    res = publish_approved(db, url, auto_approve=args.auto_approve)
+    res = publish_approved(db, target, auto_approve=args.auto_approve)
     db.close()
     print(f"published: {res['published']}  failed: {res['failed']}")
     return 0 if not res["failed"] else 1
@@ -334,8 +344,39 @@ def _publish_run(args) -> int:
 cli.register_subcommand("alerts", "List / detect deal alerts and show generated promo content", _alerts_build, _alerts_run)
 cli.register_subcommand("approve", "Approve deal alerts for publishing", _ids_build, _decide(True))
 cli.register_subcommand("reject", "Reject deal alerts", _ids_build, _decide(False))
-cli.register_subcommand("publish", "Send APPROVED deals to n8n (deal.publish). Each deal is published once",
+cli.register_subcommand("publish", "Post APPROVED deals to Telegram (--telegram) or n8n. Each deal is published once",
                         _publish_build, _publish_run)
+
+
+def _tgcheck_build(ap) -> None:
+    ap.add_argument("--test-admin", action="store_true", help="Also send a test message to TELEGRAM_ADMIN_CHAT")
+
+
+def _tgcheck_run(args) -> int:
+    from .telegram import TelegramError, TelegramPublisher
+    tg = TelegramPublisher()
+    try:
+        info = tg.check()
+        print(f"bot: @{info['bot']}")
+        if "channel" in info:
+            print(f"channel: {info['channel']}  bot is admin: {info['bot_is_admin']}")
+            if not info["bot_is_admin"]:
+                _err("Add the bot as an administrator of the channel with permission to post messages.")
+                return 1
+        else:
+            _err("TELEGRAM_CHANNEL is not set.")
+            return 1
+        if args.test_admin:
+            tg.notify_admin("✅ Web_Scraping connected to Telegram")
+            print("test message sent to admin chat")
+        return 0
+    except TelegramError as exc:
+        _err(f"Telegram problem: {exc}")
+        return 1
+
+
+cli.register_subcommand("telegram-check", "Check the Telegram bot token, channel and admin rights",
+                        _tgcheck_build, _tgcheck_run)
 
 
 # ===================================================================== P2: automation run
@@ -401,7 +442,7 @@ def automation_scrape_jobs(cfg: dict) -> list[list[str]]:
 
 def _run_run(args) -> int:
     from .alerts import DealRules, detect_deals, notify_pending, publish_approved
-    from .webhook import WebhookError, send_event, webhook_url
+    from .webhook import PublishError, send_event, webhook_url
     try:
         cfg = load_automation(args.config)
     except (OSError, ValueError) as exc:
@@ -430,28 +471,44 @@ def _run_run(args) -> int:
     new = detect_deals(db, rules)
     _err(f"\n{len(new)} new deal(s) detected.")
 
+    # notifications to YOU go to every configured destination; public posts to exactly ONE
+    # (two publish targets could double-post when one of them fails and the deal is retried)
     url = webhook_url(cfg.get("webhook_url"))
-    if url:
-        try:
-            n = notify_pending(db, url)
-            failed = db.query("SELECT id, command, errors, errors_json FROM crawl_runs WHERE started_at >= ? "
-                              "AND (status <> 'ok' OR errors > 0)", (started,))
-            if failed:
-                send_event(url, "crawl.errors", {"runs": [{"id": r["id"], "command": r["command"], "errors": r["errors"],
-                                                            "sample": json.loads(r["errors_json"] or "[]")[:10]}
-                                                           for r in failed]})
-            _err(f"Notified n8n: {n} pending deal(s), {len(failed)} run(s) with errors.")
-            if cfg.get("require_approval", True) is False:
-                res = publish_approved(db, url, auto_approve=True)
-                _err(f"Auto-published (require_approval=false): {res}")
-            else:
-                res = publish_approved(db, url)  # only deals you already approved
-                if res["published"] or res["failed"]:
-                    _err(f"Published approved deals: {res}")
-        except WebhookError as exc:
-            _err(f"Webhook problem: {exc}")
+    tg_cfg = cfg.get("telegram") or {}
+    tg_enabled = tg_cfg is True or (isinstance(tg_cfg, dict) and tg_cfg.get("enabled"))
+    tg = None
+    if tg_enabled:
+        from .telegram import TelegramPublisher
+        tg = TelegramPublisher()
+        if not tg.configured:
+            _err("Telegram enabled in config but TELEGRAM_BOT_TOKEN / TELEGRAM_CHANNEL are not set.")
+            tg = None
+    notify_targets = [t for t in ((lambda ev, d: send_event(url, ev, d)) if url else None,
+                                  tg.send_event if (tg and tg.admin_chat) else None) if t]
+    publish_target = tg.send_event if tg else (url or None)
+
+    def notify_all(event, data):
+        for t in notify_targets:
+            try:
+                t(event, data)
+            except PublishError as exc:
+                _err(f"Notification problem: {exc}")
+
+    if notify_targets:
+        n = notify_pending(db, notify_all)
+        failed = db.query("SELECT id, command, errors, errors_json FROM crawl_runs WHERE started_at >= ? "
+                          "AND (status <> 'ok' OR errors > 0)", (started,))
+        if failed:
+            notify_all("crawl.errors", {"runs": [{"id": r["id"], "command": r["command"], "errors": r["errors"],
+                                                  "sample": json.loads(r["errors_json"] or "[]")[:10]} for r in failed]})
+        _err(f"Notified you: {n} pending deal(s), {len(failed)} run(s) with errors.")
+    if publish_target:
+        auto = cfg.get("require_approval", True) is False
+        res = publish_approved(db, publish_target, auto_approve=auto)
+        if res["published"] or res["failed"]:
+            _err(f"Published to {'Telegram' if tg else 'n8n'}: {res}" + (" (auto-approved)" if auto else ""))
     else:
-        _err("No webhook configured - deals wait in the dashboard / `py main.py alerts`.")
+        _err("No publishing destination configured - deals wait in the dashboard / `py main.py alerts`.")
     db.close()
     return 0 if any(c == 0 for c in codes) else 1
 
