@@ -1,230 +1,343 @@
-# הרצה ב-Windows (CMD)
+# הרצה ב-Windows (CMD), גרסה 3
 
 <div dir="rtl">
 
-מדריך להרצת הכלי מתוך שורת הפקודה (CMD) של Windows: התקנה, הרצה, פתרון תקלות, ואיך לעבוד עם Claude על המחשב שלך.
+מדריך להתקנה, הפעלה, אוטומציה ופתרון תקלות ב-Windows 11 עם Python 3.11 ומעלה.
 
 ## תוכן
 
-1. [הכנה (פעם אחת)](#1-הכנה-פעם-אחת)
-2. [הגדרת קישורי השותפים](#2-הגדרת-קישורי-השותפים)
-3. [הרצה](#3-הרצה)
-4. [ההבדלים בין CMD לדוגמאות ב-README](#4-ההבדלים-בין-cmd-לדוגמאות-ב-readme)
-5. [פתרון תקלות](#5-פתרון-תקלות)
-6. [עבודה עם Claude על המחשב שלך](#6-עבודה-עם-claude-על-המחשב-שלך)
+1. [התקנה (פעם אחת)](#1-התקנה-פעם-אחת)
+2. [קבצי הגדרות](#2-קבצי-הגדרות)
+3. [איסוף מוצרים](#3-איסוף-מוצרים)
+4. [תוצאות, היסטוריה וציונים](#4-תוצאות-היסטוריה-וציונים)
+5. [ממשק הניהול (Dashboard)](#5-ממשק-הניהול-dashboard)
+6. [אוטומציה: הרצה מתוזמנת, n8n ואישור ידני](#6-אוטומציה-הרצה-מתוזמנת-n8n-ואישור-ידני)
+7. [מפתחות API ומשתני סביבה](#7-מפתחות-api-ומשתני-סביבה)
+8. [ההבדלים בין CMD לדוגמאות Linux](#8-ההבדלים-בין-cmd-לדוגמאות-linux)
+9. [פתרון תקלות](#9-פתרון-תקלות)
 
 ---
 
-## 1. הכנה (פעם אחת)
+## 1. התקנה (פעם אחת)
 
-### התקנת Python
-
-מורידים מ-[python.org](https://www.python.org/downloads/) ומתקינים.
-בזמן ההתקנה חשוב לסמן את התיבה **"Add python.exe to PATH"**.
-
-כדי לוודא שההתקנה עבדה, פותחים CMD (מקש Windows, מקלידים `cmd`, Enter) ומריצים:
+**Python 3.11 ומעלה:** מורידים מ-[python.org](https://www.python.org/downloads/) ומסמנים בהתקנה **"Add python.exe to PATH"**. בודקים:
 
 </div>
 
 ```cmd
-python --version
+py --version
 ```
 
 <div dir="rtl">
 
-### הורדת הקוד
-
-> **שימו לב:** הגרסה החדשה נמצאת כרגע ב-branch `claude/friendly-ramanujan-n71p6h` ועדיין לא ב-`main`.
-> אחרי שהיא תמוזג ל-`main`, אפשר להוריד מהדף הראשי של הפרויקט בלי לציין branch.
-
-**בלי Git:** נכנסים ל-
-[הגרסה החדשה ב-GitHub](https://github.com/gregokrol/Web_Scraping/tree/claude/friendly-ramanujan-n71p6h),
-לוחצים על **Code** ואז **Download ZIP**, ומחלצים את הקובץ ל-`C:\Web_Scraping`.
-(התיקייה שבתוך ה-ZIP עשויה להיקרא `Web_Scraping-claude-friendly-ramanujan-n71p6h`. אפשר לשנות לה את השם ל-`Web_Scraping`.)
-
-**עם Git מותקן:**
+**הורדת הקוד:** עם Git (מומלץ, כדי שיהיה קל לעדכן):
 
 </div>
 
 ```cmd
-cd C:\
-git clone -b claude/friendly-ramanujan-n71p6h https://github.com/gregokrol/Web_Scraping.git
+cd /d C:\
+git clone -b claude/web-scraping-v3 https://github.com/gregokrol/Web_Scraping.git
 ```
 
 <div dir="rtl">
 
-### התקנת הספריות
+אפשר גם בלי Git: בדף ה-branch ב-GitHub לוחצים על **Code** ואז **Download ZIP**, מחלצים ל-`C:\Web_Scraping`
+ומשנים את שם התיקייה ל-`Web_Scraping` אם צריך.
+
+> הגרסה החדשה נמצאת כרגע ב-branch `claude/web-scraping-v3`. אחרי מיזוג ל-`main` אפשר יהיה להוריד בלי לציין branch.
+
+**סביבה וירטואלית (venv):** מומלץ, כדי שהספריות לא יתנגשו עם פרויקטים אחרים.
 
 </div>
 
 ```cmd
-cd C:\Web_Scraping
-python -m pip install -r requirements.txt
+cd /d C:\Web_Scraping
+py -m venv .venv
+.venv\Scripts\activate
+py -m pip install --upgrade pip
+py -m pip install -r requirements-dev.txt
+```
+
+<div dir="rtl">
+
+אחרי `activate` מופיע `(.venv)` בתחילת השורה. **בכל חלון CMD חדש** צריך להריץ שוב `cd /d C:\Web_Scraping` ואת `.venv\Scripts\activate`.
+
+**בדיקה שהכול עובד:**
+
+</div>
+
+```cmd
+py -m pytest -q
+py main.py --help
+```
+
+<div dir="rtl">
+
+צפוי לראות בסוף שורה עם `passed` בלי `failed`. אם Playwright לא מותקן, יופיע `1 skipped` וזה תקין.
+
+**אופציונלי, לאתרים דינמיים (JavaScript):**
+
+</div>
+
+```cmd
+py -m pip install -r requirements-js.txt
+py -m playwright install chromium
 ```
 
 <div dir="rtl">
 
 ---
 
-## 2. הגדרת קישורי השותפים
+## 2. קבצי הגדרות
 
 </div>
 
 ```cmd
 copy affiliate_config.example.json affiliate_config.json
+copy sources.example.json sources.json
+copy automation.example.json automation.json
 notepad affiliate_config.json
 ```
 
 <div dir="rtl">
 
-ב-Notepad מחליפים את `YOUR-AMAZON-TAG-20` ואת שאר הערכים ב-ID האמיתיים שלך ושומרים.
-אם עוד אין לך ID כאלה, אפשר לדלג על השלב הזה ולהריץ בלי `-c`.
+| קובץ | מה יש בו |
+|---|---|
+| `affiliate_config.json` | מזהי השותפים שלך (`params` או `template`), UTM, **עמלה** (`commission_rate`), ו-`commission_verified: true` רק אחרי שבדקת בלוח הבקרה של התוכנית, וקהל יעד (`audience`) |
+| `sources.json` | חנויות: סוג (`web`/`feed`/`browser`), אמינות 0 עד 1 (הערכה שלך), עלות משלוח ידועה, אחריות, סלקטורים לחנויות בלי נתונים מובנים, כתובות התחלה |
+| `automation.json` | מה האוטומציה סורקת, ספי עסקאות, שפת התוכן, `require_approval` (ברירת מחדל `true`) |
+
+שלושת הקבצים מוחרגים מ-Git (`.gitignore`), כך שהם לא יעלו ל-GitHub בטעות. **לא כותבים בהם סיסמאות או מפתחות API**
+(ראו [סעיף 7](#7-מפתחות-api-ומשתני-סביבה)).
 
 ---
 
-## 3. הרצה
+## 3. איסוף מוצרים
 
-### מוצר בודד
-
-</div>
-
-```cmd
-cd C:\Web_Scraping
-python main.py https://some-store.com/products/some-product -v
-```
-
-<div dir="rtl">
-
-### חנות שלמה דרך ה-sitemap
+**סדר עדיפות:** API רשמי ו-Product Feed קודמים לדפי מוצר ציבוריים.
 
 </div>
 
 ```cmd
-python main.py https://some-store.com --discover sitemap --max-pages 100 --min-rating 4 --in-stock-only --top 30 -c affiliate_config.json --formats csv,html,md
+:: product feed (Google Merchant XML / Awin / CJ CSV) - URL or local file
+py main.py --feed https://merchant.example/google_feed.xml -c affiliate_config.json
+py main.py --feed C:\feeds\awin.csv -c affiliate_config.json
+
+:: official eBay API (keys in environment variables - section 7)
+py main.py --ebay-gtin 4006381333931
+py main.py --ebay-search "electric kettle 1.7l"
+
+:: public product pages
+py main.py https://store.example/products/kettle -c affiliate_config.json
+py main.py https://store.example --discover sitemap --max-pages 100 --sources sources.json -c affiliate_config.json
+
+:: dynamic site that allows crawling
+py main.py https://store.example/p/1 --render js
 ```
 
 <div dir="rtl">
 
-### עמוד קטגוריה
+**פרמטרים חשובים:**
+
+| פרמטר | מה עושה |
+|---|---|
+| `--dry-run` | מראה מה ייסרק ומה robots.txt מתיר, **בלי** להוריד דפי מוצר ובלי לכתוב קבצים או למסד הנתונים |
+| `--no-cache` | תמיד מוריד מחדש |
+| `--cache-ttl-hours 6` | תוקף ה-Cache (ברירת מחדל 12) |
+| `--max-age-hours 24` | מחיר ישן יותר מזה מסומן כלא מאומת |
+| `--in-stock-only` | רק מוצרים שהחנות **אישרה** שהם במלאי |
+| `--verified-only` | רק מחירים מאומתים |
+| `--sort deal` / `--sort affiliate` | מיון לפי הציונים |
+| `--delay 3` | שניות בין בקשות לאותו אתר |
+| `--no-db` | בלי שמירה להיסטוריה |
+
+שבירת שורה ב-CMD נעשית עם `^`:
 
 </div>
 
 ```cmd
-python main.py https://some-store.com/collections/coffee --discover links --include "/products/" -c affiliate_config.json
+py main.py https://store.example --discover sitemap --max-pages 100 ^
+  --in-stock-only --verified-only --sort deal --top 30 ^
+  -c affiliate_config.json --sources sources.json --formats csv,html,md
 ```
 
 <div dir="rtl">
 
-### רשימת כתובות מקובץ
+---
 
-יוצרים קובץ `urls.txt` עם כתובת אחת בכל שורה, ומריצים:
-
-</div>
-
-```cmd
-python main.py -f urls.txt -c affiliate_config.json
-```
-
-<div dir="rtl">
-
-### פתיחת התוצאות
+## 4. תוצאות, היסטוריה וציונים
 
 </div>
 
 ```cmd
 explorer output
+py main.py deals
+py main.py deals --sort affiliate
+py main.py history https://store.example/products/kettle
+py main.py history 4006381333931
+py main.py db runs
+py main.py db errors
 ```
 
 <div dir="rtl">
 
-| קובץ | שימוש |
+| קובץ | תוכן |
 |---|---|
-| `products_*.csv` | פתיחה באקסל (העברית מוצגת תקין) |
-| `products_*.html` | דף כרטיסי מוצר, נפתח בדפדפן |
-| `products_*.md` | טקסט לפוסט בבלוג |
-| `products_*.json` | חיבור לאתר, לבוט או ל-Zapier |
+| `output\<name>.csv` | כל המוצרים, כולל `price_verified`, `validation_status`, `deal_score`, `affiliate_score`, `deal_notes`. נפתח באקסל עם עברית תקינה |
+| `output\<name>_comparison.csv` | מוצרים זהים בכמה חנויות: מינימום, חציון, חיסכון, `partial` ו-`uncertain` |
+| `output\<name>_errors.csv` | יומן שגיאות לכל כתובת |
+| `data\web_scraping.db` | מסד הנתונים (SQLite) עם ההיסטוריה |
 
-כל האפשרויות מופיעות ב:
+**איך לקרוא את הציונים:**
+- `insufficient_data` פירושו שאין מספיק מידע אמין לציון. זה מכוון: עדיף על פני ציון מומצא.
+- **Deal Score** צריך מחיר מאומת ועוד השוואה לחנויות אחרות או היסטוריה של לפחות 3 תצפיות לאורך 7 ימים.
+- **Affiliate Score** צריך עמלה שסימנת כמאומתת, או נתוני המרות שייבאת:
 
 </div>
 
 ```cmd
-python main.py --help
+py main.py import-performance C:\reports\awin_october.csv --source "Awin Oct 2026"
 ```
 
 <div dir="rtl">
 
+(הקובץ צריך עמודות `url` או `domain`, ואז `clicks` ו-`conversions`, ואם יש גם `revenue`.)
+
 ---
 
-## 4. ההבדלים בין CMD לדוגמאות ב-README
+## 5. ממשק הניהול (Dashboard)
 
-| נושא | ב-README (Linux/Mac) | ב-CMD |
+</div>
+
+```cmd
+py main.py dashboard
+```
+
+<div dir="rtl">
+
+פותחים בדפדפן את **http://127.0.0.1:8765**. מה אפשר לעשות שם:
+- מוצרים ועסקאות, עם סינון לפי קטגוריה וחנות
+- גרף היסטוריית מחירים
+- השוואת מחירים בין חנויות
+- התראות ואישור עסקאות
+- ניהול חנויות ותוכניות שותפים
+- סריקה ידנית
+- ייצוא ל-CSV או JSON
+
+הממשק עובד רק מהמחשב שלך (`127.0.0.1`) ואין בו התחברות, ולכן לא כדאי להריץ אותו עם `--host 0.0.0.0`.
+עוצרים אותו עם `Ctrl+C`.
+
+---
+
+## 6. אוטומציה: הרצה מתוזמנת, n8n ואישור ידני
+
+**ריצה מלאה אחת:** סורקת את כל המקורות שהוגדרו, שומרת היסטוריה, מחשבת ציונים, מזהה עסקאות ושולחת התראה ל-n8n.
+
+</div>
+
+```cmd
+py main.py run --config automation.json --dry-run
+py main.py run --config automation.json
+```
+
+<div dir="rtl">
+
+**אישור ידני (ברירת המחדל):** עסקה חדשה נשארת במצב `pending` ולא מתפרסמת עד שתאשר אותה.
+
+</div>
+
+```cmd
+py main.py alerts
+py main.py alerts --show 12
+py main.py approve 12 15
+py main.py reject 13
+py main.py publish
+```
+
+<div dir="rtl">
+
+`alerts --show` מציג את התוכן שנוצר, ולצד כל טענה בו את הנתון שעליו היא מבוססת.
+`publish` שולח ל-n8n רק עסקאות מאושרות, וכל עסקה פעם אחת בלבד. התראה על אותה עסקה לא תישלח שוב,
+אלא אם המחיר ירד עוד.
+
+**תזמון ב-Windows Task Scheduler:**
+
+</div>
+
+```cmd
+py main.py schedule --every daily --at 07:43
+py main.py schedule --every daily --at 07:43 --create
+py main.py schedule --every hourly --hours 6 --at 00:10 --create
+py main.py schedule --remove
+```
+
+<div dir="rtl">
+
+הפקודה יוצרת קובץ `run_automation.bat`, ו-Task Scheduler מפעיל אותו. הקובץ משתמש ב-Python שהריץ את הפקודה, ולכן מריצים `schedule` כשה-venv פעיל.
+יומן הריצות נכתב לקובץ `logs\automation.log`. כדי לבדוק את המשימה: מקש Windows, מקלידים "Task Scheduler",
+ומחפשים בספרייה את `WebScrapingAffiliate`.
+
+**n8n:** הוראות מלאות בקובץ [docs/N8N.md](docs/N8N.md).
+
+---
+
+## 7. מפתחות API ומשתני סביבה
+
+מפתחות **לא** נשמרים בקוד ולא בקבצי ההגדרות. מגדירים אותם פעם אחת עם `setx` ופותחים חלון CMD חדש:
+
+</div>
+
+```cmd
+setx EBAY_CLIENT_ID "your-client-id"
+setx EBAY_CLIENT_SECRET "your-client-secret"
+setx EBAY_CAMPAIGN_ID "your-epn-campaign-id"
+setx N8N_WEBHOOK_URL "http://localhost:5678/webhook/web-scraping"
+setx WEBHOOK_SECRET "a-long-random-string"
+```
+
+<div dir="rtl">
+
+בדיקה בחלון חדש: `echo %EBAY_CLIENT_ID%`.
+
+---
+
+## 8. ההבדלים בין CMD לדוגמאות Linux
+
+| נושא | Linux/Mac | CMD |
 |---|---|---|
-| שבירת פקודה לכמה שורות | `\` | `^`, או לכתוב הכול בשורה אחת |
-| מרכאות סביב ביטוי רגולרי | `'...'` או `"..."` | רק `"..."` |
-| העתקת קובץ | `cp` | `copy` |
-| הפעלת Python | `python3` | `python`, או `py` |
-
-דוגמה לשבירת שורות ב-CMD:
-
-</div>
-
-```cmd
-python main.py https://some-store.com --discover sitemap --max-pages 100 ^
-  --min-rating 4 --in-stock-only --top 30 ^
-  -c affiliate_config.json --formats csv,html,md
-```
-
-<div dir="rtl">
+| שבירת שורה | `\` | `^` |
+| מרכאות | `'...'` | `"..."` בלבד |
+| העתקה | `cp` | `copy` |
+| Python | `python3` | `py` |
+| הפעלת venv | `source .venv/bin/activate` | `.venv\Scripts\activate` |
+| מעבר לתיקייה בכונן אחר | `cd` | `cd /d` |
+| משתנה סביבה קבוע | `export X=1` | `setx X "1"` (בחלון חדש) |
 
 ---
 
-## 5. פתרון תקלות
+## 9. פתרון תקלות
 
 | מה רואים | מה עושים |
 |---|---|
-| `'python' is not recognized...` | מנסים `py` במקום `python`. אם גם זה לא עובד, מתקינים את Python מחדש ומסמנים **Add python.exe to PATH**. |
-| `'pip' is not recognized...` | משתמשים ב-`python -m pip install -r requirements.txt`. |
-| `ModuleNotFoundError: No module named 'requests'` (או `bs4`, `lxml`) | הספריות לא הותקנו. מריצים שוב את פקודת ההתקנה מתוך `C:\Web_Scraping`. |
-| `can't open file 'main.py'` | לא נמצאים בתיקייה הנכונה. מריצים `cd C:\Web_Scraping`. |
-| `No products found` | העמוד לא מפרסם נתוני מוצר מובנים, או ש-robots.txt של האתר חוסם, או שהסינון שהגדרת פסל את כל המוצרים. מוסיפים `-v` כדי לראות את הסיבה. |
-| `HTTP 403` או `HTTP 429` | האתר חוסם בוטים או מגביל קצב. מגדילים את ההשהיה (`--delay 5`). אם עדיין חוסם, משתמשים ב-API או ב-feed הרשמי של תוכנית השותפים (Amazon, AliExpress וכו'). |
-| `robots.txt disallows ...` | בעל האתר ביקש לא לסרוק את העמוד הזה. הכלי מכבד את הבקשה. |
-| עברית משובשת באקסל | פותחים את ה-CSV בלחיצה כפולה, לא דרך ייבוא טקסט. |
-| תוצאות ישנות | הכלי שומר עמודים ב-`.cache`. מוחקים את התיקייה (`rmdir /s /q .cache`) או מריצים עם `--cache-dir ""`. |
+| `'py' is not recognized` | מתקינים Python מחדש עם **Add to PATH**, או מנסים `python` במקום `py` |
+| `ModuleNotFoundError` | ה-venv לא פעיל. מריצים `.venv\Scripts\activate` ואז `py -m pip install -r requirements-dev.txt` |
+| `activate` נחסם ב-PowerShell | עובדים ב-**CMD** ולא ב-PowerShell, או מריצים ב-PowerShell `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` |
+| `No products found` | מוסיפים `-v` ובודקים את `output\*_errors.csv`. הסיבות הנפוצות: אין בעמוד נתונים מובנים (מוסיפים `selectors` ב-`sources.json`), robots.txt חוסם, או שהסינון פסל את כל המוצרים |
+| `http_403` ואחריו `host_skipped` | האתר חוסם בוטים, והמערכת הפסיקה לפנות אליו. **לא עוקפים חסימה.** משתמשים ב-Feed או ב-API רשמי |
+| `http_429` | האתר מגביל קצב. מגדילים את `--delay` ומריצים מאוחר יותר |
+| `timeout` | האתר איטי. מנסים `--timeout 40` |
+| `unsafe_url` | הכתובת מפנה לרשת פנימית (localhost, 192.168...). זו חסימה מכוונת |
+| מחירים מסומנים `unverified` | המחיר ישן מ-`--max-age-hours`, חסר מטבע, או נלקח רק מסלקטור HTML. מריצים עם `--no-cache` |
+| `insufficient_data` בציון | חסרים נתונים: לחנות אחת אין השוואה, ההיסטוריה קצרה, ולציון השותפים חסרה עמלה מאומתת. זה צפוי בהתחלה, ואחרי כמה ימים של ריצות ההיסטוריה מצטברת |
+| עסקאות לא מתפרסמות | צריך לאשר אותן קודם (`py main.py approve <id>`) ולוודא ש-`N8N_WEBHOOK_URL` מוגדר |
+| Dashboard לא נפתח | בודקים שהפקודה עדיין רצה בחלון ה-CMD, ומנסים פורט אחר: `py main.py dashboard --port 8800` |
+| `--render js` נכשל | `py -m pip install -r requirements-js.txt` ואז `py -m playwright install chromium` |
+| `database is locked` | סוגרים ריצה אחרת (למשל משימה מתוזמנת) ומנסים שוב |
+| המשימה המתוזמנת לא רצה | בודקים את `logs\automation.log`. ב-Task Scheduler מסמנים "Run whether user is logged on or not" אם צריך |
+| עברית משובשת באקסל | פותחים את ה-CSV בלחיצה כפולה (הקובץ ב-UTF-8 עם BOM) |
 
-אם מופיעה שגיאה אחרת, מעתיקים את כל מה שהודפס ב-CMD ומדביקים בשיחה עם Claude.
-כדי להעתיק מ-CMD: מסמנים את הטקסט עם העכבר ולוחצים Enter (או Ctrl+C ב-Windows 10/11).
+**עדכון לגרסה חדשה:** `git pull` ואז `py -m pip install -r requirements-dev.txt` ואז `py -m pytest -q`.
 
----
-
-## 6. עבודה עם Claude על המחשב שלך
-
-שיחה עם Claude Code באתר או באפליקציה רצה על שרת בענן, לא על המחשב שלך.
-לכן Claude לא יכול לגשת לקבצים שלך או להריץ את הכלי מול אתרים אמיתיים בשבילך.
-
-| איפה | מה אפשר לעשות |
-|---|---|
-| **שיחה בענן** (Claude Code באתר או באפליקציה) | לכתוב ולתקן קוד, להריץ טסטים, לשמור ל-GitHub. **אין** גישה למחשב שלך, ואתרים חיצוניים עשויים להיות חסומים. |
-| **Claude Desktop** על המחשב שלך | הכול, כולל הרצה מול אתרים אמיתיים ותיקון ישירות בתיקייה שלך. |
-
-### אפשרות 1: Claude Desktop (מומלץ)
-
-1. מתקינים את [Claude Desktop](https://claude.ai/download).
-2. פותחים בו את התיקייה `C:\Web_Scraping`.
-3. מבקשים, למשל: "תריץ את main.py על החנות X ותתקן את מה שלא עובד".
-
-### אפשרות 2: חיבור המחשב לשיחה בענן (Remote Control)
-
-1. ב-Claude Desktop נכנסים ל-**Settings**, אחר כך **Claude Code**, ואז **Remote Control**.
-2. מוסיפים את התיקייה `C:\Web_Scraping`.
-3. משאירים את Claude Desktop פתוח, וחוזרים לשיחה בענן. Claude יוכל לבקש גישה לתיקייה, ותצטרך לאשר.
-
-> האפשרות הזו עדיין לא זמינה לכל החשבונות. אם היא לא עובדת אצלך, משתמשים באפשרות 1.
-
-### אפשרות 3: הרצה ידנית
-
-מריצים ב-CMD לפי המדריך הזה, מדביקים את הפלט בשיחה, ו-Claude מתקן את הקוד ושומר את השינויים ל-GitHub.
-אחרי כל תיקון מורידים את הגרסה החדשה: `git pull`, או ZIP חדש.
+אם מופיעה שגיאה אחרת, מעתיקים את הפלט ואת `output\*_errors.csv` לשיחה עם Claude.
 
 </div>

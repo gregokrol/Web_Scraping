@@ -5,17 +5,33 @@
     "utm_campaign": "{domain}"
   },
   "programs": {
-    "amazon.com": { "params": { "tag": "YOUR-AMAZON-TAG-20" } },
+    "amazon.com": {
+      "network": "Amazon Associates",
+      "params": { "tag": "YOUR-AMAZON-TAG-20" },
+      "commission_rate": 0.03,
+      "commission_verified": false,
+      "commission_source": "set true only after checking your Associates dashboard"
+    },
     "ebay.com": {
+      "network": "eBay Partner Network",
       "params": { "mkcid": "1", "mkrid": "711-53200-19255-0", "siteid": "0", "campid": "YOUR_CAMPAIGN_ID", "toolid": "10001", "mkevt": "1" }
     },
     "example-awin-merchant.com": {
-      "template": "https://www.awin1.com/cread.php?awinmid=MERCHANT_ID&awinaffid=YOUR_AFFILIATE_ID&ued={url_encoded}"
+      "network": "Awin",
+      "template": "https://www.awin1.com/cread.php?awinmid=MERCHANT_ID&awinaffid=YOUR_AFFILIATE_ID&ued={url_encoded}",
+      "commission_rate": 0.06,
+      "commission_verified": true,
+      "commission_source": "Awin programme terms, checked 2026-11-01"
     },
     "example-impact-merchant.com": {
+      "network": "Impact",
       "template": "https://example.sjv.io/c/YOUR_ID/CAMPAIGN_ID/ADID?u={url_encoded}"
     },
     "example-shopify-store.com": { "params": { "ref": "YOUR_REF_CODE" } }
+  },
+  "audience": {
+    "keywords": ["coffee", "kettle", "קפה"],
+    "categories": ["Kitchen", "מטבח"]
   },
   "only_affiliated": false
 }

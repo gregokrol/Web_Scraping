@@ -295,8 +295,22 @@ def scrape_main(argv: list[str]) -> int:
     return 0
 
 
+def _safe_console() -> None:
+    """Windows: redirected output (Task Scheduler logs) uses the legacy code page, and a product
+    name with an emoji would crash the run. Write UTF-8 to files/pipes and never fail on a character."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            if stream.isatty():
+                stream.reconfigure(errors="replace")
+            else:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    _safe_console()
     _load_plugins()
     if argv and argv[0] in _HANDLERS:
         builder, handler = _HANDLERS[argv[0]]

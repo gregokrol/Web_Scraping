@@ -1,111 +1,130 @@
-# Affiliate Product Scraper
+# Web_Scraping v3: Affiliate Deal Finder
 
 <div dir="rtl">
 
-כלי פייתון שאוסף **מידע ציבורי על מוצרים** (שם, מחיר, הנחה, דירוג, מספר ביקורות, תמונה, זמינות)
-מאתרי מסחר, ממיר את קישורי המוצרים ל**קישורי שותפים (Affiliate)** שלך, מדרג את המוצרים לפי
-"כמה כדאי לקדם אותם", ומייצא CSV / JSON ודף HTML / Markdown מוכן לפרסום, כולל גילוי נאות.
+מערכת מקומית ל-Windows שאוספת מידע על מוצרים **ממקורות מורשים**, משווה מחירים בין חנויות, שומרת היסטוריית
+מחירים, מזהה עסקאות אמיתיות (ומסמנת הנחות מטעות), מחשבת שני ציונים נפרדים (**Deal Score** לצרכן ו-**Affiliate Score**
+לכדאיות מסחרית), מכינה תוכן קידום עם גילוי נאות, ושולחת ל-n8n רק עסקאות שאישרת.
 
-## למה זה עובד טוב יותר מגרסה 1
+**עיקרון מנחה: דיוק לפני כמות.** מה שלא אומת מסומן כ"לא מאומת", ומה שאין עליו נתונים מקבל `insufficient_data`.
+המערכת אף פעם לא מנחשת עמלות, ביקוש או המרות.
 
-| גרסה 1 (Indeed) | גרסה 2 |
+> משתמשי Windows: מדריך התקנה והפעלה מלא נמצא בקובץ [RUN_ON_WINDOWS.md](RUN_ON_WINDOWS.md).
+
+## מה יש בגרסה 3
+
+| תחום | יכולות |
 |---|---|
-| בחירת שדות לפי class של CSS: נשבר בכל שינוי עיצוב | קורא **נתונים מובנים** (schema.org JSON-LD, microdata, OpenGraph) שהאתרים מפרסמים בשביל גוגל |
-| באג: `requests.get(url, headers)` שלח את ה-headers כפרמטרים | Session עם retries, back-off, כיבוד `Retry-After` |
-| באג: תמיד שלף את עמוד 0 | גילוי מוצרים דרך sitemap או מעבר על עמודי קטגוריה עם pagination |
-| התחזות לדפדפן, בלי השהיה | User-Agent כן, כיבוד `robots.txt` ו-`Crawl-delay`, השהיה בין בקשות |
-| `except:` ריק שבולע שגיאות | טיפול שגיאות מפורש ולוגים |
-| בלי טסטים | 13 טסטים, כולל טסט מקצה לקצה מול שרת מקומי |
-
-## התקנה
-
-**משתמשי Windows:** יש מדריך מלא להרצה ב-CMD, כולל פתרון תקלות, בקובץ [RUN_ON_WINDOWS.md](RUN_ON_WINDOWS.md).
+| **מקורות (Source Adapters)** | API רשמי (eBay Browse), Product Feeds (Google Merchant XML, CSV של Awin/CJ וכו'), JSON-LD, Microdata, OpenGraph, סלקטורים של CSS לחנויות שהגדרת, Playwright לאתרים דינמיים שמאפשרים סריקה |
+| **אמינות** | Cache עם TTL ותאריך שליפה לכל מחיר, סימון מחירים ישנים, טיפול ב-Timeout/403/429 עם Circuit Breaker, יומן שגיאות לכל URL, הגנת SSRF, מגבלת גודל, `--in-stock-only` מתוקן |
+| **אימות נתונים** | מטבע ISO, טווחי מחיר, ספרת ביקורת של GTIN, זמינות, דירוג. לכל מוצר `validation_status` ו-`validation_issues` |
+| **השוואת מחירים** | התאמה לפי GTIN, אחר כך מותג+דגם, אחר כך מאפיינים, עם ציון ביטחון. וריאציות (נפח, מארז, צבע, מצב, אחריות, יבואן) לא מאוחדות. מחושבים מינימום, חציון, פער, חיסכון ומחיר כולל משלוח, ומסומן אם ההשוואה חלקית |
+| **היסטוריה (SQLite)** | מינימום וחציון ל-30 ול-90 יום, ירידות מחיר, "הנמוך ב-90 יום", בדיקת הנחה מול המחיר הנמוך ב-30 הימים הקודמים |
+| **ציונים** | Deal Score ו-Affiliate Score נפרדים, כל אחד 0 עד 100 או `insufficient_data` |
+| **אוטומציה** | `run` מלא, Windows Task Scheduler, Webhook ל-n8n עם חתימת HMAC, מניעת התראות כפולות, אישור ידני לפני פרסום |
+| **Dashboard** | ממשק מקומי ב-`127.0.0.1`: מוצרים, השוואה, גרף היסטוריה, סינון, ציונים, ניהול חנויות ותוכניות שותפים, אישור עסקאות, סריקה ידנית, ייצוא |
 
 </div>
 
-```bash
-pip install -r requirements.txt
-cp affiliate_config.example.json affiliate_config.json   # put your affiliate IDs here
+## Quick start (Windows CMD)
+
+```cmd
+cd /d C:\Web_Scraping
+py -m venv .venv
+.venv\Scripts\activate
+py -m pip install -r requirements-dev.txt
+py -m pytest -q
+py main.py --help
 ```
 
-<div dir="rtl">
+```cmd
+:: 1. one-time setup
+copy affiliate_config.example.json affiliate_config.json
+copy sources.example.json sources.json
+copy automation.example.json automation.json
 
-## שימוש
+:: 2. collect (official feeds/APIs first, then public product pages)
+py main.py --feed https://merchant.example/google_feed.xml -c affiliate_config.json
+py main.py https://store.example --discover sitemap --max-pages 100 --sources sources.json -c affiliate_config.json
 
-</div>
+:: 3. look at the results
+py main.py deals
+py main.py history 4006381333931
+py main.py dashboard            (open http://127.0.0.1:8765)
 
-```bash
-# Specific product pages
-python main.py https://store.example/products/mug https://store.example/products/cup -c affiliate_config.json
-
-# Whole store via its sitemap: top 30 in-stock products rated 4.2+ with 20+ reviews
-python main.py https://store.example --discover sitemap --max-pages 300 \
-    --min-rating 4.2 --min-reviews 20 --in-stock-only --top 30 \
-    -c affiliate_config.json --formats csv,json,html,md --title "Best coffee gear 2026"
-
-# Follow links from a category page (with pagination)
-python main.py https://store.example/collections/coffee --discover links --include "/products/"
-
-# Deals only: at least 20% off, under 100
-python main.py -f urls.txt --min-discount 20 --max-price 100 --sort discount
+:: 4. automate
+py main.py run --config automation.json
+py main.py alerts               (review)
+py main.py approve 12 15
+py main.py publish
+py main.py schedule --every daily --at 07:43 --create
 ```
 
-<div dir="rtl">
+## Commands
 
-הפלט נכתב לתיקייה `output/`:
-* `products_*.csv`: לאקסל / Google Sheets (UTF-8 עם BOM, עברית מוצגת תקין)
-* `products_*.json`: לחיבור לאתר, בוט טלגרם, Zapier וכו'
-* `products_*.html`: דף כרטיסי מוצר רספונסיבי עם `rel="sponsored nofollow"` וגילוי נאות
-* `products_*.md`: לפוסט בבלוג (WordPress, Ghost, Medium)
+| Command | Purpose |
+|---|---|
+| `py main.py <urls> [options]` | Scrape (v2-compatible). New: `--dry-run`, `--no-cache`, `--cache-ttl-hours`, `--max-age-hours`, `--verified-only`, `--feed`, `--ebay-search`, `--ebay-gtin`, `--render js`, `--sources`, `--db`/`--no-db`, `--webhook`, `--sort deal/affiliate` |
+| `db [stats\|runs\|errors]` | Database statistics, crawl runs, last errors |
+| `history <url\|barcode>` | 30/90-day low & median, drop detection, discount check |
+| `deals` | Current deals by Deal or Affiliate Score |
+| `import-performance report.csv` | Real clicks/conversions from your network report (feeds the Affiliate Score) |
+| `alerts [--detect] [--show ID]` | Deal alerts and the generated content (with the data basis of every claim) |
+| `approve ID...` / `reject ID...` | Manual approval |
+| `publish` | Send approved deals to n8n (`deal.publish`), once each |
+| `run --config automation.json` | Full pipeline: scrape all sources, save history, score, detect deals, notify n8n |
+| `schedule` | Windows Task Scheduler task (prints by default, `--create` registers) |
+| `dashboard` | Local web UI on 127.0.0.1:8765 |
 
-### הגדרת תוכניות שותפים (`affiliate_config.json`)
+## The two scores
 
-* **`params`**: פרמטרים שמתווספים לקישור (Amazon `tag`, eBay `campid`, חנויות Shopify עם `ref`).
-* **`template`**: פורמט deep-link של רשתות (Awin, CJ, Impact, Rakuten, AliExpress Portals).
-  משתנים: `{url}`, `{url_encoded}`, `{domain}`, `{sku}`.
-* **`utm`**: פרמטרי UTM שמתווספים לכל קישור, כדי למדוד ב-Google Analytics.
-* **`only_affiliated: true`**: שומר רק מוצרים מדומיינים שיש לך עבורם תוכנית שותפים.
+**Deal Score** (consumer value): market position vs other stores 35 · price history 25 · store trust 15 · shipping 10 ·
+warranty 5 · confirmed stock 10. It needs a verified price **and** either a market comparison or enough price history.
+Otherwise it is `insufficient_data`. Misleading "was" prices are penalised.
 
-תגי affiliate של אחרים (`tag=`, `ref=`, `aff...`) ופרמטרי מעקב (`utm_*`, `fbclid`, `gclid`) **מוסרים**
-מהקישור המקורי לפני שהתג שלך מתווסף.
+**Affiliate Score** (commercial value): Deal Score 40 · **verified** commission 25 · observed demand (review count) 10 ·
+audience fit 10 · real conversion rate (30+ clicks) 15. It needs a verified commission or imported conversion data.
 
-### ציון "כדאיות קידום" (`score`, 0 עד 100)
+Components without data are left out, never guessed. `deal_notes` lists what each score was based on, and
+`confidence` shows how much of the model was covered.
 
-דירוג משוקלל לפי מספר הביקורות (עד 40), אחוז הנחה (עד 25), זמינות במלאי (+15, או -30 אם אזל)
-ושלמות הנתונים (עד 20). הנוסחה נמצאת ב-`affiliate_scraper/models.py` (`Product.score`) ופשוט לשנות אותה לפי הנישה שלך.
+## Output files
 
-## ⚠️ שימוש חוקי ואחראי: חשוב לקרוא
+`output/<name>.csv|json|html|md` (products), `<name>_comparison.csv|json` (cross-store groups),
+`<name>_errors.csv` (per-URL error log), `data/web_scraping.db` (SQLite history). CSV files are UTF-8 with BOM, so
+Hebrew displays correctly in Excel.
 
-* **קראו את תנאי השימוש של כל אתר ושל כל תוכנית שותפים.** חלק מהתוכניות **אוסרות** scraping של האתר
-  שלהן ומחייבות שימוש ב-API רשמי. **Amazon Associates**, למשל, דורשת להציג מחירים רק דרך
-  [Product Advertising API / Creators API](https://affiliate-program.amazon.com/) ואוסרת להציג מחירים ישנים.
-  כש-API או product feed רשמי קיים (Amazon, eBay Browse API, AliExpress Affiliate API, product feeds של Awin/CJ/Impact),
-  **העדיפו אותו**. הכלי הזה מתאים בעיקר לחנויות שמאשרות זאת ולמוצרים שאין להם feed.
-* ה-scraper **מכבד robots.txt כברירת מחדל**. הדגל `--ignore-robots` מיועד רק לאתרים שלכם או לאתרים שנתנו לכם אישור בכתב.
-* הכלי **לא** עוקף CAPTCHA, חסימות, התחברות או paywall, ולא מתחזה לדפדפן. אם אתר חוסם, כבדו את זה.
-* אל תעתיקו תיאורים ותמונות מלאים כמו שהם: הם עלולים להיות מוגנים בזכויות יוצרים. כתבו תוכן משלכם
-  (גם טוב יותר ל-SEO) והשתמשו בתמונות שהתוכנית מספקת לשותפים.
-* **גילוי נאות** על קישורי שותפים נדרש לפי חוק (FTC בארה"ב, הגנת הצרכן בישראל ובאיחוד האירופי).
-  הייצוא כולל טקסט גילוי, ואפשר לשנות אותו עם `--disclosure`.
-* מחירים משתנים, ולכן כדאי להריץ שוב באופן קבוע (cron) ולהציג תאריך עדכון. הייצוא עושה את זה אוטומטית.
+## Rules the system enforces
 
-</div>
+* robots.txt, Crawl-delay and per-host delays are respected. On 403 or a bot challenge it stops, and it **never bypasses
+  CAPTCHA or blocks**. On 429 it honours Retry-After.
+* Official APIs and product feeds are preferred. Many programmes (e.g. Amazon Associates) forbid scraping and require
+  their API. Check each site's and programme's terms.
+* No secrets in code or config: keys come from environment variables (`EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`,
+  `N8N_WEBHOOK_URL`, `WEBHOOK_SECRET`). `tests/test_no_secrets.py` checks the repository.
+* Nothing is published without your approval (`require_approval: true` by default). Each deal is published at most once.
+* Generated content states only verified facts, always includes the price date, and always includes an affiliate disclosure.
 
 ## Project layout
 
 ```
 affiliate_scraper/
-  fetcher.py     polite HTTP: robots.txt, crawl-delay, retries, cache
-  discovery.py   find product URLs (XML sitemaps, listing pages + pagination)
-  extractors.py  JSON-LD / microdata / OpenGraph / fallback -> Product
-  affiliate.py   affiliate link builder (params or network deep-link templates)
-  pipeline.py    dedupe, filters, ranking
-  exporters.py   CSV, JSON, HTML cards, Markdown
-  cli.py         command-line interface
-tests/           pytest suite (offline)
-```
-
-```bash
-pip install -r requirements-dev.txt
-python -m pytest -q
+  sources/        source adapters: web, browser (Playwright), feed, ebay (official API)
+  fetcher.py      polite HTTP: robots, delays, TTL cache, 403/429/timeout handling, SSRF guard
+  security.py     URL / input safety
+  extractors.py   JSON-LD, microdata, OpenGraph, CSS selectors
+  validation.py   price/currency/GTIN/availability/freshness validation
+  attributes.py   variant attributes (size, pack, colour, condition, warranty, importer)
+  matching.py     cross-store matching + price comparison
+  db.py           SQLite schema and storage
+  history.py      30/90-day stats, price drops, discount checks
+  scoring.py      Deal Score / Affiliate Score
+  content.py      fact-based promo content (he/en)
+  alerts.py       deal detection, dedupe, approval & publishing
+  webhook.py      n8n webhook (HMAC signed)
+  scheduler.py    Windows Task Scheduler
+  dashboard/      FastAPI + single-page UI
+  cli.py, commands.py
+tests/            pytest suite (offline: local HTTP server, fake APIs)
+docs/N8N.md       n8n integration guide
 ```

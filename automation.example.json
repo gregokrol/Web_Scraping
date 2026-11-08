@@ -1,0 +1,29 @@
+{
+  "_comment": "Copy to automation.json (git-ignored). Secrets never go here: the n8n URL can come from env N8N_WEBHOOK_URL, the signing key from env WEBHOOK_SECRET, eBay keys from EBAY_CLIENT_ID / EBAY_CLIENT_SECRET.",
+  "db": "data/web_scraping.db",
+  "affiliate_config": "affiliate_config.json",
+  "sources_config": "sources.json",
+  "out_dir": "output",
+  "formats": ["csv", "json", "html"],
+  "delay": 3,
+  "max_pages": 100,
+  "max_age_hours": 24,
+
+  "targets": [],
+  "feeds": [],
+  "ebay_gtins": [],
+
+  "deals": {
+    "min_deal_score": 70,
+    "min_affiliate_score": null,
+    "price_drop_pct": 10,
+    "cooldown_days": 7,
+    "min_further_drop_pct": 3
+  },
+  "content": {
+    "language": "he"
+  },
+
+  "webhook_url": "",
+  "require_approval": true
+}

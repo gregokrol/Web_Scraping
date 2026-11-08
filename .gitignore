@@ -11,3 +11,6 @@ data/
 *.db
 *.db-journal
 .env
+automation.json
+run_automation.bat
+logs/

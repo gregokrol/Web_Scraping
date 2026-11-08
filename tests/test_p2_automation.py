@@ -1,0 +1,207 @@
+"""P2: promo content, deal alerts without duplicates, manual approval, n8n webhook, automation, scheduler."""
+
+import hashlib
+import hmac
+import json
+from datetime import datetime, timedelta, timezone
+
+import pytest
+
+from affiliate_scraper.alerts import DealRules, decide, detect_deals, list_alerts, notify_pending, publish_approved
+from affiliate_scraper.cli import main
+from affiliate_scraper.content import build_content
+from affiliate_scraper.db import Database
+from affiliate_scraper.models import Product
+from affiliate_scraper.scheduler import build_bat, build_schtasks_create
+from affiliate_scraper.validation import validate_product
+from affiliate_scraper.webhook import WebhookError, send_event
+
+from .conftest import product_html
+
+
+# ---------------------------------------------------------------- content
+OFFER = {"title": "Acme Kettle", "store": "Shop A", "price": 90.0, "currency": "ILS", "list_price": 150.0,
+         "shipping_cost": 0, "rating": 4.6, "review_count": 120, "url": "https://a.example/k",
+         "affiliate_url": "https://a.example/k?ref=me", "last_fetched_at": "2026-11-08T10:00:00+00:00"}
+
+
+def test_content_only_states_verified_facts():
+    c = build_content(OFFER, lang="he")
+    bases = [x["basis"] for x in c["claims"]]
+    assert bases == ["verified_price", "shipping_known", "store_reviews"]   # no market/history/discount claims
+    assert "150" not in c["telegram"]                                       # unverified "was" price not shown
+    assert "גילוי נאות" in c["telegram"] and "?ref=me" in c["telegram"]
+
+
+def test_content_with_market_history_and_verified_discount():
+    comp = {"n_compared": 4, "median_price": 120.0, "uncertain": False, "partial_reasons": ""}
+    c = build_content(OFFER, {"lowest_90d": True}, comp, {"drop_pct": 25, "from": 120.0},
+                      {"status": "verified", "claimed_pct": 40}, lang="en")
+    bases = {x["basis"] for x in c["claims"]}
+    assert {"market_comparison", "price_history_90d", "price_history", "verified_discount"} <= bases
+    assert "25% below the median price across 4 stores" in c["telegram"]
+    uncertain = build_content(OFFER, comparison={**comp, "uncertain": True}, lang="en")
+    assert "median" not in uncertain["telegram"]
+    assert 'rel="sponsored nofollow noopener"' in c["html"]
+
+
+# ---------------------------------------------------------------- alerts & publishing
+def seed_db(tmp_path, history=(120, 120, 120), current=90.0, deal=80.0):
+    db = Database(tmp_path / "a.db")
+    now = datetime.now(timezone.utc)
+    p = validate_product(Product(url="https://a.example/k", name="Acme Kettle", price=current, currency="ILS",
+                                 availability="InStock", source="json-ld", source_type="json-ld", shipping_cost=0))
+    p.deal_score, p.deal_status, p.affiliate_url = deal, "ok", "https://a.example/k?ref=me"
+    db.save_products([p])
+    oid = db.offer_id(p.url)
+    db.conn.executemany("INSERT INTO price_history(offer_id, observed_at, price, currency, price_verified) VALUES (?,?,?,?,1)",
+                        [(oid, (now - timedelta(days=30 - 10 * i)).isoformat(), v, "ILS") for i, v in enumerate(history)])
+    db.conn.commit()
+    return db, oid
+
+
+def set_price(db, oid, price):
+    now = datetime.now(timezone.utc) + timedelta(seconds=1)
+    db.conn.execute("UPDATE offers SET price=?, last_seen=? WHERE id=?", (price, now.isoformat(), oid))
+    db.conn.execute("INSERT INTO price_history(offer_id, observed_at, price, currency, price_verified) VALUES (?,?,?,?,1)",
+                    (oid, now.isoformat(), price, "ILS"))
+    db.conn.commit()
+
+
+def test_detect_creates_one_pending_alert_without_duplicates(tmp_path):
+    db, oid = seed_db(tmp_path)
+    [a] = detect_deals(db, DealRules())
+    assert a["kind"] == "price_drop" and list_alerts(db)[0]["status"] == "pending"
+    assert detect_deals(db, DealRules()) == []          # same deal again -> nothing new
+    set_price(db, oid, 89.0)                              # ~1% further drop -> still a duplicate
+    assert detect_deals(db, DealRules()) == []
+    set_price(db, oid, 80.0)                              # real further drop -> new alert
+    assert len(detect_deals(db, DealRules())) == 1
+
+
+def test_rejected_deal_not_realerted_at_same_price(tmp_path):
+    db, oid = seed_db(tmp_path)
+    [a] = detect_deals(db, DealRules(cooldown_days=0))
+    decide(db, [a["id"]], approve=False)
+    assert detect_deals(db, DealRules(cooldown_days=0)) == []
+
+
+def test_out_of_stock_or_unverified_never_alerted(tmp_path):
+    db, oid = seed_db(tmp_path)
+    db.conn.execute("UPDATE offers SET availability='OutOfStock' WHERE id=?", (oid,))
+    db.conn.commit()
+    assert detect_deals(db, DealRules()) == []
+    db.conn.execute("UPDATE offers SET availability='InStock', price_verified=0 WHERE id=?", (oid,))
+    db.conn.commit()
+    assert detect_deals(db, DealRules()) == []
+
+
+def test_publish_requires_approval_and_happens_once(tmp_path, local_site, monkeypatch):
+    monkeypatch.setenv("WEBHOOK_SECRET", "s3cret")
+    db, oid = seed_db(tmp_path)
+    [a] = detect_deals(db, DealRules())
+    hook = local_site.base + "/webhook"
+    assert publish_approved(db, hook) == {"published": 0, "failed": 0}   # pending -> nothing sent
+    assert local_site.events() == []
+    decide(db, [a["id"]], approve=True)
+    assert publish_approved(db, hook) == {"published": 1, "failed": 0}
+    assert publish_approved(db, hook) == {"published": 0, "failed": 0}   # never twice
+    [ev] = local_site.events("deal.publish")
+    assert ev["data"]["affiliate_url"].endswith("?ref=me") and "גילוי נאות" in ev["data"]["content"]["telegram"]
+    post = local_site.posts[0]
+    sig = hmac.new(b"s3cret", post["body"], hashlib.sha256).hexdigest()
+    assert post["headers"]["X-Signature-SHA256"] == sig
+
+
+def test_failed_publish_is_retried_later(tmp_path, local_site):
+    db, oid = seed_db(tmp_path)
+    [a] = detect_deals(db, DealRules())
+    decide(db, [a["id"]], True)
+    local_site.post_status = [500, 500, 500]
+    assert publish_approved(db, local_site.base + "/hook")["failed"] == 1
+    assert list_alerts(db)[0]["status"] == "failed"
+    assert publish_approved(db, local_site.base + "/hook")["published"] == 1
+
+
+def test_notify_pending_once(tmp_path, local_site):
+    db, oid = seed_db(tmp_path)
+    detect_deals(db, DealRules())
+    assert notify_pending(db, local_site.base + "/hook") == 1
+    assert notify_pending(db, local_site.base + "/hook") == 0
+    assert local_site.events("deals.pending_approval")[0]["data"]["count"] == 1
+
+
+def test_webhook_rejects_bad_url():
+    with pytest.raises(WebhookError):
+        send_event("ftp://x", "e", {})
+
+
+# ---------------------------------------------------------------- scheduler
+def test_scheduler_commands():
+    bat = build_bat(r"C:\Web_Scraping", r"C:\Python311\python.exe", "automation.json")
+    assert 'cd /d "C:\\Web_Scraping"' in bat and "main.py run --config" in bat and "\r\n" in bat
+    cmd = build_schtasks_create("WebScraping", r"C:\Web_Scraping\run_automation.bat", "daily", "08:17")
+    assert cmd[:3] == ["schtasks", "/Create", "/TN"] and ["/SC", "DAILY", "/ST", "08:17"] == cmd[-4:]
+    assert "/MO" in build_schtasks_create("W", "x.bat", "hourly", "00:05", 4)
+    with pytest.raises(ValueError):
+        build_schtasks_create("W", "x.bat", "daily", "25:00")
+    with pytest.raises(ValueError):
+        build_schtasks_create("bad&name", "x.bat")
+
+
+def test_schedule_command_prints_without_creating(tmp_path, capsys):
+    assert main(["schedule", "--at", "07:43"]) == 0
+    out = capsys.readouterr().out
+    assert "schtasks /Create" in out and "Not registered" in out
+    assert (tmp_path / "run_automation.bat").exists()
+
+
+# ---------------------------------------------------------------- full automation run
+def test_automation_run_end_to_end(tmp_path, local_site):
+    local_site.add("/products/k", product_html("Acme Kettle", "90", currency="ILS", gtin="4006381333931",
+                                               extra={"offers": {"price": "90", "priceCurrency": "ILS",
+                                                                 "availability": "InStock"}}))
+    cfg = {"db": str(tmp_path / "auto.db"), "targets": [local_site.base + "/products/k"], "delay": 0,
+           "no_cache": True, "allow_private_hosts": True, "out_dir": str(tmp_path / "out"),
+           "webhook_url": local_site.base + "/n8n", "deals": {"min_deal_score": 0}}
+    (tmp_path / "automation.json").write_text(json.dumps(cfg), encoding="utf-8")
+
+    # history so the new price is a real drop
+    assert main(["run", "--config", "automation.json"]) == 0
+    db = Database(tmp_path / "auto.db")
+    oid = db.offer_id(local_site.base + "/products/k")
+    now = datetime.now(timezone.utc)
+    db.conn.executemany("INSERT INTO price_history(offer_id, observed_at, price, currency, price_verified) VALUES (?,?,?,?,1)",
+                        [(oid, (now - timedelta(days=d)).isoformat(), 120, "ILS") for d in (28, 18, 9)])
+    db.conn.commit()
+    db.close()
+
+    assert main(["run", "--config", "automation.json"]) == 0
+    assert len(local_site.events("deals.pending_approval")) == 1
+    assert local_site.events("deal.publish") == []          # approval required by default
+
+    db = Database(tmp_path / "auto.db")
+    [alert] = list_alerts(db, "pending")
+    db.close()
+    assert main(["approve", str(alert["id"]), "--db", str(tmp_path / "auto.db")]) == 0
+    assert main(["run", "--config", "automation.json"]) == 0
+    assert main(["run", "--config", "automation.json"]) == 0
+    assert len(local_site.events("deal.publish")) == 1      # published exactly once
+    assert len(local_site.events("deals.pending_approval")) == 1
+
+
+def test_automation_dry_run_writes_nothing(tmp_path, local_site, capsys):
+    cfg = {"db": str(tmp_path / "dry.db"), "targets": [local_site.base + "/products/k"], "allow_private_hosts": True}
+    (tmp_path / "automation.json").write_text(json.dumps(cfg), encoding="utf-8")
+    assert main(["run", "--dry-run"]) == 0
+    assert "would run" in capsys.readouterr().out
+    assert not (tmp_path / "dry.db").exists() and local_site.count("/products/k") == 0
+
+
+def test_scrape_webhook_export(tmp_path, local_site):
+    local_site.add("/products/a", product_html("A", "5"))
+    rc = main([local_site.base + "/products/a", "--delay", "0", "--allow-private-hosts", "--no-db",
+               "-o", str(tmp_path / "o"), "--webhook", local_site.base + "/n8n"])
+    assert rc == 0
+    [ev] = local_site.events("scrape.completed")
+    assert ev["data"]["products"][0]["name"] == "A"

@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Web Scraping Dashboard</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1c1e21; --muted:#65676b; --line:#e4e6eb; --accent:#0866ff;
+          --good:#1a7f37; --warn:#b35900; --bad:#c62828; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111214; --card:#1c1d20; --text:#e4e6eb; --muted:#a8abaf;
+          --line:#2f3034; --accent:#4d94ff; --good:#3fb950; --warn:#e3a33a; --bad:#ff6b6b; } }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,"Segoe UI",Arial,sans-serif; background:var(--bg); color:var(--text); font-size:14px; }
+  header { display:flex; gap:16px; align-items:center; padding:12px 20px; background:var(--card); border-bottom:1px solid var(--line);
+           position:sticky; top:0; z-index:2; flex-wrap:wrap; }
+  header h1 { font-size:17px; margin:0; }
+  nav { display:flex; gap:4px; flex-wrap:wrap; }
+  nav button { background:none; border:0; padding:8px 12px; border-radius:8px; color:var(--muted); cursor:pointer; font:inherit; }
+  nav button.on { background:var(--bg); color:var(--text); font-weight:600; }
+  main { max-width:1300px; margin:0 auto; padding:20px 16px; }
+  section { display:none; } section.on { display:block; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:12px; margin-bottom:20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; }
+  .cards .card b { display:block; font-size:22px; margin-top:4px; font-variant-numeric:tabular-nums; }
+  .muted { color:var(--muted); }
+  table { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  th, td { padding:8px 10px; border-bottom:1px solid var(--line); text-align:right; vertical-align:top; }
+  th { font-size:12px; color:var(--muted); font-weight:600; background:var(--bg); }
+  td.num { font-variant-numeric:tabular-nums; direction:ltr; text-align:left; white-space:nowrap; }
+  tr.click { cursor:pointer; } tr.click:hover td { background:var(--bg); }
+  .toolbar { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; align-items:center; }
+  input, select, textarea { font:inherit; padding:7px 9px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--text); }
+  button.btn { font:inherit; padding:7px 12px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--text); cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .pill { display:inline-block; padding:1px 8px; border-radius:99px; font-size:12px; border:1px solid var(--line); white-space:nowrap; }
+  .good { color:var(--good); } .warn { color:var(--warn); } .bad { color:var(--bad); }
+  .split { display:grid; grid-template-columns:1fr 1fr; gap:16px; } @media (max-width:900px) { .split { grid-template-columns:1fr; } }
+  #detail { margin-top:16px; }
+  svg text { fill:var(--muted); font-size:11px; }
+  pre { white-space:pre-wrap; background:var(--bg); padding:10px; border-radius:8px; direction:auto; }
+  form.grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:8px; margin:10px 0 20px; }
+  .msg { margin:10px 0; } .wrap { overflow-x:auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Web Scraping · ניהול</h1>
+  <nav id="nav">
+    <button data-tab="overview" class="on">סקירה</button>
+    <button data-tab="offers">מוצרים ועסקאות</button>
+    <button data-tab="compare">השוואת מחירים</button>
+    <button data-tab="alerts">התראות ואישור</button>
+    <button data-tab="sources">חנויות ומקורות</button>
+    <button data-tab="programs">תוכניות שותפים</button>
+  </nav>
+</header>
+<main>
+  <div id="msg" class="msg"></div>
+
+  <section id="overview" class="on">
+    <div class="cards" id="statCards"></div>
+    <h3>תקלות אחרונות</h3><div id="problems" class="muted">אין</div>
+    <h3>ריצות אחרונות</h3><div class="wrap"><table id="runs"></table></div>
+    <p class="muted">ייצוא: <a href="/api/export?format=csv">CSV (תומך עברית)</a> · <a href="/api/export?format=json">JSON</a></p>
+  </section>
+
+  <section id="offers">
+    <div class="toolbar">
+      <input id="q" placeholder="חיפוש מוצר / חנות">
+      <select id="cat"><option value="">כל הקטגוריות</option></select>
+      <select id="store"><option value="">כל החנויות</option></select>
+      <select id="sort"><option value="deal">Deal Score</option><option value="affiliate">Affiliate Score</option>
+        <option value="price">מחיר</option><option value="recent">עדכני</option></select>
+      <label><input type="checkbox" id="verified"> מחירים מאומתים בלבד</label>
+      <button class="btn" id="reload">רענון</button>
+    </div>
+    <div class="wrap"><table id="offerTable"></table></div>
+    <div id="detail"></div>
+  </section>
+
+  <section id="compare"><div class="wrap"><table id="compTable"></table></div></section>
+
+  <section id="alerts">
+    <div class="toolbar">
+      <select id="alertStatus"><option value="">כל הסטטוסים</option><option value="pending" selected>ממתין לאישור</option>
+        <option value="approved">אושר</option><option value="published">פורסם</option><option value="rejected">נדחה</option>
+        <option value="failed">נכשל</option></select>
+      <button class="btn" id="detectBtn">זיהוי עסקאות חדשות</button>
+      <button class="btn primary" id="publishBtn">פרסום המאושרים (n8n)</button>
+    </div>
+    <p class="muted">שום עסקה לא מתפרסמת בלי אישור ידני. כל עסקה מתפרסמת פעם אחת בלבד.</p>
+    <div id="alertList"></div>
+  </section>
+
+  <section id="sources">
+    <form class="grid" id="sourceForm">
+      <input name="domain" placeholder="דומיין (shop.example.com)" required>
+      <input name="name" placeholder="שם החנות">
+      <select name="type"><option value="web">web</option><option value="feed">feed</option><option value="browser">browser</option></select>
+      <input name="trust_score" placeholder="אמינות 0-1" type="number" step="0.05" min="0" max="1">
+      <input name="shipping_cost" placeholder="עלות משלוח ידועה" type="number" step="0.01" min="0">
+      <input name="start_urls" placeholder="כתובות התחלה (מופרדות בפסיק)">
+      <select name="discover"><option value="none">ללא גילוי</option><option value="sitemap">sitemap</option><option value="links">links</option></select>
+      <input name="include" placeholder="Regex לדפי מוצר (לא חובה)">
+      <button class="btn primary">שמירה</button>
+    </form>
+    <div class="wrap"><table id="sourceTable"></table></div>
+  </section>
+
+  <section id="programs">
+    <form class="grid" id="programForm">
+      <input name="domain" placeholder="דומיין" required>
+      <input name="network" placeholder="רשת (Awin, CJ, Amazon...)">
+      <input name="param_key" placeholder="שם פרמטר (למשל tag)">
+      <input name="param_value" placeholder="ערך (מזהה השותף שלך)">
+      <input name="template" placeholder="או תבנית deep-link עם {url_encoded}">
+      <input name="commission_rate" placeholder="עמלה (0.05 = 5%)" type="number" step="0.001" min="0" max="1">
+      <label><input type="checkbox" name="commission_verified"> העמלה אומתה</label>
+      <input name="commission_source" placeholder="מקור האימות (לוח בקרה, תאריך)">
+      <button class="btn primary">שמירה</button>
+    </form>
+    <p class="muted">עמלה נספרת ב-Affiliate Score רק אם סומנה כמאומתת.</p>
+    <div class="wrap"><table id="programTable"></table></div>
+  </section>
+</main>
+<script>
+const TOKEN = "__DASHBOARD_TOKEN__";
+const $ = s => document.querySelector(s);
+const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const num = (v, d=2) => v === null || v === undefined ? "–" : Number(v).toLocaleString("he-IL", {maximumFractionDigits:d, minimumFractionDigits:d});
+const score = v => v === null || v === undefined ? '<span class="muted">אין נתונים</span>' :
+  `<b class="${v>=70?'good':v>=40?'warn':'bad'}">${Math.round(v)}</b>`;
+const safeUrl = u => /^https?:\/\//i.test(u || "") ? esc(u) : "#";
+
+async function api(path, opts={}) {
+  const o = {...opts, headers: {...(opts.headers||{}), "X-Dashboard-Token": TOKEN}};
+  if (o.body && typeof o.body !== "string") { o.body = JSON.stringify(o.body); o.headers["Content-Type"] = "application/json"; }
+  const r = await fetch(path, o);
+  const data = r.headers.get("content-type")?.includes("json") ? await r.json() : await r.text();
+  if (!r.ok) throw new Error(data.detail || data || r.status);
+  return data;
+}
+function flash(text, cls="good") { $("#msg").innerHTML = `<span class="${cls}">${esc(text)}</span>`; setTimeout(() => $("#msg").innerHTML = "", 6000); }
+
+document.querySelectorAll("#nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("#nav button, section").forEach(e => e.classList.remove("on"));
+  b.classList.add("on"); $("#" + b.dataset.tab).classList.add("on"); load(b.dataset.tab);
+});
+
+async function loadOverview() {
+  const s = await api("/api/summary");
+  const labels = {offers:"הצעות מחיר", products:"מוצרים", price_history:"תצפיות מחיר", sources:"חנויות",
+                  crawl_runs:"ריצות", affiliate_programs:"תוכניות שותפים", deal_alerts:"התראות"};
+  $("#statCards").innerHTML = Object.entries(labels).map(([k,l]) => `<div class="card"><span class="muted">${l}</span><b>${num(s.stats[k],0)}</b></div>`).join("")
+    + `<div class="card"><span class="muted">ממתינות לאישור</span><b class="${s.pending_alerts?'warn':''}">${s.pending_alerts}</b></div>`;
+  $("#runs").innerHTML = "<tr><th>#</th><th>התחלה</th><th>סטטוס</th><th>מוצרים</th><th>שגיאות</th><th>פקודה</th></tr>" +
+    s.runs.map(r => `<tr><td>${r.id}</td><td class="num">${esc(r.started_at)}</td><td><span class="pill ${r.status==='ok'?'good':'bad'}">${esc(r.status)}</span></td>
+      <td class="num">${r.products ?? ""}</td><td class="num ${r.errors?'bad':''}">${r.errors ?? ""}</td><td>${esc(r.command)}</td></tr>`).join("");
+  $("#problems").innerHTML = s.problems.length ? s.problems.map(p => `<div class="card" style="margin-bottom:8px">ריצה #${p.run} (${esc(p.status)}):
+      ${p.errors.slice(0,8).map(e => `<div><span class="pill bad">${esc(e.kind)}</span> <span class="muted">${esc(e.url)}</span> ${esc(e.message||"")}</div>`).join("")}</div>`).join("") : "אין תקלות 🎉";
+}
+
+async function loadFilters() {
+  const f = await api("/api/categories");
+  $("#cat").innerHTML = '<option value="">כל הקטגוריות</option>' + f.categories.map(c => `<option>${esc(c)}</option>`).join("");
+  $("#store").innerHTML = '<option value="">כל החנויות</option>' + f.stores.map(c => `<option>${esc(c)}</option>`).join("");
+}
+
+async function loadOffers() {
+  const p = new URLSearchParams({q:$("#q").value, category:$("#cat").value, store:$("#store").value, sort:$("#sort").value,
+                                 verified_only:$("#verified").checked});
+  const rows = await api("/api/offers?" + p);
+  $("#offerTable").innerHTML = "<tr><th>מוצר</th><th>חנות</th><th>מחיר</th><th>אימות</th><th>מלאי</th><th>Deal</th><th>Affiliate</th><th>עודכן</th></tr>" +
+    rows.map(r => `<tr class="click" data-id="${r.id}"><td>${esc(r.title)}</td><td>${esc(r.store)}</td>
+      <td class="num">${num(r.price)} ${esc(r.currency)}</td>
+      <td>${r.price_verified ? '<span class="pill good">מאומת</span>' : '<span class="pill warn">לא מאומת</span>'}</td>
+      <td>${esc(r.availability || "לא ידוע")}</td><td>${score(r.deal_score)}</td><td>${score(r.affiliate_score)}</td>
+      <td class="num muted">${esc((r.last_fetched_at||"").slice(0,16).replace("T"," "))}</td></tr>`).join("");
+  document.querySelectorAll("#offerTable tr.click").forEach(tr => tr.onclick = () => showDetail(tr.dataset.id));
+}
+
+function chart(obs) {
+  const pts = obs.filter(o => o.price_verified && o.price != null);
+  if (pts.length < 2) return '<p class="muted">אין מספיק תצפיות מאומתות לגרף.</p>';
+  const W = 560, H = 180, P = 36;
+  const xs = pts.map(o => Date.parse(o.observed_at)), ys = pts.map(o => o.price);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys) * 0.97, y1 = Math.max(...ys) * 1.03;
+  const X = t => P + (W - 2*P) * (x1 === x0 ? 0.5 : (t - x0) / (x1 - x0)), Y = v => H - P + (-(H - 2*P)) * ((v - y0) / (y1 - y0 || 1));
+  const path = pts.map((o, i) => `${i ? "L" : "M"}${X(xs[i]).toFixed(1)},${Y(ys[i]).toFixed(1)}`).join(" ");
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="היסטוריית מחיר" style="direction:ltr">
+    <line x1="${P}" y1="${H-P}" x2="${W-P}" y2="${H-P}" stroke="currentColor" opacity=".2"/>
+    <text x="4" y="${Y(y1)+4}">${num(y1)}</text><text x="4" y="${Y(y0)+4}">${num(y0)}</text>
+    <text x="${P}" y="${H-10}">${esc(pts[0].observed_at.slice(0,10))}</text>
+    <text x="${W-P}" y="${H-10}" text-anchor="end">${esc(pts[pts.length-1].observed_at.slice(0,10))}</text>
+    <path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2"/>
+    ${pts.map((o,i) => `<circle cx="${X(xs[i])}" cy="${Y(ys[i])}" r="3" fill="var(--accent)"><title>${esc(o.observed_at.slice(0,16))}: ${num(o.price)}</title></circle>`).join("")}
+  </svg>`;
+}
+
+async function showDetail(id) {
+  const d = await api(`/api/offers/${id}/history`);
+  const s = d.stats, o = d.offer;
+  const disc = {no_claim:"אין טענת הנחה", insufficient_data:"אין מספיק נתונים לאימות ההנחה", verified:"ההנחה אומתה",
+                overstated:"ההנחה מוגזמת", misleading:"הנחה מטעה"}[d.discount_check.status] || d.discount_check.status;
+  $("#detail").innerHTML = `<div class="split"><div class="card"><h3>${esc(o.title)}</h3>
+      <p><a href="${safeUrl(o.affiliate_url || o.url)}" target="_blank" rel="noopener">לעמוד המוצר</a> · ${esc(o.store)}</p>
+      ${chart(d.observations)}
+      <p>${s.sufficient ? `מינ' 30 יום: <b>${num(s.min_30d)}</b> · מינ' 90 יום: <b>${num(s.min_90d)}</b> · חציון 90: <b>${num(s.median_90d)}</b>`
+                        : `<span class="muted">היסטוריה לא מספקת (${s.n_obs} תצפיות, ${s.days_covered} ימים)</span>`}</p>
+      <p>בדיקת הנחה: <b>${esc(disc)}</b></p>
+      <p class="muted">${esc(o.deal_notes || "")}</p></div>
+    <div class="card"><h3>אותו מוצר בחנויות אחרות</h3>${d.same_product.length > 1 ? `<table><tr><th>חנות</th><th>מחיר</th><th>משלוח</th><th>ביטחון התאמה</th></tr>` +
+      d.same_product.map(g => `<tr><td><a href="${safeUrl(g.affiliate_url || g.url)}" target="_blank" rel="noopener">${esc(g.store)}</a></td>
+        <td class="num">${num(g.price)} ${esc(g.currency)} ${g.price_verified ? "" : '<span class="pill warn">לא מאומת</span>'}</td>
+        <td class="num">${g.shipping_cost == null ? "לא ידוע" : num(g.shipping_cost)}</td>
+        <td class="num">${g.match_confidence == null ? "–" : g.match_confidence}</td></tr>`).join("") + "</table>"
+      : '<p class="muted">לא נמצאו חנויות נוספות.</p>'}</div></div>`;
+  $("#detail").scrollIntoView({behavior:"smooth"});
+}
+
+async function loadCompare() {
+  const rows = await api("/api/comparisons");
+  $("#compTable").innerHTML = "<tr><th>מוצר</th><th>חנויות</th><th>מינימום</th><th>חציון</th><th>מקסימום</th><th>חיסכון מול חציון</th><th>התאמה</th></tr>" +
+    (rows.length ? rows.map(r => `<tr><td>${esc(r.title)}</td><td class="num">${r.n_stores}</td><td class="num">${num(r.min_price)} ${esc(r.currency)}</td>
+      <td class="num">${num(r.median_price)}</td><td class="num">${num(r.max_price)}</td><td class="num good">${num(r.savings_vs_median_pct,1)}%</td>
+      <td>${r.uncertain ? '<span class="pill warn">לא ודאית</span>' : '<span class="pill good">ודאית</span>'}</td></tr>`).join("")
+     : '<tr><td colspan="7" class="muted">עדיין אין מוצרים שנמצאו ביותר מחנות אחת.</td></tr>');
+}
+
+async function loadAlerts() {
+  const rows = await api("/api/alerts?status=" + $("#alertStatus").value);
+  $("#alertList").innerHTML = rows.length ? rows.map(a => `<div class="card" style="margin-bottom:10px">
+      <div class="toolbar"><b>#${a.id} ${esc(a.title)}</b><span class="pill">${esc(a.kind)}</span><span class="pill">${esc(a.status)}</span>
+        <span>Deal ${score(a.deal_score)} · Affiliate ${score(a.affiliate_score)}</span>
+        ${a.status === "pending" || a.status === "failed" ? `<button class="btn primary" data-act="approve" data-id="${a.id}">אישור</button>
+        <button class="btn" data-act="reject" data-id="${a.id}">דחייה</button>` : ""}</div>
+      <pre>${esc(a.content.telegram || "")}</pre>
+      <details><summary class="muted">על מה מבוססת כל טענה</summary>${(a.content.claims||[]).map(c => `<div>• ${esc(c.text)} <span class="muted">[${esc(c.basis)}]</span></div>`).join("")}</details>
+      ${a.error ? `<p class="bad">${esc(a.error)}</p>` : ""}</div>`).join("") : '<p class="muted">אין התראות.</p>';
+  document.querySelectorAll("#alertList [data-act]").forEach(b => b.onclick = async () => {
+    try { await api(`/api/alerts/${b.dataset.id}/${b.dataset.act}`, {method:"POST"}); flash("עודכן"); loadAlerts(); } catch (e) { flash(e.message, "bad"); }
+  });
+}
+
+async function loadSources() {
+  const rows = await api("/api/sources");
+  $("#sourceTable").innerHTML = "<tr><th>דומיין</th><th>שם</th><th>סוג</th><th>אמינות</th><th>משלוח</th><th></th></tr>" +
+    rows.map(r => `<tr><td>${esc(r.domain)}</td><td>${esc(r.name)}</td><td>${esc(r.type)}</td><td class="num">${r.trust_score ?? "–"}</td>
+      <td class="num">${r.shipping_cost ?? "לא ידוע"}</td><td><button class="btn" data-crawl="${r.id}">סריקה עכשיו</button>
+      <button class="btn" data-del="${r.id}">מחיקה</button></td></tr>`).join("");
+  document.querySelectorAll("[data-crawl]").forEach(b => b.onclick = async () => {
+    try { const j = await api("/api/crawl", {method:"POST", body:{source_id: Number(b.dataset.crawl)}}); flash("סריקה התחילה (" + j.id + ")"); }
+    catch (e) { flash(e.message, "bad"); }
+  });
+  document.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
+    if (!confirm("למחוק את המקור?")) return;
+    await api("/api/sources/" + b.dataset.del, {method:"DELETE"}); loadSources();
+  });
+}
+
+async function loadPrograms() {
+  const rows = await api("/api/programs");
+  $("#programTable").innerHTML = "<tr><th>דומיין</th><th>רשת</th><th>פרמטרים / תבנית</th><th>עמלה</th><th>אומתה</th><th></th></tr>" +
+    rows.map(r => `<tr><td>${esc(r.domain)}</td><td>${esc(r.network)}</td><td class="num">${esc(r.template || r.params_json)}</td>
+      <td class="num">${r.commission_rate == null ? "לא ידוע" : (r.commission_rate*100).toFixed(1) + "%"}</td>
+      <td>${r.commission_verified ? '<span class="pill good">כן</span>' : '<span class="pill warn">לא</span>'}</td>
+      <td><button class="btn" data-pdel="${esc(r.domain)}">מחיקה</button></td></tr>`).join("");
+  document.querySelectorAll("[data-pdel]").forEach(b => b.onclick = async () => {
+    if (!confirm("למחוק?")) return; await api("/api/programs/" + encodeURIComponent(b.dataset.pdel), {method:"DELETE"}); loadPrograms();
+  });
+}
+
+$("#sourceForm").onsubmit = async e => {
+  e.preventDefault(); const f = Object.fromEntries(new FormData(e.target));
+  f.start_urls = f.start_urls ? f.start_urls.split(",").map(s => s.trim()).filter(Boolean) : [];
+  try { await api("/api/sources", {method:"POST", body:f}); flash("נשמר"); e.target.reset(); loadSources(); } catch (err) { flash(err.message, "bad"); }
+};
+$("#programForm").onsubmit = async e => {
+  e.preventDefault(); const f = Object.fromEntries(new FormData(e.target));
+  const body = {domain:f.domain, network:f.network, template:f.template, commission_rate:f.commission_rate,
+                commission_verified: !!f.commission_verified, commission_source:f.commission_source,
+                params: f.param_key ? {[f.param_key]: f.param_value} : {}};
+  try { await api("/api/programs", {method:"POST", body}); flash("נשמר"); e.target.reset(); loadPrograms(); } catch (err) { flash(err.message, "bad"); }
+};
+$("#detectBtn").onclick = async () => { try { const r = await api("/api/detect", {method:"POST", body:{}}); flash(`${r.created.length} עסקאות חדשות`); loadAlerts(); } catch (e) { flash(e.message, "bad"); } };
+$("#publishBtn").onclick = async () => { if (!confirm("לשלוח את כל העסקאות המאושרות ל-n8n?")) return;
+  try { const r = await api("/api/publish", {method:"POST"}); flash(`פורסמו ${r.published}, נכשלו ${r.failed}`); loadAlerts(); } catch (e) { flash(e.message, "bad"); } };
+["#q"].forEach(s => $(s).addEventListener("keydown", e => e.key === "Enter" && loadOffers()));
+["#cat", "#store", "#sort", "#verified"].forEach(s => $(s).addEventListener("change", loadOffers));
+$("#reload").onclick = loadOffers; $("#alertStatus").onchange = loadAlerts;
+
+const loaders = {overview: loadOverview, offers: () => loadFilters().then(loadOffers), compare: loadCompare,
+                 alerts: loadAlerts, sources: loadSources, programs: loadPrograms};
+function load(tab) { loaders[tab]().catch(e => flash(e.message, "bad")); }
+load("overview");
+</script>
+</body>
+</html>

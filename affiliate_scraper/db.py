@@ -235,14 +235,34 @@ class Database:
                           (domain, *data.values(), now_iso()))
 
     def sync_programs(self, config) -> None:
+        """Copy programs from affiliate_config.json. Only keys present in the file are overwritten,
+        so commission data entered in the dashboard is kept."""
         for domain, prog in config.programs.items():
-            rate = prog.get("commission_rate")
-            self.upsert_program(domain, network=prog.get("network", ""), params_json=json.dumps(prog.get("params", {})),
-                                template=prog.get("template", ""),
-                                commission_rate=float(rate) if rate is not None else None,
-                                commission_verified=int(bool(prog.get("commission_verified")) and rate is not None),
-                                commission_source=prog.get("commission_source", ""),
-                                cookie_days=prog.get("cookie_days"))
+            fields: dict = {"network": prog.get("network", ""), "params_json": json.dumps(prog.get("params", {})),
+                            "template": prog.get("template", "")}
+            if "commission_rate" in prog:
+                rate = prog.get("commission_rate")
+                fields["commission_rate"] = float(rate) if rate is not None else None
+                fields["commission_verified"] = int(bool(prog.get("commission_verified")) and rate is not None)
+            for k in ("commission_source", "cookie_days"):
+                if k in prog:
+                    fields[k] = prog[k]
+            self.upsert_program(domain, **fields)
+
+    def programs_as_config(self) -> dict[str, dict]:
+        """Programs managed in the dashboard, in affiliate_config format (for link building)."""
+        out = {}
+        for r in self.query("SELECT * FROM affiliate_programs"):
+            prog: dict = {}
+            if r["template"]:
+                prog["template"] = r["template"]
+            params = json.loads(r["params_json"] or "{}")
+            if params:
+                prog["params"] = params
+            if prog:
+                prog.update(commission_rate=r["commission_rate"], commission_verified=bool(r["commission_verified"]))
+                out[r["domain"]] = prog
+        return out
 
     def program_for(self, domain: str) -> Optional[sqlite3.Row]:
         return self.conn.execute("SELECT * FROM affiliate_programs WHERE ? = domain OR ? LIKE '%.' || domain "

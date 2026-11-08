@@ -20,7 +20,13 @@ class LocalSite:
     def __init__(self):
         self.routes: dict[str, object] = {}
         self.hits: list[str] = []
+        self.posts: list[dict] = []
+        self.post_status: list[int] = []   # queue of status codes for POSTs (default 200)
         self.base = ""
+
+    def events(self, name=None):
+        evs = [json.loads(p["body"]) for p in self.posts]
+        return [e for e in evs if name is None or e["event"] == name]
 
     def add(self, path, body="", **kw):
         self.routes[path] = body if callable(body) or isinstance(body, list) else Route(body, **kw)
@@ -72,6 +78,16 @@ def local_site():
                 self.wfile.write(data)
             except (BrokenPipeError, ConnectionResetError):
                 pass
+
+        def do_POST(self):
+            length = int(self.headers.get("Content-Length") or 0)
+            body = self.rfile.read(length)
+            site.posts.append({"path": self.path, "headers": dict(self.headers), "body": body})
+            status = site.post_status.pop(0) if site.post_status else 200
+            self.send_response(status)
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"ok")
 
         def log_message(self, *a):
             pass

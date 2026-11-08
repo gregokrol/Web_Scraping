@@ -71,15 +71,15 @@ def test_robots_disallow_is_respected(site):
 def test_cli_sitemap_discovery(site, tmp_path):
     base, hits = site
     cfg = tmp_path / "aff.json"
-    cfg.write_text(json.dumps({"programs": {"127.0.0.1": {"params": {"ref": "me"}}}}))
+    cfg.write_text(json.dumps({"programs": {"127.0.0.1": {"params": {"ref": "me"}}}}), encoding="utf-8")
     rc = main([base, "--discover", "sitemap", "--delay", "0", "--cache-dir", "", "-c", str(cfg), "--allow-private-hosts",
                "-o", str(tmp_path), "--name", "out", "--formats", "csv,json,html,md", "--min-rating", "4"])
     assert rc == 0
-    data = json.loads((tmp_path / "out.json").read_text())
+    data = json.loads((tmp_path / "out.json").read_text(encoding="utf-8"))
     assert [d["name"] for d in data] == ["Alpha"]  # Beta filtered by rating, Secret blocked by robots
     assert data[0]["affiliate_url"].endswith("/products/a?ref=me")
     assert "/private/products/c" not in hits
-    html = (tmp_path / "out.html").read_text()
+    html = (tmp_path / "out.html").read_text(encoding="utf-8")
     assert 'rel="sponsored nofollow noopener"' in html and "Disclosure" in html
     assert (tmp_path / "out.csv").read_text(encoding="utf-8-sig").startswith("url,name")
 
