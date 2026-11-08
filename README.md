@@ -127,4 +127,5 @@ affiliate_scraper/
   cli.py, commands.py
 tests/            pytest suite (offline: local HTTP server, fake APIs)
 docs/N8N.md       n8n integration guide
+docs/UPGRADE_V3.md  v3 spec with implementation status per requirement
 ```
