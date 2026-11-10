@@ -238,6 +238,27 @@ background:rgba(6,11,24,.92);backdrop-filter:blur(12px);border-top:1px solid var
 .sticky .price{font-size:22px}.sticky .btn-buy{width:auto;flex:1;font-size:17px;padding:12px}body.has-sticky{padding-bottom:82px}}
 footer{color:var(--muted);font-size:13px;border-top:1px solid var(--line);margin-top:40px;padding:20px 0;background:rgba(0,0,0,.2)}
 footer a{color:var(--muted)}
+.ico{width:18px;height:18px;flex:none}
+.nav{display:flex;gap:6px;margin-inline-start:auto;margin-inline-end:10px}
+.nav a{color:var(--muted);text-decoration:none;font-weight:600;padding:8px 10px;border-radius:10px}
+.nav a:hover{color:var(--text);background:rgba(255,255,255,.06)}
+@media (max-width:640px){.nav a:nth-child(2){display:none}.brand span{display:none}.top .btn-tg{padding:10px 12px;font-size:14px}}
+.back{display:inline-flex;align-items:center;gap:6px;color:var(--text);text-decoration:none;font-weight:700;border:1px solid var(--line);
+background:rgba(255,255,255,.04);border-radius:12px;padding:8px 14px}
+.back:hover{border-color:var(--cyan)}
+.toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 10px}
+.searchbox{flex:1;min-width:240px;display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);
+border-radius:14px;padding:0 14px}
+.searchbox:focus-within{border-color:var(--cyan);box-shadow:var(--glow)}
+.searchbox input{flex:1;background:transparent;border:0;outline:0;color:var(--text);font:inherit;font-size:16px;padding:13px 0}
+#sort{background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:14px;padding:0 14px;font:inherit;min-height:48px}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}
+.chipf{background:rgba(255,255,255,.04);border:1px solid var(--line);color:var(--text);border-radius:99px;padding:7px 14px;font:inherit;
+font-weight:600;cursor:pointer}
+.chipf.on{background:linear-gradient(135deg,var(--yellow),var(--yellow2));color:#1a1300;border-color:transparent}
+.grid>.empty,.empty{grid-column:1/-1}
+.empty b{display:block;color:var(--text);font-size:20px;margin-bottom:6px}
+.card[hidden]{display:none}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 """
 
@@ -246,7 +267,7 @@ def _layout(cfg: SiteConfig, title: str, description: str, body: str, path: str,
             og_image: str = "", json_ld: Optional[dict] = None, body_class: str = "", tail: str = "") -> str:
     root = "../" * depth
     canonical = f"{cfg.base_url}{path}" if cfg.base_url else ""
-    tg = (f'<a class="btn btn-tg" href="{e(cfg.telegram_url)}" target="_blank" rel="noopener">✈️ הצטרפו לערוץ</a>'
+    tg = (f'<a class="btn btn-tg" href="{e(cfg.telegram_url)}" target="_blank" rel="noopener">{TG_ICON} הצטרפו לערוץ</a>'
           if cfg.telegram_url else "")
     meta = [f'<meta name="description" content="{e(description)}">',
             f'<meta property="og:title" content="{e(title)}">',
@@ -278,6 +299,7 @@ def _layout(cfg: SiteConfig, title: str, description: str, body: str, path: str,
 <body class="{e(body_class)}">
 <header><div class="wrap top">
 <a class="brand" href="{root}index.html"><img src="{root}logo.png" alt="">{e(cfg.title)}</a>
+<nav class="nav"><a href="{root}index.html#deals">🔥 עסקאות</a><a href="{root}how-we-check.html">איך אנחנו בודקים</a></nav>
 {tg}
 </div></header>
 <main class="wrap">
@@ -293,6 +315,45 @@ def _layout(cfg: SiteConfig, title: str, description: str, body: str, path: str,
 """
 
 
+TG_ICON = ('<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M21.9 4.3 18.7 19.5c-.2 1-.9 '
+           '1.3-1.8.8l-4.9-3.6-2.4 2.3c-.3.3-.5.5-1 .5l.3-5 9.1-8.2c.4-.4-.1-.6-.6-.2L6.2 13.2l-4.8-1.5c-1-.3-1-1 .2-1.5'
+           'L20.5 3c.9-.3 1.6.2 1.4 1.3z"/></svg>')
+
+LISTING_JS = """<script>
+(function(){
+  var q=document.getElementById("q"), sort=document.getElementById("sort"), none=document.getElementById("none");
+  var grids=[].slice.call(document.querySelectorAll(".grid")), store="";
+  function norm(t){return (t||"").toLowerCase().replace(/[\u0591-\u05c7]/g,"").trim();}
+  function apply(){
+    var words=norm(q.value).split(/\\s+/).filter(Boolean), shown=0;
+    grids.forEach(function(g){
+      var cards=[].slice.call(g.querySelectorAll(".card"));
+      var key=sort.value;
+      cards.sort(function(a,b){
+        if(a.dataset.ended!==b.dataset.ended) return a.dataset.ended-b.dataset.ended;
+        if(key==="price") return a.dataset.price-b.dataset.price;
+        if(key==="save") return b.dataset.save-a.dataset.save;
+        return b.dataset.time-a.dataset.time;
+      }).forEach(function(c){g.appendChild(c);});
+      cards.forEach(function(c){
+        var hay=norm(c.dataset.title+" "+c.dataset.store);
+        var ok=(!store||c.dataset.store===store)&&words.every(function(w){return hay.indexOf(w)>=0;});
+        c.hidden=!ok; if(ok) shown++;
+      });
+    });
+    none.hidden=shown>0;
+  }
+  q.addEventListener("input",apply); sort.addEventListener("change",apply);
+  [].slice.call(document.querySelectorAll(".chipf")).forEach(function(b){
+    b.addEventListener("click",function(){
+      document.querySelectorAll(".chipf").forEach(function(x){x.classList.remove("on");});
+      b.classList.add("on"); store=b.dataset.store; apply();
+    });
+  });
+  var p=new URLSearchParams(location.search).get("q"); if(p){q.value=p; apply();}
+})();
+</script>"""
+
 KIND_LABEL = {"price_drop": "📉 ירידת מחיר", "lowest_90d": "🏆 הנמוך ב-90 יום", "top_deal": "🔥 עסקה משתלמת"}
 
 
@@ -306,7 +367,11 @@ def _card(d: dict, cfg: SiteConfig, depth: int = 0) -> str:
     new = '<span class="new">חדש</span>' if d["is_new"] and not d["ended"] else ""
     was = f'<span class="was">{e(_money(d["prev_price"], d["currency"]))}</span>' if d["prev_price"] and not d["ended"] else ""
     stale = '<span class="warn">המחיר עשוי להשתנות</span>' if d["stale"] and not d["ended"] else ""
-    return (f'<a class="card{" ended" if d["ended"] else ""}" href="{root}{deal_path(d["id"])}">'
+    created = _parse_iso(d.get("created_at") or "")
+    data = (f' data-title="{e((d["title"] or "").lower())}" data-store="{e(d["store"] or "")}" data-price="{d["price"] or 0}"'
+            f' data-save="{d["savings_pct"] or 0}" data-time="{int(created.timestamp()) if created else 0}"'
+            f' data-ended="{1 if d["ended"] else 0}"')
+    return (f'<a class="card{" ended" if d["ended"] else ""}"{data} href="{root}{deal_path(d["id"])}">'
             f'<div class="thumb">{img}{ribbon}{new}{save}</div><div class="b">'
             f'<span class="t">{e(d["title"])}</span>'
             f'<div class="pr"><span class="price">{e(_money(d["price"], d["currency"]))}</span>{was}</div>'
@@ -413,13 +478,14 @@ def _deal_page(db: Database, d: dict, cfg: SiteConfig) -> str:
         msg = f'{d["title"]} ב-{_money(d["price"], d["currency"])} - נבדק במחיר אמת'
         share = (f'<div class="share"><a href="https://wa.me/?text={quote(msg + " " + url)}" target="_blank" rel="noopener">'
                  f'💬 שתפו בוואטסאפ</a><a href="https://t.me/share/url?url={quote(url)}&text={quote(msg)}" target="_blank" '
-                 f'rel="noopener">✈️ שתפו בטלגרם</a><button type="button" data-copy="{e(url)}">🔗 העתיקו קישור</button></div>')
+                 f'rel="noopener">{TG_ICON} שתפו בטלגרם</a><button type="button" data-copy="{e(url)}">🔗 העתיקו קישור</button></div>')
     tgbox = (f'<div class="tgbox"><img src="../logo.png" alt=""><div><b>רוצים לקבל עסקאות כאלה ראשונים?</b>'
              f'<span>כל עסקה נבדקת לפני שהיא מגיעה אליכם.</span></div>'
-             f'<a class="btn btn-tg" href="{e(cfg.telegram_url)}" target="_blank" rel="noopener">✈️ הצטרפו לערוץ</a></div>'
+             f'<a class="btn btn-tg" href="{e(cfg.telegram_url)}" target="_blank" rel="noopener">{TG_ICON} הצטרפו לערוץ</a></div>'
              if cfg.telegram_url else "")
     buy_text = f'לרכישה ב-{e(d["store"])} ←'
-    body = (f'<p class="crumbs"><a href="../index.html">כל העסקאות</a> › {e(d["store"])}</p>'
+    body = (f'<p class="crumbs"><a class="back" href="../index.html#deals">→ חזרה לכל העסקאות</a>'
+            f'<span class="muted"> · {e(d["store"])}</span></p>'
             f'<div class="deal"><div class="gallery">{img}</div><div>'
             f'<span class="kind">{e(label)}</span>'
             f'<h1>{e(d["title"])}</h1>'
@@ -445,6 +511,7 @@ def _deal_page(db: Database, d: dict, cfg: SiteConfig) -> str:
 
 
 HOW_WE_CHECK = """
+<p class="crumbs"><a class="back" href="index.html#deals">→ חזרה לכל העסקאות</a></p>
 <div class="hero"><h1>איך אנחנו <span class="hl">בודקים</span> מחירים</h1>
 <p>רוב ה"מבצעים" ברשת מעלים קודם את המחיר ואז "מורידים" אותו. אצלנו כל מוצר עובר 4 בדיקות לפני שהוא מתפרסם.</p></div>
 <div class="panel"><ul class="checks">
@@ -493,7 +560,7 @@ def build_site(db: Database, cfg: SiteConfig, now: Optional[datetime] = None) ->
     # real counters only
     n_stores = db.query("SELECT COUNT(DISTINCT domain) n FROM offers WHERE price_verified=1")[0]["n"]
     n_checks = db.query("SELECT COUNT(*) n FROM price_history WHERE price_verified=1")[0]["n"]
-    tg_btn = (f'<a class="btn btn-tg" href="{e(cfg.telegram_url)}" target="_blank" rel="noopener">✈️ הצטרפו לערוץ בטלגרם</a>'
+    tg_btn = (f'<a class="btn btn-tg" href="{e(cfg.telegram_url)}" target="_blank" rel="noopener">{TG_ICON} הצטרפו לערוץ בטלגרם</a>'
               if cfg.telegram_url else "")
     hero = (f'<section class="hero"><h1><span class="hl">{e(cfg.title)}</span><br>רק הנחות שבדקנו באמת</h1>'
             f'<p>כל עסקה נבדקת מול היסטוריית המחיר שלה ומול חנויות אחרות, ורק אז מגיעה אליכם. בלי מבצעים מנופחים.</p>'
@@ -503,10 +570,29 @@ def build_site(db: Database, cfg: SiteConfig, now: Optional[datetime] = None) ->
             f'<div class="stat"><b>{n_checks:,}</b><span>בדיקות מחיר</span></div></div>'
             f'<div class="trust"><span>✓ נבדק מול 90 יום</span><span>✓ מושווה בין חנויות</span><span>✓ מאושר ידנית</span></div>'
             f'</section>')
+    stores = sorted({d["store"] for d in recent + older if d.get("store")})
+    chips = "".join(f'<button type="button" class="chipf" data-store="{e(st)}">{e(st)}</button>' for st in stores)
+    toolbar = ""
+    if recent or older:
+        toolbar = (f'<div class="toolbar"><div class="searchbox"><span aria-hidden="true">🔎</span>'
+                   f'<input id="q" type="search" placeholder="חיפוש: שם מוצר, דגם או חנות" aria-label="חיפוש עסקאות"></div>'
+                   f'<select id="sort" aria-label="מיון"><option value="time">החדשות ביותר</option>'
+                   f'<option value="save">החיסכון הגדול ביותר</option><option value="price">המחיר הנמוך ביותר</option></select>'
+                   f'</div><div class="chips"><button type="button" class="chipf on" data-store="">כל החנויות</button>{chips}</div>'
+                   f'<p id="none" class="empty" hidden>לא נמצאו עסקאות שמתאימות לחיפוש. נסו מילה אחרת.</p>')
+    empty_tg = (f'<p><a class="btn btn-tg" href="{e(cfg.telegram_url)}" target="_blank" rel="noopener">{TG_ICON} '
+                f'קבלו את העסקה הראשונה בטלגרם</a></p>' if cfg.telegram_url else "")
+    if not recent:
+        cards = f'<div class="empty"><b>עסקאות חדשות יופיעו כאן בקרוב.</b><p>אנחנו בודקים מחירים כל יום.</p>{empty_tg}</div>'
     (out / "index.html").write_text(_layout(cfg, f"{cfg.title} | עסקאות שנבדקו באמת",
                                             "עסקאות ודילים בישראל שנבדקו מול היסטוריית המחיר ומול חנויות אחרות.",
-                                            f'{hero}<h2 class="section">🔥 העסקאות האחרונות</h2><div class="grid">{cards}</div>'
-                                            f'{older_html}', "index.html"), encoding="utf-8")
+                                            f'{hero}<h2 class="section" id="deals">🔥 העסקאות האחרונות</h2>{toolbar}'
+                                            f'<div class="grid" id="grid">{cards}</div>{older_html}', "index.html",
+                                            tail=LISTING_JS if (recent or older) else ""), encoding="utf-8")
+    (out / "404.html").write_text(_layout(cfg, f"העמוד לא נמצא | {cfg.title}", "העמוד לא נמצא.",
+                                          '<div class="hero"><h1>העמוד לא נמצא</h1><p>ייתכן שהעסקה הוסרה.</p>'
+                                          f'<div class="cta-row"><a class="btn btn-buy" style="width:auto" href="{cfg.base_url or "./"}index.html">'
+                                          'לכל העסקאות</a></div></div>', "404.html"), encoding="utf-8")
     (out / "how-we-check.html").write_text(_layout(cfg, f"איך אנחנו בודקים מחירים | {cfg.title}",
                                                    "השיטה: מחיר מאומת, היסטוריית מחיר, השוואה בין חנויות ואישור ידני.",
                                                    HOW_WE_CHECK, "how-we-check.html"), encoding="utf-8")
