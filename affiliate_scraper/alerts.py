@@ -147,7 +147,8 @@ def _sender(target, session=None):
     return lambda event, data: send_event(target, event, data, session=session)
 
 
-def publish_approved(db: Database, url, session=None, auto_approve: bool = False, limit: int = 20) -> dict:
+def publish_approved(db: Database, url, session=None, auto_approve: bool = False, limit: int = 20,
+                     page_url_for=None) -> dict:
     """Send approved alerts as ``deal.publish`` events to a webhook URL or a publisher
     (e.g. Telegram). Each alert is published at most once."""
     send = _sender(url, session)
@@ -168,7 +169,8 @@ def publish_approved(db: Database, url, session=None, auto_approve: bool = False
         payload = {"alert_id": r["id"], "kind": r["kind"], "title": r["title"], "price": r["price"],
                    "currency": r["currency"], "deal_score": r["deal_score"], "affiliate_score": r["affiliate_score"],
                    "store": r["store"], "url": r["url"], "affiliate_url": r["affiliate_url"], "image": r["image"],
-                   "content": json.loads(r["content_json"] or "{}")}
+                   "content": json.loads(r["content_json"] or "{}"),
+                   "page_url": page_url_for(r["id"]) if page_url_for else ""}
         try:
             send("deal.publish", payload)
             with db.tx() as c:

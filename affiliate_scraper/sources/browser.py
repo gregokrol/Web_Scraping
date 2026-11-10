@@ -50,7 +50,11 @@ class BrowserPageAdapter(WebPageAdapter):
                                "py -m playwright install chromium") from exc
         self._pw = sync_playwright().start()
         exe = self.ctx.browser_path or os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE") or None
-        self._browser = self._pw.chromium.launch(executable_path=exe, headless=True)
+        # no background traffic (update checks, safe-browsing, field trials) - only the pages we ask for
+        self._browser = self._pw.chromium.launch(
+            executable_path=exe, headless=True,
+            args=["--disable-background-networking", "--disable-component-update", "--no-default-browser-check",
+                  "--disable-sync", "--metrics-recording-only", "--disable-domain-reliability"])
         return self._browser
 
     def render(self, url: str) -> Optional[tuple[str, str]]:

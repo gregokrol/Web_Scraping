@@ -84,6 +84,8 @@ def format_post(content: dict, max_len: int) -> str:
     if content.get("store"):
         footer.append(f"🏬 {e(content['store'])}")
     footer.append(f'👉 <a href="{e(content.get("link", ""), quote=True)}">{e(content.get("cta") or "Link")}</a>')
+    if content.get("page_url", "").startswith("https://"):
+        footer.append(f'📈 <a href="{e(content["page_url"], quote=True)}">היסטוריית המחיר וההשוואה</a>')
     footer += ["", f"<i>{e(content.get('disclosure') or '')}</i>"]
 
     def build(head: str, items: list[str]) -> str:
@@ -166,7 +168,13 @@ class TelegramPublisher:
         content = payload.get("content") or {}
         link = payload.get("affiliate_url") or payload.get("url") or content.get("link", "")
         content = {**content, "link": link}
-        button = {"inline_keyboard": [[{"text": content.get("cta") or "🛒", "url": link}]]} if link.startswith("http") else None
+        page = payload.get("page_url") or ""
+        if page.startswith("https://"):
+            content = {**content, "page_url": page}
+        row = [{"text": content.get("cta") or "🛒", "url": link}] if link.startswith("http") else []
+        if page.startswith("https://"):
+            row.append({"text": "📈 היסטוריית מחיר", "url": page})
+        button = {"inline_keyboard": [row]} if row else None
         image = payload.get("image") or ""
         if image.startswith("https://"):
             msg = {"chat_id": self.channel, "photo": image, "caption": format_post(content, CAPTION_LIMIT),

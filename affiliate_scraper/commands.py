@@ -762,9 +762,25 @@ def _run_run(args) -> int:
             notify_all("crawl.errors", {"runs": [{"id": r["id"], "command": r["command"], "errors": r["errors"],
                                                   "sample": json.loads(r["errors_json"] or "[]")[:10]} for r in failed]})
         _err(f"Notified you: {n} pending deal(s), {len(failed)} run(s) with errors.")
+    from .site import SiteConfig, build_site, page_url, publish_site
+    site_cfg = SiteConfig.from_dict(cfg.get("site"))
+    site_on = bool((cfg.get("site") or {}).get("enabled"))
+    auto = cfg.get("require_approval", True) is False
+    if auto:
+        from .alerts import decide
+        decide(db, [r["id"] for r in db.query("SELECT id FROM deal_alerts WHERE status='pending'")], True)
+    if site_on:
+        # the website goes first, so the deal page exists when the Telegram post links to it
+        try:
+            info = build_site(db, site_cfg)
+            _err(f"Website built: {info['deals']} deal page(s) in {info['out_dir']}")
+            if site_cfg.publish_dir:
+                _err(f"Website: {publish_site(site_cfg)}")
+        except RuntimeError as exc:
+            _err(f"Website problem: {exc}")
     if publish_target:
-        auto = cfg.get("require_approval", True) is False
-        res = publish_approved(db, publish_target, auto_approve=auto)
+        res = publish_approved(db, publish_target, auto_approve=auto,
+                               page_url_for=(lambda aid: page_url(site_cfg, aid)) if site_on else None)
         if res["published"] or res["failed"]:
             _err(f"Published to {'Telegram' if tg else 'n8n'}: {res}" + (" (auto-approved)" if auto else ""))
     else:
@@ -987,3 +1003,44 @@ def _searches_run(args) -> int:
 
 cli.register_subcommand("searches", "Add / remove / list searches that every automation run performs in all stores",
                         _searches_build, _searches_run)
+
+
+# ===================================================================== website
+def _site_build(ap) -> None:
+    ap.add_argument("action", choices=["build", "preview", "publish"],
+                    help="build = write the site folder; preview = build and open it; publish = build and push")
+    ap.add_argument("--config", default="automation.json")
+
+
+def _site_run(args) -> int:
+    from .site import SiteConfig, build_site, publish_site
+    try:
+        cfg = load_automation(args.config)
+    except (OSError, ValueError) as exc:
+        _err(f"error: {exc}")
+        return 2
+    site_cfg = SiteConfig.from_dict(cfg.get("site"))
+    db = Database(cfg.get("db", DEFAULT_DB))
+    try:
+        info = build_site(db, site_cfg)
+    except RuntimeError as exc:
+        _err(f"error: {exc}")
+        return 2
+    finally:
+        db.close()
+    index = Path(info["out_dir"]).resolve() / "index.html"
+    print(f"Built {info['pages']} page(s), {info['deals']} deal(s): {index}")
+    if args.action == "preview":
+        import webbrowser
+        webbrowser.open(index.as_uri())
+    elif args.action == "publish":
+        try:
+            print(f"Website: {publish_site(site_cfg)}")
+        except RuntimeError as exc:
+            _err(f"error: {exc}")
+            return 1
+    return 0
+
+
+cli.register_subcommand("site", "Build / preview / publish the website made from your approved deals",
+                        _site_build, _site_run)

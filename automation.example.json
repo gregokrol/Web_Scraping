@@ -38,5 +38,15 @@
     "_comment": "token/channel come from env TELEGRAM_BOT_TOKEN, TELEGRAM_CHANNEL, TELEGRAM_ADMIN_CHAT"
   },
   "webhook_url": "",
-  "require_approval": true
+  "require_approval": true,
+  "site": {
+    "enabled": false,
+    "base_url": "https://YOUR-GITHUB-USER.github.io/mechiremet/",
+    "telegram_url": "https://t.me/mechiremet",
+    "title": "מחיר אמת",
+    "out_dir": "site",
+    "publish_dir": "",
+    "days": 30,
+    "_comment": "publish_dir = a local git clone of your GitHub Pages repository (separate from this project)"
+  }
 }
