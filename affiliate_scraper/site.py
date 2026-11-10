@@ -129,8 +129,9 @@ def price_chart_svg(points: list[tuple[str, float]], currency: str) -> str:
             'stop-opacity=".45"/><stop offset="1" stop-color="#22d3ee" stop-opacity="0"/></linearGradient></defs>'
             f'<line x1="{P}" y1="{H - P}" x2="{W - P}" y2="{H - P}" class="axis"/>'
             f'<text x="6" y="{Y(hi - pad) - 6:.0f}" text-anchor="start">{e(_money(hi - pad, currency))}</text>'
-            f'<text x="6" y="{Y(lo + pad) + 18:.0f}" text-anchor="start">{e(_money(lo + pad, currency))}</text>'
-            f'<text x="{P}" y="{H - 14}" text-anchor="start">{e(pts[0][0].strftime("%d.%m"))}</text>'
+            + (f'<text x="6" y="{Y(lo + pad) + 18:.0f}" text-anchor="start">{e(_money(lo + pad, currency))}</text>'
+               if hi - lo > 2 * pad + 0.005 else "")   # flat price: one label, not the same number twice
+            + f'<text x="{P}" y="{H - 14}" text-anchor="start">{e(pts[0][0].strftime("%d.%m"))}</text>'
             f'<text x="{W - P}" y="{H - 14}" text-anchor="end">{e(pts[-1][0].strftime("%d.%m"))}</text>'
             f'<path d="{area}" class="area"/><path d="{line}" class="line"/>{dots}'
             f'<circle cx="{lx:.1f}" cy="{ly:.1f}" r="8" class="now"/></svg>')
@@ -380,6 +381,7 @@ def _card(d: dict, cfg: SiteConfig, depth: int = 0) -> str:
 
 def collect_deals(db: Database, cfg: SiteConfig, now: Optional[datetime] = None) -> list[dict]:
     """Approved deals + the REAL numbers that make them attractive (nothing here is estimated or invented)."""
+    from .alerts import store_prices
     from .history import is_lowest_in_90d, stats_for_offer
     now = now or datetime.now(timezone.utc)
     rows = db.query(
@@ -408,14 +410,11 @@ def collect_deals(db: Database, cfg: SiteConfig, now: Optional[datetime] = None)
         drop = round((prev - d["price"]) / prev * 100) if prev else None
         d["lowest90"] = is_lowest_in_90d(st) or any(c.get("basis") == "price_history_90d"
                                                     for c in d["content"].get("claims", []))
+        # savings vs the cheapest OTHER store; other pages of the same store never count
         vs_market = None
-        if d["group_id"]:
-            others = [x["price"] for x in db.query("SELECT price FROM offers WHERE group_id=? AND currency=? AND "
-                                                   "price_verified=1 AND id<>?", (d["group_id"], d["currency"], d["offer_id"]))]
-            if others:
-                ref = sorted(others + [d["price"]])[len(others + [d["price"]]) // 2]
-                if ref > d["price"]:
-                    vs_market = round((ref - d["price"]) / ref * 100)
+        other = [r["price"] for r in store_prices(db, d["group_id"], d["currency"]) if r["domain"] != d["domain"]]
+        if other and min(other) > d["price"]:
+            vs_market = round((min(other) - d["price"]) / min(other) * 100)
         best = max([x for x in (drop, vs_market) if x], default=None)
         d["savings_pct"] = best if best and best >= 3 else None
         out.append(d)
@@ -446,11 +445,8 @@ def _deal_page(db: Database, d: dict, cfg: SiteConfig) -> str:
     chart_html = (f'<div class="panel"><h2>📈 היסטוריית המחיר</h2>{chart}'
                   f'<p class="meta">מבוסס על {len(hist)} בדיקות מחיר מאומתות. הנקודה הצהובה היא המחיר האחרון.</p></div>'
                   if chart else "")
-    others = []
-    if d["group_id"]:
-        others = db.query("SELECT store, domain, price, currency, shipping_cost, url, affiliate_url, last_fetched_at "
-                          "FROM offers WHERE group_id=? AND price_verified=1 AND currency=? ORDER BY price",
-                          (d["group_id"], d["currency"]))
+    from .alerts import store_prices
+    others = store_prices(db, d["group_id"], d["currency"])   # one row per store
     compare = ""
     if len(others) >= 2:
         rows = ""
@@ -552,9 +548,11 @@ def build_site(db: Database, cfg: SiteConfig, now: Optional[datetime] = None) ->
     for d in deals:
         (out / deal_path(d["id"])).write_text(_deal_page(db, d, cfg), encoding="utf-8")
 
-    recent = best_per_product([d for d in deals if d["recent"]])
+    # the lists only show deals with a proven saving (or an ended one, marked as such)
+    listed = [d for d in deals if d["savings_pct"] or d["lowest90"] or d["ended"]]
+    recent = best_per_product([d for d in listed if d["recent"]])
     cards = "".join(_card(d, cfg) for d in recent) or '<p class="empty">עסקאות חדשות יופיעו כאן בקרוב.</p>'
-    older = best_per_product([d for d in deals if not d["recent"]])
+    older = best_per_product([d for d in listed if not d["recent"]])
     older_html = ('<h2 class="section">עסקאות קודמות</h2><div class="grid">' + "".join(_card(d, cfg) for d in older[:60])
                   + "</div>" if older else "")
     # real counters only

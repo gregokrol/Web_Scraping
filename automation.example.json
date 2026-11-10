@@ -25,6 +25,7 @@
   "ebay_gtins": [],
   "deals": {
     "min_deal_score": 70,
+    "min_savings_pct": 5,
     "min_affiliate_score": null,
     "price_drop_pct": 10,
     "cooldown_days": 7,

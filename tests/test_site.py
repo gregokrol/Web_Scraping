@@ -269,3 +269,37 @@ def test_publish_branch_refuses_the_code_branch(tmp_path):
         (tmp_path / "site" / "index.html").write_text("x", encoding="utf-8")
         _git("init", "-q", str(tmp_path / "r"))
         publish_site(SiteConfig(out_dir=str(tmp_path / "site"), publish_branch="main", repo_dir=str(tmp_path / "r")))
+
+
+def _add_listing(db, gid, url, domain, price):
+    db.conn.execute("INSERT INTO offers(url, domain, store, title, price, currency, availability, price_verified, "
+                    "group_id, match_confidence, last_seen) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (url, domain, domain, "Acme Kettle", price, "ILS", "InStock", 1, gid, 1.0,
+                     datetime.now(timezone.utc).isoformat()))
+
+
+def test_other_pages_of_the_same_store_are_not_a_saving(tmp_path):
+    from affiliate_scraper.site import collect_deals
+    db, oid = seed_db(tmp_path, history=(90, 90, 90), current=90.0, deal=95.0)
+    dom = db.conn.execute("SELECT domain FROM offers WHERE id=?", (oid,)).fetchone()[0]
+    db.conn.execute("UPDATE offers SET group_id='g1', match_confidence=1.0 WHERE id=?", (oid,))
+    _add_listing(db, "g1", "https://a.example/k-white", dom, 120.0)
+    _add_listing(db, "g1", "https://a.example/k-bundle", dom, 120.0)
+    db.conn.commit()
+    assert detect_deals(db, DealRules()) == []              # same store only -> no comparison, no saving
+    # an older deal (published before the fix) is not advertised with a fake saving
+    db.conn.execute("INSERT INTO deal_alerts(offer_id, kind, fingerprint, price, currency, title, content_json, status, "
+                    "created_at) VALUES (?,?,?,?,?,?,?,?,?)", (oid, "top_deal", "x", 90.0, "ILS", "Acme Kettle", "{}",
+                                                               "published", datetime.now(timezone.utc).isoformat()))
+    db.conn.commit()
+    [d] = collect_deals(db, cfg(tmp_path))
+    assert d["savings_pct"] is None
+    out = build_site(db, cfg(tmp_path))
+    page = next((Path(cfg(tmp_path).out_dir) / "deals").glob("*.html")).read_text(encoding="utf-8")
+    assert "בחנויות אחרות" not in page                      # one store -> no "other stores" table
+    assert "Acme Kettle" not in (Path(cfg(tmp_path).out_dir) / "index.html").read_text(encoding="utf-8")
+    # a real second store that is more expensive -> saving vs that store
+    _add_listing(db, "g1", "https://b.example/k", "b.example", 100.0)
+    db.conn.commit()
+    [d] = collect_deals(db, cfg(tmp_path))
+    assert d["savings_pct"] == 10

@@ -309,3 +309,28 @@ def test_saved_searches_command_and_run(tmp_path, monkeypatch, capsys):
 
     assert main(["searches", "remove", "1"]) == 0
     assert json.loads((tmp_path / "automation.json").read_text(encoding="utf-8"))["searches"] == ["אוזניות JBL"]
+
+
+def test_high_score_without_real_saving_is_not_a_deal(tmp_path):
+    # e.g. a gift card sold at face value: price never changed, other stores unknown
+    db, oid = seed_db(tmp_path, history=(90, 90, 90), current=90.0, deal=95.0)
+    assert detect_deals(db, DealRules()) == []
+
+
+def test_small_saving_below_threshold_is_skipped(tmp_path):
+    db, oid = seed_db(tmp_path, history=(100, 100, 100), current=97.0, deal=95.0)
+    assert detect_deals(db, DealRules()) == []                       # 3% < 5%
+    assert len(detect_deals(db, DealRules(min_savings_pct=2))) == 1
+
+
+def test_vague_title_is_skipped(tmp_path):
+    from affiliate_scraper.alerts import is_vague_title
+    assert is_vague_title("כרטיס זכרון") and is_vague_title("")
+    assert not is_vague_title("כרטיס זכרון 128GB")
+    assert not is_vague_title("Acme Kettle")
+    assert not is_vague_title("קומקום חשמלי נירוסטה")
+    db, oid = seed_db(tmp_path)
+    db.conn.execute("UPDATE offers SET title=? WHERE id=?", ("כרטיס זכרון", oid))
+    db.conn.commit()
+    assert detect_deals(db, DealRules()) == []
+    assert len(detect_deals(db, DealRules(skip_vague_titles=False))) == 1

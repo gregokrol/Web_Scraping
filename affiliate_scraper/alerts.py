@@ -15,6 +15,7 @@ pending  --approve-->  approved  --publish-->  published
 from __future__ import annotations
 
 import json
+import re
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -39,6 +40,10 @@ class DealRules:
     seen_within_hours: float = 36.0
     language: str = "he"
     disclosure: Optional[str] = None
+    # A deal must save at least this much vs the store's own earlier price or vs other stores.
+    # A high Deal Score alone (e.g. a gift card at face value) is not a deal.
+    min_savings_pct: float = 5.0
+    skip_vague_titles: bool = True
 
     @classmethod
     def from_dict(cls, d: Optional[dict]) -> "DealRules":
@@ -47,22 +52,76 @@ class DealRules:
         return cls(**{k: v for k, v in d.items() if k in known})
 
 
+_GONE = ("OutOfStock", "SoldOut", "Discontinued")
+
+
+def store_prices(db: Database, group_id: Optional[str], currency: str, min_confidence: float = 0.95) -> list[dict]:
+    """The cheapest verified, in-stock offer of each STORE (domain) in a match group, cheapest first.
+
+    Several pages of one store (colours, bundles, duplicate listings) count once: comparing a page
+    with another page of the same store is not a comparison between stores. Uncertain matches
+    are left out so a different product never becomes a "more expensive store".
+    """
+    if not group_id:
+        return []
+    rows = db.query("SELECT id, store, domain, price, currency, shipping_cost, url, affiliate_url, last_fetched_at, "
+                    "availability, match_confidence FROM offers WHERE group_id=? AND price IS NOT NULL "
+                    "AND price_verified=1 AND currency=?", (group_id, currency))
+    best: dict[str, dict] = {}
+    for r in rows:
+        r = dict(r)
+        if (r["availability"] or "") in _GONE or (r["match_confidence"] or 1.0) < min_confidence:
+            continue
+        key = r["domain"] or r["store"] or r["url"]
+        if key not in best or r["price"] < best[key]["price"]:
+            best[key] = r
+    return sorted(best.values(), key=lambda r: r["price"])
+
+
 def _comparison_for(db: Database, offer: dict) -> Optional[dict]:
-    """Rebuild a light comparison for the offer's match group from the latest stored offers."""
-    if not offer.get("group_id"):
+    """A light comparison across DIFFERENT stores for the offer's match group (None with fewer than 2)."""
+    stores = store_prices(db, offer.get("group_id"), offer["currency"])
+    if len(stores) < 2:
         return None
-    rows = db.query("SELECT price, currency, domain, price_verified, availability, match_confidence FROM offers "
-                    "WHERE group_id=? AND price IS NOT NULL", (offer["group_id"],))
-    same = [r for r in rows if r["price_verified"] and r["currency"] == offer["currency"]
-            and (r["availability"] or "") not in ("OutOfStock", "SoldOut", "Discontinued")]
-    if len({r["domain"] for r in same}) < 2:
-        return None
-    prices = sorted(r["price"] for r in same)
+    prices = [r["price"] for r in stores]
     mid = len(prices) // 2
     median = prices[mid] if len(prices) % 2 else (prices[mid - 1] + prices[mid]) / 2
-    conf = min((r["match_confidence"] or 1.0) for r in rows)
-    return {"n_compared": len(prices), "median_price": round(median, 2), "uncertain": conf < 0.95,
-            "partial_reasons": ""}
+    others = [r["price"] for r in stores if r["domain"] != offer.get("domain")]
+    return {"n_compared": len(prices), "median_price": round(median, 2), "uncertain": False,
+            "partial_reasons": "", "cheapest_other": min(others) if others else None}
+
+
+_WORD = re.compile(r"[^\W_]{2,}", re.UNICODE)
+
+
+def is_vague_title(title: Optional[str]) -> bool:
+    """True for titles too generic to identify a product (e.g. "כרטיס זכרון").
+
+    A title is specific enough if it has a number (capacity, model, size), a Latin word
+    (usually a brand or model), or at least three words.
+    """
+    words = _WORD.findall(title or "")
+    if not words:
+        return True
+    if re.search(r"\d", title or "") or any(re.search(r"[A-Za-z]", w) for w in words):
+        return False
+    return len(words) < 3
+
+
+def savings_evidence(st, price: float, comparison: Optional[dict]) -> Optional[dict]:
+    """Best verified saving: vs the store's own earlier price, or vs the median of other stores."""
+    best = None
+    if st.sufficient:
+        ref = st.prior_median_90d or st.previous_price
+        if ref and ref > price:
+            best = {"basis": "history", "reference": ref, "pct": round((ref - price) / ref * 100, 1)}
+    # vs the cheapest OTHER store - a conservative figure, never vs another page of the same store
+    other = (comparison or {}).get("cheapest_other")
+    if other and not comparison.get("uncertain") and other > price:
+        pct = round((other - price) / other * 100, 1)
+        if best is None or pct > best["pct"]:
+            best = {"basis": "market", "reference": other, "pct": pct}
+    return best
 
 
 def detect_deals(db: Database, rules: DealRules, now: Optional[datetime] = None) -> list[dict]:
@@ -88,10 +147,16 @@ def detect_deals(db: Database, rules: DealRules, now: Optional[datetime] = None)
             continue
         if rules.min_affiliate_score is not None and (o["affiliate_score"] or 0) < rules.min_affiliate_score:
             continue
+        if rules.skip_vague_titles and is_vague_title(o["title"]):
+            continue
+        comparison = _comparison_for(db, o)
+        saving = savings_evidence(st, o["price"], comparison)
+        if saving is None or saving["pct"] < rules.min_savings_pct:
+            continue
         if _is_duplicate(db, o, kind, rules, now):
             continue
         disc = check_discount_claim(st, o["price"], o["list_price"])
-        content = build_content(o, {"lowest_90d": lowest}, _comparison_for(db, o), drop, disc,
+        content = build_content(o, {"lowest_90d": lowest}, comparison, drop, disc,
                                 lang=rules.language, disclosure=rules.disclosure)
         fp = f"{o['id']}:{kind}:{o['price']:.2f}:{o['currency']}"
         with db.tx() as c:
