@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,6 +22,7 @@ from .models import Product, now_iso
 DEFAULT_DB = "data/web_scraping.db"
 NO_HISTORY_SOURCES = {"amazon-api"}   # sources whose terms forbid keeping price history
 SCHEMA_VERSION = 1
+LOCK_TIMEOUT = 30.0   # seconds to wait for another connection's lock
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_info (version INTEGER NOT NULL);
@@ -152,16 +154,35 @@ class Database:
         self.path = str(path)
         if self.path != ":memory:":
             Path(self.path).parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(self.path, timeout=30, check_same_thread=False)
+        self.conn = sqlite3.connect(self.path, timeout=LOCK_TIMEOUT, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
         if self.path != ":memory:":
-            self.conn.execute("PRAGMA journal_mode = WAL")
+            self._use_wal()
         self.conn.executescript(SCHEMA)
         self._migrate()
-        if not self.conn.execute("SELECT 1 FROM schema_info").fetchone():
-            self.conn.execute("INSERT INTO schema_info(version) VALUES (?)", (SCHEMA_VERSION,))
+        # one statement, so two connections creating the database at once can't both add the row
+        self.conn.execute("INSERT INTO schema_info(version) SELECT ? WHERE NOT EXISTS (SELECT 1 FROM schema_info)",
+                          (SCHEMA_VERSION,))
         self.conn.commit()
+
+    def _use_wal(self) -> None:
+        """Switch the file to WAL (lets readers and one writer work side by side; it stays set in the file).
+
+        SQLite does not wait on a busy lock while it switches the journal mode - it fails with
+        "database is locked" at once. A search opens the same new database from one thread per store,
+        so one store's scrape was lost now and then. Wait here as long as for any other lock.
+        """
+        deadline = time.monotonic() + LOCK_TIMEOUT
+        while True:
+            try:
+                if self.conn.execute("PRAGMA journal_mode").fetchone()[0].lower() != "wal":
+                    self.conn.execute("PRAGMA journal_mode = WAL")
+                return
+            except sqlite3.OperationalError as exc:
+                if "locked" not in str(exc).lower() or time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.05)
 
     def _migrate(self) -> None:
         """Add columns introduced after a database was created (safe to run every time)."""
