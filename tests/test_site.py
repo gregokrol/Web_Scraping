@@ -218,3 +218,54 @@ def test_site_setup_writes_settings_from_the_clone(tmp_path, monkeypatch, capsys
     assert site["telegram_url"] == "https://t.me/mechiremet" and site["publish_dir"] == clone.resolve().as_posix()
     project = Path(__file__).resolve().parents[1]
     assert main(["site", "setup", "--publish-dir", str(project)]) == 2      # never the project itself
+
+
+def _git(*args, cwd=None):
+    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True).stdout.strip()
+
+
+def test_publish_to_gh_pages_branch_of_the_same_repo(tmp_path, monkeypatch, capsys):
+    """The site goes to its own branch; the code, its branch and the working files are untouched."""
+    bare = tmp_path / "remote.git"
+    _git("init", "-q", "--bare", "-b", "main", str(bare))
+    proj = tmp_path / "Web_Scraping"
+    _git("clone", "-q", str(bare), str(proj))
+    for k, v in (("user.email", "t@example.com"), ("user.name", "t")):
+        _git("-C", str(proj), "config", k, v)
+    (proj / "code.py").write_text("print('code')\n", encoding="utf-8")
+    (proj / ".gitignore").write_text("site/\n*.db\nautomation.json\n", encoding="utf-8")   # as in the real project
+    _git("-C", str(proj), "add", "code.py", ".gitignore")
+    _git("-C", str(proj), "commit", "-q", "-m", "code")
+    _git("-C", str(proj), "push", "-q", "origin", "main")
+    _git("-C", str(proj), "remote", "set-url", "--push", "origin", str(bare))
+    monkeypatch.chdir(proj)
+    _git("remote", "set-url", "origin", "https://github.com/gregokrol/Web_Scraping.git")
+    _git("remote", "set-url", "--push", "origin", str(bare))
+    monkeypatch.setenv("TELEGRAM_CHANNEL", "@mechiremet")
+    (proj / "automation.json").write_text(json.dumps({"db": "a.db"}), encoding="utf-8")
+    assert main(["site", "setup", "--same-repo"]) == 0
+    site = json.loads((proj / "automation.json").read_text(encoding="utf-8"))["site"]
+    assert site["base_url"] == "https://gregokrol.github.io/Web_Scraping/" and site["publish_branch"] == "gh-pages"
+    _git("remote", "set-url", "origin", str(bare))             # fetch/push go to the local test remote
+
+    db, oid, a = approved_deal(proj)
+    decide(db, [a["id"]], True)
+    db.close()
+    before_head, before_status = _git("rev-parse", "HEAD"), _git("status", "--porcelain")
+    assert main(["site", "publish"]) == 0
+    assert "published to branch gh-pages" in capsys.readouterr().out
+    files = _git("--git-dir", str(bare), "ls-tree", "-r", "--name-only", "gh-pages").split()
+    assert {"index.html", f"deals/{a['id']}.html", "style.css", ".nojekyll"} <= set(files)
+    assert "code.py" not in files                                       # only the site is in the branch
+    assert _git("rev-parse", "HEAD") == before_head and _git("branch", "--show-current") == "main"
+    assert _git("status", "--porcelain") == before_status               # working files untouched
+    assert main(["site", "publish"]) == 0 and "no changes" in capsys.readouterr().out
+    assert _git("--git-dir", str(bare), "rev-list", "--count", "gh-pages") == "1"
+
+
+def test_publish_branch_refuses_the_code_branch(tmp_path):
+    with pytest.raises(RuntimeError, match="not allowed"):
+        (tmp_path / "site").mkdir()
+        (tmp_path / "site" / "index.html").write_text("x", encoding="utf-8")
+        _git("init", "-q", str(tmp_path / "r"))
+        publish_site(SiteConfig(out_dir=str(tmp_path / "site"), publish_branch="main", repo_dir=str(tmp_path / "r")))

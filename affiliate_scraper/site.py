@@ -51,6 +51,8 @@ class SiteConfig:
     title: str = "מחיר אמת"
     out_dir: str = "site"
     publish_dir: str = ""
+    publish_branch: str = ""        # e.g. "gh-pages": publish into a branch of THIS project's repository instead
+    repo_dir: str = "."             # the project's git repository (for publish_branch)
     days: int = 30
     stale_hours: float = 48.0
 
@@ -527,12 +529,63 @@ def build_site(db: Database, cfg: SiteConfig, now: Optional[datetime] = None) ->
     return {"pages": len(pages), "deals": len(deals), "out_dir": str(out)}
 
 
+def publish_to_branch(cfg: SiteConfig, run=subprocess.run) -> str:
+    """Commit the built site to ``cfg.publish_branch`` of the project's own repository and push it.
+
+    Uses a separate temporary git index, so the files you work on, your current branch and its history are
+    never touched: the website lives only in its own branch (GitHub Pages: "Deploy from a branch" -> gh-pages).
+    """
+    import os
+    import tempfile
+    repo = Path(cfg.repo_dir).resolve()
+    src = Path(cfg.out_dir).resolve()
+    branch = cfg.publish_branch
+    if not (repo / ".git").exists():
+        raise RuntimeError(f"{repo} is not a git repository - run the system from its folder")
+    if not (src / "index.html").exists():
+        raise RuntimeError("build the site first")
+    if branch in ("main", "master") or not all(ch.isalnum() or ch in "-_/." for ch in branch):
+        raise RuntimeError(f"publish_branch {branch!r} not allowed - use a separate branch such as gh-pages")
+    tmp = Path(tempfile.mkdtemp(prefix="site-index-"))
+    env = {**os.environ, "GIT_INDEX_FILE": str(tmp / "index")}
+    gitdir = ["git", f"--git-dir={repo / '.git'}"]
+
+    def git(*args: str, use_index: bool = False, cwd: Optional[Path] = None) -> subprocess.CompletedProcess:
+        return run([*gitdir, *args], capture_output=True, text=True, check=False, env=env if use_index else None,
+                   cwd=str(cwd) if cwd else None)
+
+    try:
+        git("fetch", "origin", f"+refs/heads/{branch}:refs/remotes/origin/{branch}")   # ok if it doesn't exist yet
+        added = git(f"--work-tree={src}", "add", "-A", "-f", ".", use_index=True, cwd=src)
+        if added.returncode != 0:
+            raise RuntimeError(f"git add failed: {added.stderr.strip()[:300]}")
+        tree = git("write-tree", use_index=True).stdout.strip()
+        parent = (git("rev-parse", "-q", "--verify", f"refs/remotes/origin/{branch}").stdout.strip()
+                  or git("rev-parse", "-q", "--verify", f"refs/heads/{branch}").stdout.strip())
+        if parent and git("rev-parse", f"{parent}^{{tree}}").stdout.strip() == tree:
+            return "no changes"
+        msg = f"Update site {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC"
+        made = git("commit-tree", tree, *(["-p", parent] if parent else []), "-m", msg)
+        if made.returncode != 0:
+            raise RuntimeError(f"git commit failed: {made.stderr.strip()[:300]}")
+        commit = made.stdout.strip()
+        git("update-ref", f"refs/heads/{branch}", commit)
+        pushed = git("push", "origin", f"refs/heads/{branch}:refs/heads/{branch}")
+        if pushed.returncode != 0:
+            raise RuntimeError(f"git push failed: {pushed.stderr.strip()[:300]}")
+        return f"published to branch {branch}"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def publish_site(cfg: SiteConfig, run=subprocess.run) -> str:
-    """Copy the built site into cfg.publish_dir (a git clone of the Pages repository), commit and push."""
+    """Publish the built site: into a branch of this repository (publish_branch) or a separate clone (publish_dir)."""
+    if cfg.publish_branch:
+        return publish_to_branch(cfg, run)
     target = Path(cfg.publish_dir)
     if not cfg.publish_dir or not (target / ".git").exists():
-        raise RuntimeError("site.publish_dir must be a local git clone of your GitHub Pages repository "
-                           "(see RUN_ON_WINDOWS.md, website section)")
+        raise RuntimeError("the website has nowhere to be published - run: py main.py site setup --same-repo "
+                           "(or --publish-dir <a git clone>), see RUN_ON_WINDOWS.md, website section")
     _refuse_project_folder(target, "site.publish_dir")
     src = Path(cfg.out_dir).resolve()
     if src == target.resolve():

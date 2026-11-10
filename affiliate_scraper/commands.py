@@ -775,7 +775,7 @@ def _run_run(args) -> int:
         try:
             info = build_site(db, site_cfg)
             _err(f"Website built: {info['deals']} deal page(s) in {info['out_dir']}")
-            if site_cfg.publish_dir:
+            if site_cfg.publish_dir or site_cfg.publish_branch:
                 _err(f"Website: {publish_site(site_cfg)}")
         except RuntimeError as exc:
             _err(f"Website problem: {exc}")
@@ -1022,7 +1022,9 @@ def _site_build(ap) -> None:
                     help="setup = save the website settings; build = write the site folder; "
                          "preview = build and open it; publish = build and push")
     ap.add_argument("--config", default="automation.json")
-    ap.add_argument("--publish-dir", help="setup: local clone of your GitHub Pages repository, e.g. C:/Projects/mechiremet")
+    ap.add_argument("--same-repo", action="store_true",
+                    help="setup: publish into the gh-pages branch of THIS project's repository (no second repository)")
+    ap.add_argument("--publish-dir", help="setup: local clone of a separate GitHub Pages repository")
     ap.add_argument("--base-url", help="setup: the site address (default: from the clone's GitHub remote)")
     ap.add_argument("--telegram-url", help="setup: channel link (default: from TELEGRAM_CHANNEL)")
 
@@ -1070,11 +1072,42 @@ def pages_url_from_remote(remote: str) -> str:
         f"https://{user.lower()}.github.io/{repo}/"
 
 
+def _site_setup_same_repo(args, cfg: dict) -> int:
+    import os
+    import subprocess
+    if not Path(".git").exists():
+        _err("error: run this from the project folder (the one with main.py and .git)")
+        return 2
+    remote = subprocess.run(["git", "remote", "get-url", "origin"], capture_output=True, text=True, check=False).stdout
+    base = args.base_url or pages_url_from_remote(remote)
+    if not base.startswith("https://"):
+        _err("error: could not work out the site address - give --base-url https://<you>.github.io/<repo>/")
+        return 2
+    channel = os.environ.get("TELEGRAM_CHANNEL", "")
+    tg = args.telegram_url or (f"https://t.me/{channel.lstrip('@')}" if channel.startswith("@") else "")
+    site = dict(cfg.get("site") or {})
+    site.update({"enabled": True, "base_url": base if base.endswith("/") else base + "/", "publish_branch": "gh-pages",
+                 "publish_dir": "", "repo_dir": ".", "out_dir": site.get("out_dir", "site"),
+                 "title": site.get("title", "מחיר אמת")})
+    if tg:
+        site["telegram_url"] = tg
+    site.pop("_comment", None)
+    cfg["site"] = site
+    Path(args.config).write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"website settings saved in {args.config}:")
+    for k in ("base_url", "publish_branch", "telegram_url"):
+        print(f"  {k}: {site.get(k, '(not set)')}")
+    print("then: menu 22 (publish), and on GitHub: Settings -> Pages -> Deploy from a branch -> gh-pages / (root)")
+    return 0
+
+
 def _site_setup(args, cfg: dict) -> int:
     import os
     import subprocess
+    if args.same_repo:
+        return _site_setup_same_repo(args, cfg)
     if not args.publish_dir:
-        _err("error: give --publish-dir, the folder where you cloned the website repository")
+        _err("error: give --same-repo (simplest) or --publish-dir <the folder where you cloned the website repository>")
         return 2
     folder = Path(args.publish_dir)
     if not (folder / ".git").exists():
@@ -1166,7 +1199,8 @@ def _withdraw_run(args) -> int:
             site_cfg = SiteConfig.from_dict(site)
             try:
                 build_site(db, site_cfg)
-                print("website rebuilt" + (f" and {publish_site(site_cfg)}" if site_cfg.publish_dir else ""))
+                print("website rebuilt" + (f" and {publish_site(site_cfg)}"
+                                           if site_cfg.publish_dir or site_cfg.publish_branch else ""))
             except RuntimeError as exc:
                 _err(f"Website problem: {exc}")
     finally:

@@ -310,39 +310,26 @@ py main.py schedule --remove
 - **מהאתר לטלגרם:** בכל עמוד באתר יש כפתור "הצטרפו לערוץ".
 - **מגוגל:** האתר כולל sitemap, RSS ותגיות SEO, ולכן גוגל יכול למצוא אותו.
 
-**הקמה (פעם אחת, בערך 10 דקות):**
-1. ב-GitHub לוחצים **New repository**, נותנים לו שם (למשל `mechiremet`), בוחרים **Public** ולוחצים **Create repository**.
-2. ב-CMD:
+**הקמה (פעם אחת, בערך 5 דקות):** האתר מתפרסם בתוך **אותו מאגר** (`Web_Scraping`), בענף נפרד בשם `gh-pages`. לא צריך מאגר נוסף, ולא תיקייה נוספת.
+
+1. ב-CMD, מתוך תיקיית המערכת:
 
 </div>
 
 ```cmd
-cd /d C:\Projects
-git clone https://github.com/YOUR-USER/mechiremet.git
+.venv\Scripts\activate
+py main.py site setup --same-repo
 ```
 
 <div dir="rtl">
 
-3. בתפריט בוחרים **12** ומוסיפים ל-`automation.json` (עם `/` ולא `\` בנתיב):
+2. בתפריט בוחרים **21** כדי לראות את האתר במחשב, ואחר כך **22** כדי לפרסם.
+3. ב-GitHub, במאגר `Web_Scraping`, נכנסים ל-**Settings**, אחר כך **Pages**. תחת **Deploy from a branch** בוחרים את הענף `gh-pages` ואת `/ (root)`, ולוחצים **Save**.
+4. אחרי דקה או שתיים האתר זמין בכתובת שהפקודה הציגה, למשל `https://YOUR-USER.github.io/Web_Scraping/`.
 
-</div>
+הקוד שלך לא משתנה: האתר נשמר רק בענף `gh-pages`, והקבצים שאתה עובד עליהם לא נוגעים בו.
 
-```json
-"site": {
-  "enabled": true,
-  "base_url": "https://YOUR-USER.github.io/mechiremet/",
-  "telegram_url": "https://t.me/mechiremet",
-  "title": "מחיר אמת",
-  "out_dir": "site",
-  "publish_dir": "C:/Projects/mechiremet"
-},
-```
-
-<div dir="rtl">
-
-4. בתפריט בוחרים **21** כדי לראות את האתר במחשב, ואחר כך **22** כדי לפרסם.
-5. ב-GitHub, במאגר `mechiremet`, נכנסים ל-**Settings**, אחר כך **Pages**, ושם בוחרים **Deploy from a branch**, ואז `main` ו-`/ (root)`, ולוחצים **Save**.
-6. אחרי דקה או שתיים האתר זמין בכתובת `https://YOUR-USER.github.io/mechiremet/`.
+**אפשרות נוספת:** אתר במאגר נפרד, למשל בשביל כתובת יפה יותר. יוצרים מאגר, מורידים אותו למחשב עם `git clone` לתיקייה **נפרדת** מהמערכת, ומריצים `py main.py site setup --publish-dir C:/Projects/mechiremet`.
 
 מכאן כל ריצה (תפריט **6**, או לפי התזמון) מעדכנת את האתר לבד, **לפני** שהפוסט עולה לטלגרם. ככה הקישור בפוסט כבר עובד.
 
