@@ -4,3 +4,5 @@ lxml>=5.0
 # local dashboard (py main.py dashboard)
 fastapi>=0.110
 uvicorn>=0.29
+# logo watermark on channel photos
+pillow>=10.0

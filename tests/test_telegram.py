@@ -27,15 +27,17 @@ class Bot:
     def __init__(self, replies=None):
         self.calls, self.replies = [], list(replies or [])
 
-    def post(self, url, json=None, timeout=None):
+    def post(self, url, json=None, timeout=None, data=None, files=None):
         method = url.rsplit("/", 1)[-1]
-        self.calls.append((method, json, url))
+        self.calls.append((method, json if json is not None else data, url))
+        self.files = files
         if self.replies:
             return self.replies.pop(0)
         return R({"ok": True, "result": {"message_id": len(self.calls)}})
 
 
 def pub(session, **kw):
+    kw.setdefault("watermark", "0")  # watermark has its own tests (test_branding.py); no image downloads here
     return TelegramPublisher(token="123:SECRET", channel="@deals_il", admin_chat="42", session=session,
                              min_interval=0, **kw)
 
@@ -150,6 +152,7 @@ def test_automation_run_posts_to_telegram_channel(tmp_path, local_site, monkeypa
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:SECRET")
     monkeypatch.setenv("TELEGRAM_CHANNEL", "@deals_il")
     monkeypatch.setenv("TELEGRAM_ADMIN_CHAT", "42")
+    monkeypatch.setenv("TELEGRAM_WATERMARK", "0")
     local_site.post_reply = b'{"ok": true, "result": {"message_id": 1}}'
     local_site.add("/products/k", product_html("Acme Kettle", "90", currency="ILS", gtin="4006381333931"))
     cfg = {"db": str(tmp_path / "t.db"), "targets": [local_site.base + "/products/k"], "delay": 0, "no_cache": True,

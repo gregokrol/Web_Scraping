@@ -18,9 +18,11 @@ Posting rules kept by this module:
 from __future__ import annotations
 
 import html
+import json
 import logging
 import os
 import time
+from pathlib import Path
 from typing import Optional
 
 import requests
@@ -71,7 +73,8 @@ def format_post(content: dict, max_len: int) -> str:
 class TelegramPublisher:
     def __init__(self, token: Optional[str] = None, channel: Optional[str] = None, admin_chat: Optional[str] = None,
                  session: Optional[requests.Session] = None, env: Optional[dict] = None,
-                 min_interval: Optional[float] = None):
+                 min_interval: Optional[float] = None, watermark: Optional[str] = None,
+                 allow_private_images: bool = False):
         e = env if env is not None else os.environ
         self.token = token or e.get("TELEGRAM_BOT_TOKEN", "")
         self.channel = channel or e.get("TELEGRAM_CHANNEL", "")
@@ -79,12 +82,22 @@ class TelegramPublisher:
         self.session = session or requests.Session()
         self.min_interval = MIN_INTERVAL if min_interval is None else min_interval
         self._last = 0.0
+        # logo watermark on product photos: env TELEGRAM_WATERMARK = path to a logo, or "0" to disable;
+        # default: assets/logo.png when it exists
+        from .branding import DEFAULT_LOGO
+        wm = watermark if watermark is not None else e.get("TELEGRAM_WATERMARK", "")
+        if wm in ("0", "off", "false", "no"):
+            self.watermark_logo = None
+        else:
+            path = Path(wm) if wm else DEFAULT_LOGO
+            self.watermark_logo = path if path.is_file() else None
+        self.allow_private_images = allow_private_images
 
     @property
     def configured(self) -> bool:
         return bool(self.token and self.channel)
 
-    def _api(self, method: str, payload: dict, retries: int = 2) -> dict:
+    def _api(self, method: str, payload: dict, retries: int = 2, files: Optional[dict] = None) -> dict:
         if not self.token:
             raise TelegramError("set TELEGRAM_BOT_TOKEN (from @BotFather)")
         for attempt in range(retries + 1):
@@ -93,7 +106,14 @@ class TelegramPublisher:
                 time.sleep(wait)
             self._last = time.monotonic()
             try:
-                resp = self.session.post(f"{API_BASE()}/bot{self.token}/{method}", json=payload, timeout=20)
+                url = f"{API_BASE()}/bot{self.token}/{method}"
+                if files:
+                    # multipart upload: nested values (reply_markup) must be JSON strings
+                    form = {k: (json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v)
+                            for k, v in payload.items()}
+                    resp = self.session.post(url, data=form, files=files, timeout=60)
+                else:
+                    resp = self.session.post(url, json=payload, timeout=20)
                 data = resp.json()
             except (requests.RequestException, ValueError) as exc:
                 if attempt < retries:
@@ -123,6 +143,13 @@ class TelegramPublisher:
                    "parse_mode": "HTML"}
             if button:
                 msg["reply_markup"] = button
+            branded = self._branded_photo(image)
+            if branded:
+                try:
+                    upload = {k: v for k, v in msg.items() if k != "photo"}
+                    return self._api("sendPhoto", upload, files={"photo": ("mechir-emet.jpg", branded, "image/jpeg")})
+                except TelegramError as exc:
+                    log.info("branded sendPhoto failed (%s) - trying the original image URL", exc)
             try:
                 return self._api("sendPhoto", msg)
             except TelegramError as exc:
@@ -134,6 +161,18 @@ class TelegramPublisher:
         if button:
             msg["reply_markup"] = button
         return self._api("sendMessage", msg)
+
+    def _branded_photo(self, image_url: str) -> Optional[bytes]:
+        """Product photo with the channel logo, or None (then the original URL is posted)."""
+        if not self.watermark_logo:
+            return None
+        from .branding import BrandingError, download_image, watermark
+        try:
+            raw = download_image(image_url, allow_private=self.allow_private_images)
+            return watermark(raw, self.watermark_logo)
+        except BrandingError as exc:
+            log.info("watermark skipped: %s", exc)
+            return None
 
     def notify_admin(self, text: str) -> dict:
         if not self.admin_chat:
