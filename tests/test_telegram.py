@@ -192,3 +192,22 @@ def test_find_private_channel_id():
     [chat] = pub(Bot([R(updates)])).find_chats()
     assert chat == {"id": -1001234567890, "title": "מחיר אמת", "type": "channel", "username": "",
                     "bot_status": "administrator"}
+
+
+def test_token_slips_fixed_or_explained():
+    from affiliate_scraper.telegram import normalize_token, token_problem
+    good = "7123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw"
+    assert normalize_token(f' "bot{good}" ') == good and token_problem(good) is None
+    assert "Hebrew" in token_problem("הטוקן מ-BotFather")
+    assert "spaces" in token_problem("7123 456:AAH")
+    assert "':'" in token_problem("7123456789AAHdq")
+    assert "incomplete" in token_problem("7123456789:AAH")
+    with pytest.raises(TelegramError, match="Hebrew"):
+        TelegramPublisher(token="הטוקן", channel="@c", session=Bot(), min_interval=0).check()
+
+
+def test_rejected_token_gets_clear_message():
+    bot = Bot([R({"ok": False, "error_code": 404, "description": "Not Found"}, 404)])
+    with pytest.raises(TelegramError, match="BotFather"):
+        TelegramPublisher(token="7123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw", channel="@c", session=bot,
+                          min_interval=0, watermark="0").check()

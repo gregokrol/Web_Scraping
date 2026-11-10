@@ -21,6 +21,7 @@ import html
 import json
 import logging
 import os
+import re
 import time
 from pathlib import Path
 from typing import Optional
@@ -43,6 +44,35 @@ MIN_INTERVAL = 3.1   # Telegram allows ~20 posts/minute per channel; stay well b
 
 class TelegramError(PublishError):
     pass
+
+
+TOKEN_RE = re.compile(r"^\d{5,15}:[A-Za-z0-9_-]{30,50}$")
+
+
+def normalize_token(raw: str) -> str:
+    """Fix common copy/paste slips: spaces, quotes, a leading 'bot' copied from a URL."""
+    t = (raw or "").strip().strip('"').strip("'").strip()
+    if t.lower().startswith("bot") and t[3:4].isdigit():
+        t = t[3:]
+    return t
+
+
+def token_problem(token: str) -> Optional[str]:
+    """Explain (without revealing it) why a token can't be right; None if the format looks valid."""
+    if not token:
+        return "TELEGRAM_BOT_TOKEN is empty - set it with setx and open a NEW CMD window"
+    if TOKEN_RE.match(token):
+        return None
+    if any("\u0590" <= ch <= "\u05ff" for ch in token):
+        return "the token contains Hebrew letters - the example text was saved instead of the real token"
+    if " " in token:
+        return "the token contains spaces - copy it again from @BotFather (tap the token to copy)"
+    if ":" not in token:
+        return "the token has no ':' - it should look like 1234567890:AAH... (copy it again from @BotFather)"
+    head, _, tail = token.partition(":")
+    if not head.isdigit():
+        return "the part before ':' must be digits only - copy the token again from @BotFather"
+    return f"the part after ':' looks incomplete ({len(tail)} characters, expected about 35) - copy it again"
 
 
 def format_post(content: dict, max_len: int) -> str:
@@ -76,7 +106,7 @@ class TelegramPublisher:
                  min_interval: Optional[float] = None, watermark: Optional[str] = None,
                  allow_private_images: bool = False):
         e = env if env is not None else os.environ
-        self.token = token or e.get("TELEGRAM_BOT_TOKEN", "")
+        self.token = normalize_token(token or e.get("TELEGRAM_BOT_TOKEN", ""))
         self.channel = channel or e.get("TELEGRAM_CHANNEL", "")
         self.admin_chat = admin_chat or e.get("TELEGRAM_ADMIN_CHAT", "")
         self.session = session or requests.Session()
@@ -214,7 +244,16 @@ class TelegramPublisher:
 
     def check(self) -> dict:
         """Verify the token and the channel permissions (getMe + getChat)."""
-        me = self._api("getMe", {})
+        problem = token_problem(self.token)
+        if problem:
+            raise TelegramError(f"bad TELEGRAM_BOT_TOKEN: {problem}")
+        try:
+            me = self._api("getMe", {})
+        except TelegramError as exc:
+            if "404" in str(exc) or "401" in str(exc):
+                raise TelegramError("Telegram rejected the token (wrong or revoked). In @BotFather: /mybots -> "
+                                    "your bot -> API Token, copy it again, run setx, open a NEW CMD window") from None
+            raise
         info = {"bot": me.get("username")}
         if self.channel:
             chat = self._api("getChat", {"chat_id": self.channel})
