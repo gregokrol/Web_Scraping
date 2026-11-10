@@ -135,16 +135,26 @@ def two_stores(local_site, tmp_path):
     return tmp_path, local_site
 
 
+def _store_errors(lines) -> str:
+    """What went wrong per store (a store's job error, fetch problems) - shown when a search test fails."""
+    keep = ("error", "warning", "timeout", "circuit", "robots", "store done", "=== scrape", "fetching")
+    return "\n".join(ln for ln in lines if any(k in ln.lower() for k in keep)) or "(no errors logged)"
+
+
 def test_search_command_compares_the_stores(two_stores, capsys):
     tmp, site = two_stores
-    assert main(["search", "puzzle", "1000", "--config", str(tmp / "automation.json")]) == 0
+    code = main(["search", "puzzle", "1000", "--config", str(tmp / "automation.json")])
+    err = capsys.readouterr().err
+    log = _store_errors(err.splitlines())
+    assert code == 0, log
     assert site.count("/a/p/ad") == 0                                        # not a result card
     db = Database(str(tmp / "d.db"))
     rows = {r["url"].split("/", 3)[3]: r for r in db.query("SELECT url, price, group_id FROM offers")}
     db.close()
-    assert set(rows) == {"a/p/1", "a/p/2", "b/product/night/"}
+    assert set(rows) == {"a/p/1", "a/p/2", "b/product/night/"}, log
     assert rows["a/p/1"]["group_id"] and rows["a/p/1"]["group_id"] == rows["b/product/night/"]["group_id"]
-    assert "Search 'puzzle 1000': 3 product(s) in 2 of 2 store(s)." in capsys.readouterr().err
+    assert "Search 'puzzle 1000': 3 product(s) in 2 of 2 store(s)." in err, log
+    assert "error:" not in err, log
 
 
 def test_search_with_no_searchable_store_says_so(tmp_path, capsys):
@@ -170,7 +180,9 @@ def test_search_box_in_the_app(two_stores):
             break
         time.sleep(0.02)
     j = client.get(f"/api/jobs/{job['id']}").json()
-    assert (j["fetched"], j["targets"], j["stores_done"]) == (3, 3, 2)     # both stores, searched side by side
+    log = _store_errors(j["log"])
+    assert (j["fetched"], j["targets"], j["stores_done"]) == (3, 3, 2), log     # both stores, side by side
+    assert not any(ln.startswith("error:") for ln in j["log"]), log
     r = client.get(f"/api/search/{job['id']}").json()
     assert r["status"] == "done" and r["q"] == "puzzle 1000"
     [g] = r["groups"]
