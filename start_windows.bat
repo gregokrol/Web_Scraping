@@ -19,7 +19,7 @@ echo    1   Scrape a product page or a whole store
 echo    2   Search AliExpress          (needs ALIEXPRESS_* keys)
 echo    3   Search Amazon              (needs AMAZON_* keys)
 echo    4   Import a product feed      (XML / CSV file or URL)
-echo    5   Open the dashboard in the browser
+echo    5   Open the app window (dashboard)
 echo    6   Run the full automation now
 echo    7   Show deals waiting for approval
 echo    8   Approve deals
@@ -84,9 +84,9 @@ if "%F%"=="" goto menu
 goto done
 
 :dashboard
-echo  The dashboard opens in your browser. Close this window or press Ctrl+C to stop it.
-"%PY%" main.py dashboard --open
-goto done
+rem the app window runs on its own (no console) and stops by itself after its window closes
+start "" "%~dp0.venv\Scripts\pythonw.exe" "%~dp0app_window.pyw"
+goto menu
 
 :run
 "%PY%" main.py run --config automation.json
@@ -116,7 +116,7 @@ goto done
 set "T="
 set /p "T=  Time to run every day, HH:MM (Enter = 07:43): "
 if "%T%"=="" set "T=07:43"
-"%PY%" main.py schedule --every daily --at %T% --create
+"%PY%" main.py schedule --every daily --at %T% --hidden --create
 goto done
 
 :settings

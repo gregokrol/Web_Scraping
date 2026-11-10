@@ -337,6 +337,33 @@ class Database:
                           (p.deal_score, p.affiliate_score, p.deal_status, p.affiliate_status, p.deal_notes,
                            p.group_id, p.match_confidence, p.url))
 
+    def recent_products(self, since: str, with_known_matches: bool = False) -> list[Product]:
+        """Offers seen at or after ``since`` (ISO time) as Product objects - e.g. every store of one automation run.
+
+        ``with_known_matches`` adds older offers of the same product / comparison group (a search that found a
+        product in one store still gets compared with the other stores an earlier scan found it in).
+        """
+        where = "o.last_seen >= ?"
+        params: tuple = (since,)
+        if with_known_matches:
+            where += (" OR o.product_id IN (SELECT product_id FROM offers WHERE last_seen >= ? AND product_id IS NOT NULL)"
+                      " OR (o.group_id <> '' AND o.group_id IN (SELECT group_id FROM offers WHERE last_seen >= ? "
+                      "AND group_id <> ''))")
+            params = (since, since, since)
+        rows = self.query("SELECT o.*, p.name AS p_name, p.brand, p.model, p.gtin FROM offers o "
+                          f"LEFT JOIN products p ON p.id = o.product_id WHERE {where} ORDER BY o.id", params)
+        out = []
+        for r in rows:
+            p = Product(url=r["url"], name=r["title"] or r["p_name"] or "", brand=r["brand"] or "",
+                        model=r["model"] or "", gtin=r["gtin"] or "", fetched_at=r["last_fetched_at"] or "",
+                        price_verified=bool(r["price_verified"]),
+                        validation_issues=[i for i in (r["validation_issues"] or "").split(";") if i])
+            for col in OFFER_COLUMNS:
+                if col not in ("domain", "price_verified") and r[col] is not None:
+                    setattr(p, col, r[col])
+            out.append(p)
+        return out
+
     def offer_id(self, url: str) -> Optional[int]:
         row = self.conn.execute("SELECT id FROM offers WHERE url=?", (url,)).fetchone()
         return int(row["id"]) if row else None

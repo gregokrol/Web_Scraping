@@ -244,3 +244,25 @@ def test_unsafe_input_url_rejected(tmp_path):
 
 def test_bad_regex_rejected(tmp_path):
     assert main(["https://93.184.216.34/", "--include", "([", "--dry-run"]) == 2
+
+
+# ---------------------------------------------------------------- "no products" says why
+def test_missing_api_keys_explained_on_screen(tmp_path, monkeypatch, capsys):
+    for var in ("ALIEXPRESS_APP_KEY", "ALIEXPRESS_APP_SECRET", "ALIEXPRESS_TRACKING_ID"):
+        monkeypatch.delenv(var, raising=False)
+    rc = main(["--aliexpress-search", "puzzle", "--no-db", "-o", str(tmp_path / "out"),
+               "--cache-dir", str(tmp_path / "cache")])
+    assert rc == 1
+    screen = capsys.readouterr().err
+    assert "API keys are missing, so nothing was searched" in screen
+    assert "ALIEXPRESS_APP_KEY" in screen and "open a new one" in screen
+    assert "robots.txt" not in screen        # the generic page hint would point the wrong way
+
+
+def test_page_errors_listed_on_screen(local_site, tmp_path, capsys):
+    local_site.add("/products/gone", "x", status=410)
+    rc = _cli(local_site, tmp_path, local_site.base + "/products/gone", "--no-db")
+    assert rc == 1
+    screen = capsys.readouterr().err
+    assert "No products found" in screen and "Reasons:" in screen
+    assert "/products/gone: http_410" in screen

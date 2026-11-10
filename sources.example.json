@@ -32,7 +32,18 @@
         "https://example-shopify-store.com"
       ],
       "discover": "sitemap",
-      "include": "/products/"
+      "include": "/products/",
+      "search_url": "https://example-shopify-store.com/search?q={q}&type=product",
+      "_comment_search": "search_url = the store's own search page ({q} = the words); used by `py main.py search` and the app's search box. Optional: search_include (product-URL regex on that page) and search_selector (CSS selector of the result-card links, for stores whose product URLs have no fixed shape)",
+      "affiliate": {
+        "status": "confirmed",
+        "url": "https://example-shopify-store.com/pages/affiliates",
+        "network": "",
+        "note": "where you saw it, the commission if published",
+        "checked": "2026-01-31"
+      },
+      "_comment_search_sitemap": "A store whose robots.txt forbids its search page (Disallow: /*?s=) but lists product sitemaps with the product name in each URL: put \"search_sitemap\": \"https://store.example/\" (and search_include, e.g. \"/product/\") instead of search_url - a search then looks for the words in the sitemaps' product URLs.",
+      "_comment_affiliate": "affiliate = what you KNOW about the store's own affiliate program. status: confirmed (a published program page - put it in url), signs (an affiliate app on the site, no public sign-up), not_found (looked, found nothing). The app's 'only stores with an affiliate program' filter uses confirmed + signs + the programs you set up in its affiliate programs tab."
     },
     {
       "domain": "example-merchant-feed.com",

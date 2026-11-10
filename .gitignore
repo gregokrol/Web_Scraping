@@ -13,4 +13,6 @@ data/
 .env
 automation.json
 run_automation.bat
+run_automation.vbs
 logs/
+.app-window/

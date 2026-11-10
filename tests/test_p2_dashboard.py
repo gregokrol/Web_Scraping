@@ -1,6 +1,8 @@
 """P2: local dashboard (FastAPI) - security guards and every API area."""
 
 import json
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -130,6 +132,99 @@ def test_manual_crawl_uses_polite_pipeline(setup):
     assert "--db" in argv and path in argv and "--ignore-robots" not in argv and "--allow-private-hosts" not in argv
     assert post(client, "/api/crawl", json={"urls": ["http://192.168.1.1/"]}).status_code == 400
     assert post(client, "/api/crawl", json={"urls": []}).status_code == 400
+
+
+def wait_job(client, job_id):
+    for _ in range(200):
+        j = client.get(f"/api/jobs/{job_id}").json()
+        if j["status"] != "running":
+            return j
+        time.sleep(0.01)
+    raise AssertionError("job did not finish")
+
+
+def test_run_now_runs_automation_and_reports_progress(tmp_path):
+    (tmp_path / "automation.json").write_text("{}")
+    gate = threading.Event()
+
+    def runner(argv):
+        print("=== scrape: https://www.shop.example/category")
+        print("Fetching 3 page(s)")
+        print("  [2/3] https://www.shop.example/p/2")
+        gate.wait(5)
+        print("  [3/3] https://www.shop.example/p/3")
+        return 0
+
+    client = TestClient(create_app(str(tmp_path / "d.db"), automation_config=str(tmp_path / "automation.json"),
+                                   allowed_hosts=["testserver"], crawl_runner=runner, token=TOKEN))
+    job = post(client, "/api/run").json()
+    assert job["kind"] == "run"
+    for _ in range(200):
+        j = client.get(f"/api/jobs/{job['id']}").json()
+        if j.get("done") == 2:
+            break
+        time.sleep(0.01)
+    assert (j["stage"], j["done"], j["total"], j["stages_started"]) == ("shop.example", 2, 3, 1)
+    assert "Fetching 3 page(s)" in j["log"] and not any("[2/3]" in line for line in j["log"])  # no per-page flood
+    assert post(client, "/api/run").status_code == 409            # one scan at a time
+    assert client.get("/api/ping").json()["busy"] is True
+    gate.set()
+    assert wait_job(client, job["id"])["status"] == "done"
+    assert [j["id"] for j in client.get("/api/summary").json()["jobs"]] == [job["id"]]
+
+
+def test_run_now_needs_the_automation_config(setup):
+    client, *_ = setup
+    assert post(client, "/api/run").status_code == 400          # setup's automation.json does not exist
+    assert client.get("/api/jobs/nope").status_code == 404
+
+
+def test_schedule_endpoints(tmp_path):
+    calls, state = [], {"supported": True, "exists": False}
+
+    def runner(argv):
+        calls.append(argv)
+        state["exists"] = argv[1] != "--remove"
+        return 0
+
+    client = TestClient(create_app(str(tmp_path / "d.db"), automation_config="automation.json", allowed_hosts=["testserver"],
+                                   crawl_runner=runner, token=TOKEN, schedule_query=lambda: dict(state)))
+    assert client.get("/api/schedule").json() == {"supported": True, "exists": False}
+    assert post(client, "/api/schedule", json={"at": "25:00"}).status_code == 400
+    assert post(client, "/api/schedule", json={"at": "07:43 & del"}).status_code == 400
+    assert post(client, "/api/schedule", json={"at": "07:43"}).json()["exists"] is True
+    assert calls[-1] == ["schedule", "--every", "daily", "--at", "07:43", "--config", "automation.json", "--hidden", "--create"]
+    r = client.delete("/api/schedule", headers={"X-Dashboard-Token": TOKEN})
+    assert r.json()["exists"] is False and calls[-1] == ["schedule", "--remove"]
+    assert client.delete("/api/schedule").status_code == 403    # still needs the CSRF token
+
+
+def test_shutdown_only_from_the_desktop_app(setup, tmp_path):
+    client, *_ = setup
+    assert post(client, "/api/shutdown").status_code == 404
+    assert client.get("/api/summary").json()["can_shutdown"] is False
+    stopped = threading.Event()
+    app = create_app(str(tmp_path / "e.db"), allowed_hosts=["testserver"], token=TOKEN, on_shutdown=stopped.set)
+    desktop = TestClient(app)
+    assert desktop.get("/api/summary").json()["can_shutdown"] is True
+    assert desktop.post("/api/shutdown").status_code == 403                 # no token, no shutdown
+    assert post(desktop, "/api/shutdown").status_code == 200 and stopped.wait(3)
+    assert app.state.last_ping is not None
+
+
+def test_comparisons_list_each_store_cheapest_first(setup):
+    client, *_ = setup
+    [c] = client.get("/api/comparisons").json()
+    assert [o["price"] for o in c["offers"]] == [90.0, 110.0, 120.0]
+    assert [o["domain"] for o in c["offers"]] == ["a.example", "c.example", "b.example"]
+    s = client.get("/api/summary").json()
+    assert (s["compared_products"], s["tracked_offers"], s["tracked_stores"]) == (1, 3, 3)
+
+
+def test_favicon_is_served(setup):
+    client, *_ = setup
+    r = client.get("/favicon.ico")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/x-icon" and r.content[:4] == b"\0\0\1\0"
 
 
 def test_export_csv_is_hebrew_safe(setup):

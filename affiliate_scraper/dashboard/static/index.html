@@ -3,134 +3,311 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Web Scraping Dashboard</title>
+<title>Web Scraping</title>
+<link rel="icon" href="/favicon.ico">
 <style>
-  :root { --bg:#f6f7f9; --card:#fff; --text:#1c1e21; --muted:#65676b; --line:#e4e6eb; --accent:#0866ff;
-          --good:#1a7f37; --warn:#b35900; --bad:#c62828; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#111214; --card:#1c1d20; --text:#e4e6eb; --muted:#a8abaf;
-          --line:#2f3034; --accent:#4d94ff; --good:#3fb950; --warn:#e3a33a; --bad:#ff6b6b; } }
+  :root { --bg:#f3f4f7; --card:#fff; --card2:#f8f9fb; --text:#16181d; --muted:#667085; --line:#e4e7ec;
+          --accent:#2f6fed; --accent-soft:#e8f0ff; --good:#0f7b55; --good-soft:#e4f5ee; --warn:#b54708; --warn-soft:#fdf1e3;
+          --bad:#c4320a; --bad-soft:#fde9e4; --shadow:0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.08); }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0f1115; --card:#181b21; --card2:#1f232a; --text:#e7e9ee; --muted:#9aa3b2;
+          --line:#2a2f38; --accent:#5b8dff; --accent-soft:#1d2a47; --good:#3fbf8a; --good-soft:#15302a; --warn:#f0a447;
+          --warn-soft:#3a2a15; --bad:#ff7a5c; --bad-soft:#3b1e18; --shadow:none; } }
   * { box-sizing:border-box; }
-  body { margin:0; font-family:system-ui,"Segoe UI",Arial,sans-serif; background:var(--bg); color:var(--text); font-size:14px; }
-  header { display:flex; gap:16px; align-items:center; padding:12px 20px; background:var(--card); border-bottom:1px solid var(--line);
-           position:sticky; top:0; z-index:2; flex-wrap:wrap; }
-  header h1 { font-size:17px; margin:0; }
-  nav { display:flex; gap:4px; flex-wrap:wrap; }
-  nav button { background:none; border:0; padding:8px 12px; border-radius:8px; color:var(--muted); cursor:pointer; font:inherit; }
-  nav button.on { background:var(--bg); color:var(--text); font-weight:600; }
-  main { max-width:1300px; margin:0 auto; padding:20px 16px; }
+  [hidden] { display:none !important; }   /* .section-head / .schedule set display:flex, which would beat [hidden] */
+  html, body { margin:0; height:100%; }
+  body { font-family:"Segoe UI",system-ui,Arial,sans-serif; background:var(--bg); color:var(--text); font-size:14px; line-height:1.45; }
+  button { font:inherit; color:inherit; }
+  a { color:var(--accent); text-decoration:none; } a:hover { text-decoration:underline; }
+  .app { display:grid; grid-template-columns:232px 1fr; min-height:100%; align-content:start; }
+  .app > *, nav { min-width:0; }
+
+  /* sidebar */
+  .side { background:var(--card); border-inline-start:1px solid var(--line); padding:18px 12px; display:flex; flex-direction:column; gap:18px;
+          position:sticky; top:0; height:100vh; }
+  .brand { display:flex; gap:10px; align-items:center; padding:0 8px; }
+  .brand img { width:34px; height:34px; border-radius:9px; }
+  .brand b { display:block; font-size:15px; } .brand span { font-size:12px; color:var(--muted); }
+  nav { display:flex; flex-direction:column; gap:2px; }
+  nav button, .side-foot button { display:flex; align-items:center; gap:10px; width:100%; padding:9px 10px; border:0; border-radius:9px;
+          background:none; color:var(--muted); cursor:pointer; text-align:right; font-weight:500; }
+  nav button:hover, .side-foot button:hover { background:var(--card2); color:var(--text); }
+  nav button.on { background:var(--accent-soft); color:var(--accent); font-weight:600; }
+  nav svg, .side-foot svg { width:18px; height:18px; flex:none; }
+  .badge { margin-inline-start:auto; background:var(--warn); color:#fff; border-radius:99px; font-size:11px; padding:0 7px; min-width:20px; text-align:center; }
+  .badge:empty { display:none; }
+  .side-foot { margin-top:auto; display:flex; flex-direction:column; gap:2px; }
+
+  main { padding:24px 28px 40px; max-width:1320px; width:100%; }
   section { display:none; } section.on { display:block; }
-  .cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:12px; margin-bottom:20px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; }
-  .cards .card b { display:block; font-size:22px; margin-top:4px; font-variant-numeric:tabular-nums; }
-  .muted { color:var(--muted); }
-  table { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
-  th, td { padding:8px 10px; border-bottom:1px solid var(--line); text-align:right; vertical-align:top; }
-  th { font-size:12px; color:var(--muted); font-weight:600; background:var(--bg); }
-  td.num { font-variant-numeric:tabular-nums; direction:ltr; text-align:left; white-space:nowrap; }
-  tr.click { cursor:pointer; } tr.click:hover td { background:var(--bg); }
-  .toolbar { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; align-items:center; }
-  input, select, textarea { font:inherit; padding:7px 9px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--text); }
-  button.btn { font:inherit; padding:7px 12px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--text); cursor:pointer; }
-  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
-  .pill { display:inline-block; padding:1px 8px; border-radius:99px; font-size:12px; border:1px solid var(--line); white-space:nowrap; }
+  h2 { font-size:20px; margin:0 0 4px; } h3 { font-size:15px; margin:0; }
+  .muted { color:var(--muted); } .num { font-variant-numeric:tabular-nums; }
   .good { color:var(--good); } .warn { color:var(--warn); } .bad { color:var(--bad); }
-  .split { display:grid; grid-template-columns:1fr 1fr; gap:16px; } @media (max-width:900px) { .split { grid-template-columns:1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; box-shadow:var(--shadow); }
+  .page-head { display:flex; justify-content:space-between; align-items:end; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
+
+  /* buttons & inputs */
+  .btn { padding:8px 14px; border-radius:9px; border:1px solid var(--line); background:var(--card); cursor:pointer; font-weight:500; }
+  .btn:hover { background:var(--card2); }
+  .btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .btn.primary:hover { filter:brightness(1.07); }
+  .btn.big { padding:11px 22px; font-size:15px; font-weight:600; }
+  .btn:disabled { opacity:.55; cursor:default; filter:none; }
+  .link { border:0; background:none; color:var(--accent); cursor:pointer; padding:0; }
+  input, select, textarea { font:inherit; padding:8px 10px; border:1px solid var(--line); border-radius:9px; background:var(--card); color:var(--text); }
+  .pill { display:inline-block; padding:1px 9px; border-radius:99px; font-size:12px; border:1px solid var(--line); white-space:nowrap; }
+  .pill.good { background:var(--good-soft); border-color:transparent; } .pill.warn { background:var(--warn-soft); border-color:transparent; }
+  .pill.bad { background:var(--bad-soft); border-color:transparent; }
+  .pill.aff { background:var(--accent-soft); color:var(--accent); border-color:transparent; }
+  .affonly { display:inline-flex; align-items:center; gap:6px; cursor:pointer; }
+
+  /* home */
+  .hero { display:grid; grid-template-columns:1fr auto; gap:14px 20px; align-items:center; margin-bottom:16px; }
+  .hero .progress, .hero .schedule { grid-column:1 / -1; }
+  .progress-head { display:flex; justify-content:space-between; font-weight:600; margin-bottom:6px; }
+  .bar { height:8px; background:var(--card2); border-radius:99px; overflow:hidden; }
+  .bar i { display:block; height:100%; width:0; background:var(--accent); border-radius:99px; transition:width .5s; }
+  .log { margin:10px 0 0; max-height:120px; overflow:auto; font:12px/1.5 Consolas,monospace; color:var(--muted); white-space:pre-wrap;
+         direction:ltr; text-align:left; background:var(--card2); border-radius:9px; padding:8px 10px; }
+  .schedule { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding-top:12px; border-top:1px solid var(--line); }
+  .schedule svg { width:18px; height:18px; color:var(--muted); }
+  .kpis { display:grid; grid-template-columns:repeat(4, 1fr); gap:12px; margin-bottom:22px; }
+  .kpi span { color:var(--muted); font-size:13px; } .kpi b { display:block; font-size:26px; margin-top:2px; font-variant-numeric:tabular-nums; }
+  .kpi.hl b { color:var(--warn); }
+  .section-head { display:flex; justify-content:space-between; align-items:center; margin:6px 0 10px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); gap:12px; margin-bottom:24px; }
+  .empty { grid-column:1 / -1; padding:22px; text-align:center; color:var(--muted); background:var(--card); border:1px dashed var(--line); border-radius:14px; }
+
+  /* search */
+  .searchbar { display:flex; gap:8px; margin-bottom:16px; }
+  .searchbar input { flex:1; min-width:0; font-size:16px; padding:11px 14px; }
+  .card.searchbar { padding:12px; }
+  .chips { display:flex; gap:6px; flex-wrap:wrap; margin:0 0 14px; }
+  #sProgress { margin-bottom:16px; }
+  .stores small { font-weight:400; color:var(--muted); }
+
+  /* product cards */
+  .pcard { display:flex; flex-direction:column; background:var(--card); border:1px solid var(--line); border-radius:14px; overflow:hidden;
+           color:inherit; box-shadow:var(--shadow); transition:transform .12s, border-color .12s; }
+  .pcard:hover { text-decoration:none; transform:translateY(-2px); border-color:var(--accent); }
+  .thumb { aspect-ratio:4 / 3; background:#fff; display:grid; place-items:center; border-bottom:1px solid var(--line); position:relative; }
+  .thumb img { max-width:88%; max-height:88%; object-fit:contain; }
+  .thumb .tag { position:absolute; top:8px; inset-inline-start:8px; }
+  .pbody { padding:10px 12px 12px; display:flex; flex-direction:column; gap:4px; flex:1; }
+  .ptitle { font-weight:600; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; min-height:2.9em; }
+  .pmeta { font-size:12px; color:var(--muted); }
+  .price { font-size:18px; font-weight:700; font-variant-numeric:tabular-nums;
+           display:flex; gap:8px; align-items:baseline; flex-wrap:wrap; }   /* flex: two numbers never run together in RTL */
+  .price s { font-size:13px; color:var(--muted); font-weight:400; }
+  .stores { list-style:none; margin:4px 0 0; padding:0; display:flex; flex-direction:column; gap:3px; font-size:13px; }
+  .stores li { display:flex; justify-content:space-between; gap:8px; } .stores li.best { font-weight:700; color:var(--good); }
+  .save { color:var(--good); font-weight:600; font-size:13px; }
+
+  /* tables */
+  .wrap { overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line); border-radius:14px; overflow:hidden; }
+  th, td { padding:9px 11px; border-bottom:1px solid var(--line); text-align:right; vertical-align:middle; }
+  tr:last-child td { border-bottom:0; }
+  th { font-size:12px; color:var(--muted); font-weight:600; background:var(--card2); }
+  td.num { direction:ltr; text-align:left; white-space:nowrap; }
+  td.img { width:52px; padding:5px 8px; } td.img img { width:40px; height:40px; object-fit:contain; background:#fff; border-radius:8px; display:block; }
+  tr.click { cursor:pointer; } tr.click:hover td { background:var(--card2); }
+  .toolbar { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; align-items:center; }
+  .split { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
   #detail { margin-top:16px; }
   svg text { fill:var(--muted); font-size:11px; }
-  pre { white-space:pre-wrap; background:var(--bg); padding:10px; border-radius:8px; direction:auto; }
-  form.grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:8px; margin:10px 0 20px; }
-  .msg { margin:10px 0; } .wrap { overflow-x:auto; }
+  pre { white-space:pre-wrap; background:var(--card2); padding:10px; border-radius:9px; direction:auto; }
+  form.form { display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:8px; margin:0 0 16px; }
+  details.card summary { cursor:pointer; font-weight:600; }
+  details.card[open] summary { margin-bottom:12px; }
+
+  .toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); z-index:10; background:var(--text); color:var(--bg);
+           padding:10px 16px; border-radius:10px; box-shadow:0 6px 24px rgba(0,0,0,.2); display:none; max-width:80vw; }
+  .toast.show { display:block; } .toast.bad { background:var(--bad); color:#fff; }
+  .closed { display:grid; place-items:center; height:100vh; text-align:center; }
+
+  @media (max-width:900px) {
+    .app { grid-template-columns:1fr; }
+    .side { position:static; height:auto; flex-direction:row; flex-wrap:wrap; align-items:center; padding:10px; gap:8px; border:0; border-bottom:1px solid var(--line); }
+    nav { flex-direction:row; overflow-x:auto; flex:1 1 100%; }
+    nav button { width:auto; white-space:nowrap; }
+    .side-foot { margin:0; flex-direction:row; margin-inline-start:auto; }
+    .side-foot button { width:auto; }
+    main { padding:16px; }
+    .kpis { grid-template-columns:repeat(2, 1fr); }
+    .split { grid-template-columns:1fr; }
+    .hero { grid-template-columns:1fr; }
+  }
 </style>
 </head>
 <body>
-<header>
-  <h1>Web Scraping · ניהול</h1>
-  <nav id="nav">
-    <button data-tab="overview" class="on">סקירה</button>
-    <button data-tab="offers">מוצרים ועסקאות</button>
-    <button data-tab="compare">השוואת מחירים</button>
-    <button data-tab="alerts">התראות ואישור</button>
-    <button data-tab="sources">חנויות ומקורות</button>
-    <button data-tab="programs">תוכניות שותפים</button>
-  </nav>
-</header>
-<main>
-  <div id="msg" class="msg"></div>
-
-  <section id="overview" class="on">
-    <div class="cards" id="statCards"></div>
-    <h3>תקלות אחרונות</h3><div id="problems" class="muted">אין</div>
-    <h3>ריצות אחרונות</h3><div class="wrap"><table id="runs"></table></div>
-    <p class="muted">ייצוא: <a href="/api/export?format=csv">CSV (תומך עברית)</a> · <a href="/api/export?format=json">JSON</a></p>
-  </section>
-
-  <section id="offers">
-    <div class="toolbar">
-      <input id="q" placeholder="חיפוש מוצר / חנות">
-      <select id="cat"><option value="">כל הקטגוריות</option></select>
-      <select id="store"><option value="">כל החנויות</option></select>
-      <select id="sort"><option value="deal">Deal Score</option><option value="affiliate">Affiliate Score</option>
-        <option value="price">מחיר</option><option value="recent">עדכני</option></select>
-      <label><input type="checkbox" id="verified"> מחירים מאומתים בלבד</label>
-      <button class="btn" id="reload">רענון</button>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><img src="/favicon.ico" alt=""><div><b>Web Scraping</b><span>מעקב מחירים ומבצעים</span></div></div>
+    <nav id="nav">
+      <button data-tab="home" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>בית</button>
+      <button data-tab="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>חיפוש מוצר</button>
+      <button data-tab="offers"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>מוצרים</button>
+      <button data-tab="compare"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>השוואת מחירים</button>
+      <button data-tab="alerts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>מבצעים לאישור<span class="badge" id="pendingBadge"></span></button>
+      <button data-tab="sources"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9h18l-1.5-5h-15zM4 9v11h16V9M9 20v-6h6v6"/></svg>חנויות</button>
+      <button data-tab="programs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>תוכניות שותפים</button>
+    </nav>
+    <div class="side-foot">
+      <button id="openOutput"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>תיקיית התוצאות</button>
+      <button id="quitBtn" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>יציאה</button>
     </div>
-    <div class="wrap"><table id="offerTable"></table></div>
-    <div id="detail"></div>
-  </section>
+  </aside>
 
-  <section id="compare"><div class="wrap"><table id="compTable"></table></div></section>
+  <main>
+    <div id="msg" class="toast"></div>
 
-  <section id="alerts">
-    <div class="toolbar">
-      <select id="alertStatus"><option value="">כל הסטטוסים</option><option value="pending" selected>ממתין לאישור</option>
-        <option value="approved">אושר</option><option value="published">פורסם</option><option value="rejected">נדחה</option>
-        <option value="failed">נכשל</option></select>
-      <button class="btn" id="detectBtn">זיהוי עסקאות חדשות</button>
-      <button class="btn primary" id="publishBtn">פרסום המאושרים (n8n)</button>
-    </div>
-    <p class="muted">שום עסקה לא מתפרסמת בלי אישור ידני. כל עסקה מתפרסמת פעם אחת בלבד.</p>
-    <div id="alertList"></div>
-  </section>
+    <section id="home" class="on">
+      <form class="card searchbar" id="homeSearch">
+        <input id="hq" placeholder="חיפוש כל מוצר בחנויות: שם, דגם או ברקוד" maxlength="100" autocomplete="off">
+        <button class="btn primary big">חיפוש</button>
+      </form>
+      <div class="card hero">
+        <div><h2>סריקת מחירים</h2><div id="lastRun" class="muted">טוען…</div></div>
+        <button class="btn primary big" id="runBtn">▶ הרצה עכשיו</button>
+        <div id="progress" class="progress" hidden>
+          <div class="progress-head"><span id="progStage">מתחיל…</span><span id="progCount" class="num"></span></div>
+          <div class="bar"><i id="progBar"></i></div>
+          <div class="log" id="progLog"></div>
+        </div>
+        <div class="schedule" id="schedule" hidden></div>
+      </div>
+      <div class="kpis" id="kpis"></div>
+      <div class="section-head"><h3>אותו מוצר בכמה חנויות</h3><button class="link" data-goto="compare">לכל ההשוואות ←</button></div>
+      <div class="grid" id="homeCompare"></div>
+      <div class="section-head"><h3>הכי משתלמים עכשיו</h3><button class="link" data-goto="offers">לכל המוצרים ←</button></div>
+      <div class="grid" id="homeTop"></div>
+      <details class="card"><summary>ריצות אחרונות ותקלות</summary>
+        <div id="problems" class="muted"></div>
+        <div class="wrap"><table id="runs"></table></div>
+        <p class="muted">ייצוא: <a href="/api/export?format=csv">CSV (תומך עברית)</a> · <a href="/api/export?format=json">JSON</a></p>
+      </details>
+    </section>
 
-  <section id="sources">
-    <form class="grid" id="sourceForm">
-      <input name="domain" placeholder="דומיין (shop.example.com)" required>
-      <input name="name" placeholder="שם החנות">
-      <select name="type"><option value="web">web</option><option value="feed">feed</option><option value="browser">browser</option></select>
-      <input name="trust_score" placeholder="אמינות 0-1" type="number" step="0.05" min="0" max="1">
-      <input name="shipping_cost" placeholder="עלות משלוח ידועה" type="number" step="0.01" min="0">
-      <input name="start_urls" placeholder="כתובות התחלה (מופרדות בפסיק)">
-      <select name="discover"><option value="none">ללא גילוי</option><option value="sitemap">sitemap</option><option value="links">links</option></select>
-      <input name="include" placeholder="Regex לדפי מוצר (לא חובה)">
-      <button class="btn primary">שמירה</button>
-    </form>
-    <div class="wrap"><table id="sourceTable"></table></div>
-  </section>
+    <section id="search">
+      <div class="page-head"><div><h2>חיפוש מוצר</h2><div class="muted">מחפש בחיפוש של כל חנות (כולן במקביל), קורא את התוצאות הראשונות ומשווה מחירים לפי ברקוד. חיפוש לוקח בערך דקה.</div></div></div>
+      <form class="searchbar" id="searchForm">
+        <input id="sq" placeholder="מה לחפש? למשל: לגו 42115, AirPods Pro, 4005556167555" maxlength="100" autocomplete="off">
+        <button class="btn primary big" id="sBtn">חיפוש</button>
+      </form>
+      <div class="toolbar"><label class="affonly"><input type="checkbox" class="affOnly"> רק חנויות עם תוכנית שותפים</label><span class="muted" id="sAffNote"></span></div>
+      <div id="sProgress" class="card progress" hidden>
+        <div class="progress-head"><span id="sStage">מתחיל…</span><span id="sCount" class="num"></span></div>
+        <div class="bar"><i id="sBar"></i></div>
+        <div class="log" id="sLog"></div>
+      </div>
+      <div class="chips" id="sStores"></div>
+      <div class="section-head" id="sGroupsHead" hidden><h3>נמצא בכמה חנויות</h3></div>
+      <div class="grid" id="sGroups"></div>
+      <div class="section-head" id="sOffersHead" hidden><h3>התוצאות</h3><span class="muted">קודם מה שמכיל את מילות החיפוש, ובתוך זה מהזול ליקר</span></div>
+      <div class="grid" id="sOffers"></div>
+      <details class="card" id="sOthersBox" hidden><summary id="sOthersHead"></summary>
+        <p class="muted">החנויות החזירו אותן לחיפוש, אבל מילות החיפוש לא מופיעות בשם המוצר.</p>
+        <div class="grid" id="sOthers"></div></details>
+    </section>
 
-  <section id="programs">
-    <form class="grid" id="programForm">
-      <input name="domain" placeholder="דומיין" required>
-      <input name="network" placeholder="רשת (Awin, CJ, Amazon...)">
-      <input name="param_key" placeholder="שם פרמטר (למשל tag)">
-      <input name="param_value" placeholder="ערך (מזהה השותף שלך)">
-      <input name="template" placeholder="או תבנית deep-link עם {url_encoded}">
-      <input name="commission_rate" placeholder="עמלה (0.05 = 5%)" type="number" step="0.001" min="0" max="1">
-      <label><input type="checkbox" name="commission_verified"> העמלה אומתה</label>
-      <input name="commission_source" placeholder="מקור האימות (לוח בקרה, תאריך)">
-      <button class="btn primary">שמירה</button>
-    </form>
-    <p class="muted">עמלה נספרת ב-Affiliate Score רק אם סומנה כמאומתת.</p>
-    <div class="wrap"><table id="programTable"></table></div>
-  </section>
-</main>
+    <section id="offers">
+      <div class="page-head"><div><h2>מוצרים</h2><div class="muted">כל המחירים שנאספו. לחיצה על שורה מציגה היסטוריה והשוואה.</div></div></div>
+      <div class="toolbar">
+        <input id="q" placeholder="חיפוש מוצר / חנות">
+        <select id="cat"><option value="">כל הקטגוריות</option></select>
+        <select id="store"><option value="">כל החנויות</option></select>
+        <select id="sort"><option value="deal">Deal Score</option><option value="affiliate">Affiliate Score</option>
+          <option value="price">מחיר</option><option value="recent">עדכני</option></select>
+        <label><input type="checkbox" id="verified"> מחירים מאומתים בלבד</label>
+        <label class="affonly"><input type="checkbox" class="affOnly"> רק חנויות עם תוכנית שותפים</label>
+        <button class="btn" id="reload">רענון</button>
+      </div>
+      <div class="wrap"><table id="offerTable"></table></div>
+      <div id="detail"></div>
+    </section>
+
+    <section id="compare">
+      <div class="page-head"><div><h2>השוואת מחירים</h2><div class="muted">אותו מוצר (לפי ברקוד) ביותר מחנות אחת. הזול ביותר מודגש.</div></div></div>
+      <div class="toolbar"><label class="affonly"><input type="checkbox" class="affOnly"> רק חנויות עם תוכנית שותפים</label></div>
+      <div class="grid" id="compGrid"></div>
+    </section>
+
+    <section id="alerts">
+      <div class="page-head"><div><h2>מבצעים לאישור</h2><div class="muted">שום מבצע לא מתפרסם בלי אישור ידני, וכל מבצע מתפרסם פעם אחת בלבד.</div></div></div>
+      <div class="toolbar">
+        <select id="alertStatus"><option value="">כל הסטטוסים</option><option value="pending" selected>ממתין לאישור</option>
+          <option value="approved">אושר</option><option value="published">פורסם</option><option value="rejected">נדחה</option>
+          <option value="failed">נכשל</option></select>
+        <button class="btn" id="detectBtn">זיהוי מבצעים חדשים</button>
+        <button class="btn primary" id="publishBtn">פרסום המאושרים</button>
+      </div>
+      <div id="alertList"></div>
+    </section>
+
+    <section id="sources">
+      <div class="page-head"><div><h2>חנויות</h2><div class="muted">החנויות שהאוטומציה סורקת מוגדרות ב-sources.json. כאן אפשר להוסיף חנות או לסרוק אחת עכשיו.</div></div></div>
+      <form class="form card" id="sourceForm">
+        <input name="domain" placeholder="דומיין (shop.example.com)" required>
+        <input name="name" placeholder="שם החנות">
+        <select name="type"><option value="web">web</option><option value="feed">feed</option><option value="browser">browser</option></select>
+        <input name="trust_score" placeholder="אמינות 0-1" type="number" step="0.05" min="0" max="1">
+        <input name="shipping_cost" placeholder="עלות משלוח ידועה" type="number" step="0.01" min="0">
+        <input name="start_urls" placeholder="כתובות התחלה (מופרדות בפסיק)">
+        <select name="discover"><option value="none">ללא גילוי</option><option value="sitemap">sitemap</option><option value="links">links</option></select>
+        <input name="include" placeholder="Regex לדפי מוצר (לא חובה)">
+        <button class="btn primary">שמירה</button>
+      </form>
+      <div class="wrap"><table id="sourceTable"></table></div>
+    </section>
+
+    <section id="programs">
+      <div class="page-head"><div><h2>תוכניות שותפים</h2><div class="muted">הסינון "רק חנויות עם תוכנית שותפים" כולל חנות שידוע שיש לה תוכנית (בטבלה הראשונה) או שהגדרת לה תוכנית כאן. עמלה נספרת ב-Affiliate Score רק אם סומנה כמאומתת.</div></div></div>
+      <div class="section-head"><h3>מה ידוע על החנויות שלך</h3><span class="muted">נבדק ידנית. המקור בקישור ובהערה (affiliate ב-sources.json)</span></div>
+      <div class="wrap" style="margin-bottom:22px"><table id="affStoreTable"></table></div>
+      <div class="section-head"><h3>התוכניות שהגדרת</h3><span class="muted">מזהה השותף שלך, לבניית קישורי שותפים</span></div>
+      <form class="form card" id="programForm">
+        <input name="domain" placeholder="דומיין" required>
+        <input name="network" placeholder="רשת (Awin, CJ, Amazon...)">
+        <input name="param_key" placeholder="שם פרמטר (למשל tag)">
+        <input name="param_value" placeholder="ערך (מזהה השותף שלך)">
+        <input name="template" placeholder="או תבנית deep-link עם {url_encoded}">
+        <input name="commission_rate" placeholder="עמלה (0.05 = 5%)" type="number" step="0.001" min="0" max="1">
+        <label><input type="checkbox" name="commission_verified"> העמלה אומתה</label>
+        <input name="commission_source" placeholder="מקור האימות (לוח בקרה, תאריך)">
+        <button class="btn primary">שמירה</button>
+      </form>
+      <div class="wrap"><table id="programTable"></table></div>
+    </section>
+  </main>
+</div>
 <script>
 const TOKEN = "__DASHBOARD_TOKEN__";
 const $ = s => document.querySelector(s);
 const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const num = (v, d=2) => v === null || v === undefined ? "–" : Number(v).toLocaleString("he-IL", {maximumFractionDigits:d, minimumFractionDigits:d});
+const money = (v, cur) => v == null ? "–" : (cur === "ILS" || !cur ? "₪" : esc(cur) + " ") + num(v);
 const score = v => v === null || v === undefined ? '<span class="muted">אין נתונים</span>' :
   `<b class="${v>=70?'good':v>=40?'warn':'bad'}">${Math.round(v)}</b>`;
 const safeUrl = u => /^https?:\/\//i.test(u || "") ? esc(u) : "#";
+const img = (u, cls="") => /^https:\/\//i.test(u || "") ?
+  `<img class="${cls}" src="${esc(u)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : "";
+// some shops put a whole slogan in their site name - fall back to the domain then
+const STORE_NAMES = {};   // domain -> the name you gave the store in sources.json
+const storeName = o => { const s = (o.store || "").trim(), d = (o.domain || "").replace(/^www\./, "");
+  if (STORE_NAMES[d]) return esc(STORE_NAMES[d]);
+  return esc(s && s.length <= 24 ? s : d || s); };
+/* "only stores with an affiliate program": one choice for search, products and compare, remembered on this computer */
+let AFF_ONLY = false; try { AFF_ONLY = localStorage.getItem("affiliateOnly") === "1"; } catch {}
+const AFF_DOMAINS = [];    // stores known to have a program (sources.json) + the programs you set up
+const hasAff = o => { const d = (o.domain || "").replace(/^www\./, "");
+  return AFF_DOMAINS.some(a => d === a || d.endsWith("." + a)); };
+const affPill = o => hasAff(o) ? ' <span class="pill aff" title="לחנות יש תוכנית שותפים">שותפים</span>' : "";
+let metaLoaded = false;
+function applyMeta(s) { Object.assign(STORE_NAMES, s.store_names || {});
+  AFF_DOMAINS.splice(0, AFF_DOMAINS.length, ...(s.affiliate_domains || [])); metaLoaded = true; }
+const ensureMeta = async () => { if (!metaLoaded) applyMeta(await api("/api/summary")); };
+const when = iso => { if (!iso) return ""; const d = new Date(iso); return isNaN(d) ? esc(iso) :
+  d.toLocaleString("he-IL", {day:"numeric", month:"numeric", hour:"2-digit", minute:"2-digit"}); };
 
 async function api(path, opts={}) {
   const o = {...opts, headers: {...(opts.headers||{}), "X-Dashboard-Token": TOKEN}};
@@ -140,48 +317,214 @@ async function api(path, opts={}) {
   if (!r.ok) throw new Error(data.detail || data || r.status);
   return data;
 }
-function flash(text, cls="good") { $("#msg").innerHTML = `<span class="${cls}">${esc(text)}</span>`; setTimeout(() => $("#msg").innerHTML = "", 6000); }
+let toastTimer;
+function flash(text, cls="") { const m = $("#msg"); m.textContent = text; m.className = "toast show " + cls;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => m.className = "toast", 5000); }
 
-document.querySelectorAll("#nav button").forEach(b => b.onclick = () => {
+function go(tab, reload=true) {
   document.querySelectorAll("#nav button, section").forEach(e => e.classList.remove("on"));
-  b.classList.add("on"); $("#" + b.dataset.tab).classList.add("on"); load(b.dataset.tab);
-});
+  document.querySelector(`#nav button[data-tab="${tab}"]`).classList.add("on"); $("#" + tab).classList.add("on");
+  if (reload) load(tab);
+  window.scrollTo(0, 0);
+}
+document.querySelectorAll("#nav button").forEach(b => b.onclick = () => go(b.dataset.tab));
+document.querySelectorAll("[data-goto]").forEach(b => b.onclick = () => go(b.dataset.goto));
 
-async function loadOverview() {
+/* ------------------------------------------------------------ home */
+const STATUS = {ok:"הצליחה", no_products:"לא נמצאו מוצרים", failed:"נכשלה", running:"רצה עכשיו"};
+const statusCls = s => s === "ok" ? "good" : s === "running" ? "" : "bad";
+function productCard(o, extra="") {
+  return `<a class="pcard" href="${safeUrl(o.affiliate_url || o.url)}" target="_blank" rel="noopener">
+    <div class="thumb">${img(o.image)}${extra}</div>
+    <div class="pbody"><div class="ptitle">${esc(o.title)}</div><div class="pmeta">${storeName(o)}${affPill(o)}</div>
+      <div class="price">${money(o.price, o.currency)}${o.list_price > o.price ? `<s>${num(o.list_price)}</s>` : ""}</div>
+      ${o.deal_score != null ? `<div class="pmeta">Deal Score ${score(o.deal_score)}</div>` : ""}
+      ${o.price_verified === 0 ? '<span class="pill warn">מחיר לא מאומת</span>' : ""}</div></a>`;
+}
+function compareCard(c) {
+  const best = c.offers[0], worst = c.offers[c.offers.length - 1];
+  const save = worst.price ? Math.round((worst.price - best.price) / worst.price * 100) : 0;
+  return `<a class="pcard" href="${safeUrl(best.affiliate_url || best.url)}" target="_blank" rel="noopener">
+    <div class="thumb">${img(c.image)}${save > 0 ? `<span class="pill good tag">חיסכון ${save}%</span>` : ""}</div>
+    <div class="pbody"><div class="ptitle">${esc(c.title)}</div>
+      <ul class="stores">${c.offers.map((o, i) => `<li class="${i === 0 ? "best" : ""}"><span>${storeName(o)}${affPill(o)}${o.earlier ?
+          ` <small title="לא הופיע בחיפוש הזה - המחיר מסריקה קודמת">· ${when(o.last_seen)}</small>` : ""}</span><span class="num">${money(o.price, o.currency)}</span></li>`).join("")}</ul>
+      ${c.uncertain ? '<span class="pill warn">התאמה לא ודאית</span>' : ""}</div></a>`;
+}
+async function loadHome() {
   const s = await api("/api/summary");
-  const labels = {offers:"הצעות מחיר", products:"מוצרים", price_history:"תצפיות מחיר", sources:"חנויות",
-                  crawl_runs:"ריצות", affiliate_programs:"תוכניות שותפים", deal_alerts:"התראות"};
-  $("#statCards").innerHTML = Object.entries(labels).map(([k,l]) => `<div class="card"><span class="muted">${l}</span><b>${num(s.stats[k],0)}</b></div>`).join("")
-    + `<div class="card"><span class="muted">ממתינות לאישור</span><b class="${s.pending_alerts?'warn':''}">${s.pending_alerts}</b></div>`;
+  applyMeta(s);
+  const last = s.runs[0];
+  $("#lastRun").innerHTML = last ? `ריצה אחרונה: ${when(last.started_at)} · <span class="${statusCls(last.status)}">${esc(STATUS[last.status] || last.status)}</span>`
+    + (last.products != null ? ` · ${num(last.products, 0)} מוצרים` : "") + (last.errors ? ` · <span class="bad">${last.errors} שגיאות</span>` : "")
+    : "עדיין לא הייתה ריצה.";
+  $("#kpis").innerHTML = [["מוצרים במעקב", s.tracked_offers], ["חנויות", s.tracked_stores],
+      ["מוצרים בכמה חנויות", s.compared_products], ["מבצעים לאישור", s.pending_alerts, s.pending_alerts ? "hl" : ""]]
+    .map(([l, v, c]) => `<div class="card kpi ${c || ""}"><span>${l}</span><b>${num(v, 0)}</b></div>`).join("");
+  $("#pendingBadge").textContent = s.pending_alerts || "";
+  $("#quitBtn").hidden = !s.can_shutdown;
   $("#runs").innerHTML = "<tr><th>#</th><th>התחלה</th><th>סטטוס</th><th>מוצרים</th><th>שגיאות</th><th>פקודה</th></tr>" +
-    s.runs.map(r => `<tr><td>${r.id}</td><td class="num">${esc(r.started_at)}</td><td><span class="pill ${r.status==='ok'?'good':'bad'}">${esc(r.status)}</span></td>
+    s.runs.map(r => `<tr><td>${r.id}</td><td class="num">${when(r.started_at)}</td><td><span class="pill ${statusCls(r.status)}">${esc(STATUS[r.status] || r.status)}</span></td>
       <td class="num">${r.products ?? ""}</td><td class="num ${r.errors?'bad':''}">${r.errors ?? ""}</td><td>${esc(r.command)}</td></tr>`).join("");
-  $("#problems").innerHTML = s.problems.length ? s.problems.map(p => `<div class="card" style="margin-bottom:8px">ריצה #${p.run} (${esc(p.status)}):
-      ${p.errors.slice(0,8).map(e => `<div><span class="pill bad">${esc(e.kind)}</span> <span class="muted">${esc(e.url)}</span> ${esc(e.message||"")}</div>`).join("")}</div>`).join("") : "אין תקלות 🎉";
+  $("#problems").innerHTML = s.problems.length ? s.problems.map(p => `<div class="card" style="margin-bottom:8px">ריצה #${p.run} (${esc(STATUS[p.status] || p.status)}):
+      ${p.errors.slice(0,8).map(e => `<div><span class="pill bad">${esc(e.kind)}</span> <span class="muted">${esc(e.url)}</span> ${esc(e.message||"")}</div>`).join("")}</div>`).join("") : "<p>אין תקלות.</p>";
+  const running = s.jobs.find(j => j.status === "running");
+  if (running) watchJob(running.id, "home");
+  const [comps, top] = await Promise.all([api("/api/comparisons?limit=8"), api("/api/offers?sort=deal&verified_only=true&limit=8")]);
+  $("#homeCompare").innerHTML = comps.length ? comps.map(compareCard).join("")
+    : '<div class="empty">עדיין אין מוצר שנמצא ביותר מחנות אחת. זה יופיע אחרי ריצה שסורקת כמה חנויות.</div>';
+  const scored = top.filter(o => o.deal_score != null);
+  $("#homeTop").innerHTML = scored.length ? scored.map(o => productCard(o)).join("")
+    : '<div class="empty">עוד אין ציונים. הם מתחילים אחרי השוואה בין חנויות או כמה ימים של היסטוריית מחירים.</div>';
+  loadSchedule();
 }
 
+/* run now / search + live progress (one job at a time on the server; each view follows it) */
+const UIS = {
+  home:   {btn:"#runBtn", idle:"▶ הרצה עכשיו", busy:"סורק…", box:"#progress", stage:"#progStage", count:"#progCount", bar:"#progBar", log:"#progLog"},
+  search: {btn:"#sBtn", idle:"חיפוש", busy:"מחפש…", box:"#sProgress", stage:"#sStage", count:"#sCount", bar:"#sBar", log:"#sLog"},
+};
+const watching = {};
+const BUSY = "כבר רצה סריקה או חיפוש. אפשר לעקוב אחריה, ולנסות שוב כשתסתיים.";
+$("#runBtn").onclick = async () => {
+  try { const j = await api("/api/run", {method:"POST"}); watchJob(j.id, "home"); }
+  catch (e) { flash(e.message.includes("already running") ? BUSY : e.message, "bad"); }
+};
+function stageText(j) {
+  if (j.kind === "search" && j.stores) {   // stores are searched side by side
+    const n = j.stores.length, d = j.stores_done || 0;
+    return `מחפש ב-${n} חנויות` + (d ? ` · ${d} מתוך ${n} הסתיימו` : "");
+  }
+  if (!j.stage) return "מתחיל…";
+  const store = (j.stores || []).find(s => j.stage === s.domain || j.stage.endsWith("." + s.domain));
+  const n = j.stores ? ` (${j.stages_started} מתוך ${j.stores.length})` : (j.stages_started ? ` (חנות ${j.stages_started})` : "");
+  return (j.kind === "search" ? `מחפש ב${store ? store.name : j.stage}` : `סורק את ${j.stage}`) + n;
+}
+function watchJob(id, which) {
+  const ui = UIS[which];
+  if (watching[which] === id) return; watching[which] = id;
+  $(ui.btn).disabled = true; $(ui.btn).textContent = ui.busy; $(ui.box).hidden = false;
+  const tick = async () => {
+    let j; try { j = await api("/api/jobs/" + id); } catch { return setTimeout(tick, 3000); }
+    $(ui.stage).textContent = j.status === "running" ? stageText(j) : "הסתיים";
+    const [done, total, unit] = j.kind === "search" ? [j.fetched || 0, j.targets || 0, "מוצרים נקראו"] : [j.done, j.total, "דפים"];
+    $(ui.count).textContent = total ? `${done} / ${total} ${unit}` : "";
+    $(ui.bar).style.width = j.status !== "running" ? "100%" : total ? Math.max(4, Math.round(done / total * 100)) + "%" : "4%";
+    const log = $(ui.log); log.textContent = (j.log || []).slice(-12).join("\n"); log.scrollTop = log.scrollHeight;
+    if (j.status === "running") return setTimeout(tick, 1500);
+    watching[which] = null; $(ui.btn).disabled = false; $(ui.btn).textContent = ui.idle;
+    if (j.kind === "search") {
+      if (which === "search") { $(ui.box).hidden = true; renderSearch(id); }
+      else flash("החיפוש הסתיים - התוצאות בלשונית חיפוש מוצר");
+    } else {
+      flash(j.status === "done" ? "הסריקה הסתיימה" : "הסריקה הסתיימה עם שגיאות: " + (j.error || "ראו ביומן"), j.status === "done" ? "" : "bad");
+    }
+    if (which === "home") loadHome();
+  };
+  tick();
+}
+
+/* product search */
+let lastSearch = null;
+function clearSearch() {
+  ["#sStores", "#sGroups", "#sOffers", "#sOthers"].forEach(s => $(s).innerHTML = "");
+  $("#sGroupsHead").hidden = $("#sOffersHead").hidden = $("#sOthersBox").hidden = true;
+}
+async function startSearch(q) {
+  q = q.trim();
+  if (q.length < 2) return flash("כתבו לפחות 2 תווים", "bad");
+  go("search", false); $("#sq").value = q; clearSearch();
+  try { const j = await api("/api/search", {method:"POST", body:{q, affiliate_only: AFF_ONLY}}); lastSearch = j.id; watchJob(j.id, "search"); }
+  catch (e) { flash(e.message.includes("already running") ? BUSY : e.message.includes("no_affiliate_store")
+      ? "לאף חנות שאפשר לחפש בה לא ידועה תוכנית שותפים. אפשר לבטל את הסינון, או להגדיר תוכנית בלשונית תוכניות שותפים."
+      : e.message.includes("search_url")
+      ? "עוד לא הוגדר חיפוש לאף חנות (search_url ב-sources.json)." : e.message, "bad"); }
+}
+async function renderSearch(id) {
+  const r = await api("/api/search/" + id);
+  lastSearch = id; await ensureMeta();
+  r.stores.forEach(s => STORE_NAMES[s.domain] = s.name);
+  $("#sq").value = r.q;
+  $("#sStores").innerHTML = (r.affiliate_only ? '<span class="pill aff">רק חנויות עם תוכנית שותפים</span>' : "") + r.stores.map(s => `<span class="pill ${s.found ? "good" : ""}">${esc(s.name)}: ${s.found
+      ? `${s.found} תוצאות` : "לא נמצא"}</span>`).join("");
+  $("#sGroupsHead").hidden = !r.groups.length;
+  $("#sGroups").innerHTML = r.groups.map(compareCard).join("");
+  // a Deal Score needs price history or a cross-store match - on a fresh search result it only confuses
+  const card = o => productCard({...o, deal_score: null});
+  $("#sOffersHead").hidden = !r.offers.length;
+  $("#sOffers").innerHTML = r.offers.map(card).join("");
+  const others = r.others || [];
+  $("#sOthersBox").hidden = !others.length; $("#sOthersBox").open = false;
+  $("#sOthersHead").textContent = `עוד ${others.length} תוצאות פחות קשורות`;
+  $("#sOthers").innerHTML = others.map(card).join("");
+  if (!r.groups.length && !r.offers.length && !others.length)
+    $("#sOffers").innerHTML = `<div class="empty">לא נמצאו מוצרים ל"${esc(r.q)}" בחנויות. נסו מילים אחרות, שם דגם או ברקוד.</div>`;
+}
+function affNote() {
+  const names = AFF_DOMAINS.filter(d => STORE_NAMES[d]).map(d => STORE_NAMES[d]);
+  $("#sAffNote").textContent = !AFF_ONLY ? "" : names.length ? "יחפש רק ב: " + names.join(", ") : "לאף חנות לא ידועה תוכנית שותפים";
+}
+async function loadSearch() {
+  await ensureMeta(); affNote();
+  const list = await api("/api/jobs");
+  const running = list.find(j => j.kind === "search" && j.status === "running");
+  if (running) { $("#sq").value = running.q || ""; clearSearch(); return watchJob(running.id, "search"); }
+  const last = lastSearch || [...list].reverse().find(j => j.kind === "search")?.id;
+  if (last) await renderSearch(last);
+  $("#sq").focus();
+}
+$("#searchForm").onsubmit = e => { e.preventDefault(); startSearch($("#sq").value); };
+$("#homeSearch").onsubmit = e => { e.preventDefault(); startSearch($("#hq").value); $("#hq").value = ""; };
+
+/* daily schedule */
+async function loadSchedule() {
+  let s; try { s = await api("/api/schedule"); } catch { return; }
+  const box = $("#schedule");
+  if (!s.supported) { box.hidden = true; return; }
+  box.hidden = false;
+  const icon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
+  box.innerHTML = s.exists
+    ? `${icon}<span>סריקה אוטומטית כל יום · הבאה: <b>${esc(s.next_run || "לא ידוע")}</b></span><button class="link" id="unschedule">ביטול</button>`
+    : `${icon}<span class="muted">סריקה אוטומטית יומית לא מוגדרת. מבצעים מתגלים אחרי כמה ימים של היסטוריית מחירים.</span>
+       <input type="time" id="schedAt" value="07:43"><button class="btn" id="scheduleBtn">הפעלת סריקה יומית</button>`;
+  if (s.exists) $("#unschedule").onclick = async () => { if (!confirm("לבטל את הסריקה היומית?")) return;
+    try { await api("/api/schedule", {method:"DELETE"}); flash("הסריקה היומית בוטלה"); loadSchedule(); } catch (e) { flash(e.message, "bad"); } };
+  else $("#scheduleBtn").onclick = async () => { const at = $("#schedAt").value;
+    if (!confirm(`להוסיף משימה ל-Task Scheduler של Windows שתריץ סריקה כל יום ב-${at}, בלי חלון?`)) return;
+    try { await api("/api/schedule", {method:"POST", body:{at}}); flash("הסריקה היומית הופעלה"); loadSchedule(); } catch (e) { flash(e.message, "bad"); } };
+}
+
+$("#openOutput").onclick = () => api("/api/open-output", {method:"POST"}).catch(e => flash(e.message, "bad"));
+$("#quitBtn").onclick = async () => {
+  if (Object.values(watching).some(Boolean) && !confirm("סריקה או חיפוש עדיין רצים. לעצור ולצאת?")) return;
+  try { await api("/api/shutdown", {method:"POST"}); } catch {}
+  document.body.innerHTML = '<div class="closed"><div><h2>Web Scraping נסגר</h2><p class="muted">אפשר לסגור את החלון.</p></div></div>';
+  setTimeout(() => window.close(), 400);
+};
+setInterval(() => api("/api/ping").catch(() => {}), 30000);   // tells the desktop app a window is still open
+
+/* ------------------------------------------------------------ offers */
 async function loadFilters() {
   const f = await api("/api/categories");
   $("#cat").innerHTML = '<option value="">כל הקטגוריות</option>' + f.categories.map(c => `<option>${esc(c)}</option>`).join("");
   $("#store").innerHTML = '<option value="">כל החנויות</option>' + f.stores.map(c => `<option>${esc(c)}</option>`).join("");
 }
-
 async function loadOffers() {
   const p = new URLSearchParams({q:$("#q").value, category:$("#cat").value, store:$("#store").value, sort:$("#sort").value,
-                                 verified_only:$("#verified").checked});
-  const rows = await api("/api/offers?" + p);
-  $("#offerTable").innerHTML = "<tr><th>מוצר</th><th>חנות</th><th>מחיר</th><th>אימות</th><th>מלאי</th><th>Deal</th><th>Affiliate</th><th>עודכן</th></tr>" +
-    rows.map(r => `<tr class="click" data-id="${r.id}"><td>${esc(r.title)}</td><td>${esc(r.store)}</td>
-      <td class="num">${num(r.price)} ${esc(r.currency)}</td>
+                                 verified_only:$("#verified").checked, affiliate_only:AFF_ONLY});
+  const [rows] = await Promise.all([api("/api/offers?" + p), ensureMeta()]);
+  $("#offerTable").innerHTML = "<tr><th></th><th>מוצר</th><th>חנות</th><th>מחיר</th><th>אימות</th><th>מלאי</th><th>Deal</th><th>Affiliate</th><th>עודכן</th></tr>" +
+    (rows.length ? rows.map(r => `<tr class="click" data-id="${r.id}"><td class="img">${img(r.image)}</td><td>${esc(r.title)}</td><td>${storeName(r)}${affPill(r)}</td>
+      <td class="num">${money(r.price, r.currency)}</td>
       <td>${r.price_verified ? '<span class="pill good">מאומת</span>' : '<span class="pill warn">לא מאומת</span>'}</td>
       <td>${esc(r.availability || "לא ידוע")}</td><td>${score(r.deal_score)}</td><td>${score(r.affiliate_score)}</td>
-      <td class="num muted">${esc((r.last_fetched_at||"").slice(0,16).replace("T"," "))}</td></tr>`).join("");
+      <td class="num muted">${when(r.last_fetched_at)}</td></tr>`).join("") : `<tr><td colspan="9" class="muted">${AFF_ONLY ? "לא נמצאו מוצרים מחנויות עם תוכנית שותפים." : "לא נמצאו מוצרים."}</td></tr>`);
   document.querySelectorAll("#offerTable tr.click").forEach(tr => tr.onclick = () => showDetail(tr.dataset.id));
 }
 
 function chart(obs) {
   const pts = obs.filter(o => o.price_verified && o.price != null);
-  if (pts.length < 2) return '<p class="muted">אין מספיק תצפיות מאומתות לגרף.</p>';
+  if (pts.length < 2) return '<p class="muted">אין עדיין מספיק תצפיות מחיר לגרף.</p>';
   const W = 560, H = 180, P = 36;
   const xs = pts.map(o => Date.parse(o.observed_at)), ys = pts.map(o => o.price);
   const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys) * 0.97, y1 = Math.max(...ys) * 1.03;
@@ -196,80 +539,92 @@ function chart(obs) {
     ${pts.map((o,i) => `<circle cx="${X(xs[i])}" cy="${Y(ys[i])}" r="3" fill="var(--accent)"><title>${esc(o.observed_at.slice(0,16))}: ${num(o.price)}</title></circle>`).join("")}
   </svg>`;
 }
-
 async function showDetail(id) {
   const d = await api(`/api/offers/${id}/history`);
   const s = d.stats, o = d.offer;
   const disc = {no_claim:"אין טענת הנחה", insufficient_data:"אין מספיק נתונים לאימות ההנחה", verified:"ההנחה אומתה",
                 overstated:"ההנחה מוגזמת", misleading:"הנחה מטעה"}[d.discount_check.status] || d.discount_check.status;
-  $("#detail").innerHTML = `<div class="split"><div class="card"><h3>${esc(o.title)}</h3>
-      <p><a href="${safeUrl(o.affiliate_url || o.url)}" target="_blank" rel="noopener">לעמוד המוצר</a> · ${esc(o.store)}</p>
+  $("#detail").innerHTML = `<div class="split"><div class="card"><div style="display:flex;gap:12px;align-items:center">
+        ${/^https:/.test(o.image || "") ? `<div class="thumb" style="width:96px;border-radius:10px;border:1px solid var(--line)">${img(o.image)}</div>` : ""}
+        <div><h3>${esc(o.title)}</h3><p style="margin:4px 0"><a href="${safeUrl(o.affiliate_url || o.url)}" target="_blank" rel="noopener">לעמוד המוצר</a> · ${storeName(o)}</p>
+        <div class="price">${money(o.price, o.currency)}</div></div></div>
       ${chart(d.observations)}
       <p>${s.sufficient ? `מינ' 30 יום: <b>${num(s.min_30d)}</b> · מינ' 90 יום: <b>${num(s.min_90d)}</b> · חציון 90: <b>${num(s.median_90d)}</b>`
-                        : `<span class="muted">היסטוריה לא מספקת (${s.n_obs} תצפיות, ${s.days_covered} ימים)</span>`}</p>
+                        : `<span class="muted">היסטוריה לא מספקת עדיין (${s.n_obs} תצפיות, ${s.days_covered} ימים)</span>`}</p>
       <p>בדיקת הנחה: <b>${esc(disc)}</b></p>
-      <p class="muted">${esc(o.deal_notes || "")}</p></div>
-    <div class="card"><h3>אותו מוצר בחנויות אחרות</h3>${d.same_product.length > 1 ? `<table><tr><th>חנות</th><th>מחיר</th><th>משלוח</th><th>ביטחון התאמה</th></tr>` +
-      d.same_product.map(g => `<tr><td><a href="${safeUrl(g.affiliate_url || g.url)}" target="_blank" rel="noopener">${esc(g.store)}</a></td>
-        <td class="num">${num(g.price)} ${esc(g.currency)} ${g.price_verified ? "" : '<span class="pill warn">לא מאומת</span>'}</td>
+      <p class="muted" style="direction:ltr;text-align:left;font-size:12px">${esc(o.deal_notes || "")}</p></div>
+    <div class="card"><h3>אותו מוצר בחנויות אחרות</h3>${d.same_product.length > 1 ? `<table style="margin-top:10px"><tr><th>חנות</th><th>מחיר</th><th>משלוח</th><th>ביטחון התאמה</th></tr>` +
+      d.same_product.map(g => `<tr><td><a href="${safeUrl(g.affiliate_url || g.url)}" target="_blank" rel="noopener">${storeName(g)}</a></td>
+        <td class="num">${money(g.price, g.currency)} ${g.price_verified ? "" : '<span class="pill warn">לא מאומת</span>'}</td>
         <td class="num">${g.shipping_cost == null ? "לא ידוע" : num(g.shipping_cost)}</td>
         <td class="num">${g.match_confidence == null ? "–" : g.match_confidence}</td></tr>`).join("") + "</table>"
       : '<p class="muted">לא נמצאו חנויות נוספות.</p>'}</div></div>`;
   $("#detail").scrollIntoView({behavior:"smooth"});
 }
 
+/* ------------------------------------------------------------ compare */
 async function loadCompare() {
-  const rows = await api("/api/comparisons");
-  $("#compTable").innerHTML = "<tr><th>מוצר</th><th>חנויות</th><th>מינימום</th><th>חציון</th><th>מקסימום</th><th>חיסכון מול חציון</th><th>התאמה</th></tr>" +
-    (rows.length ? rows.map(r => `<tr><td>${esc(r.title)}</td><td class="num">${r.n_stores}</td><td class="num">${num(r.min_price)} ${esc(r.currency)}</td>
-      <td class="num">${num(r.median_price)}</td><td class="num">${num(r.max_price)}</td><td class="num good">${num(r.savings_vs_median_pct,1)}%</td>
-      <td>${r.uncertain ? '<span class="pill warn">לא ודאית</span>' : '<span class="pill good">ודאית</span>'}</td></tr>`).join("")
-     : '<tr><td colspan="7" class="muted">עדיין אין מוצרים שנמצאו ביותר מחנות אחת.</td></tr>');
+  const [rows] = await Promise.all([api("/api/comparisons" + (AFF_ONLY ? "?affiliate_only=true" : "")), ensureMeta()]);
+  $("#compGrid").innerHTML = rows.length ? rows.map(compareCard).join("")
+    : `<div class="empty">${AFF_ONLY ? "עדיין אין מוצר שנמצא ביותר מחנות אחת עם תוכנית שותפים." : "עדיין אין מוצרים שנמצאו ביותר מחנות אחת."}</div>`;
 }
 
+/* ------------------------------------------------------------ alerts */
+const KIND = {price_drop:"ירידת מחיר", top_deal:"מבצע מוביל", lowest_90d:"הכי זול ב-90 יום"};
+const ASTATUS = {pending:"ממתין", approved:"אושר", rejected:"נדחה", published:"פורסם", failed:"נכשל", publishing:"מתפרסם"};
 async function loadAlerts() {
   const rows = await api("/api/alerts?status=" + $("#alertStatus").value);
-  $("#alertList").innerHTML = rows.length ? rows.map(a => `<div class="card" style="margin-bottom:10px">
-      <div class="toolbar"><b>#${a.id} ${esc(a.title)}</b><span class="pill">${esc(a.kind)}</span><span class="pill">${esc(a.status)}</span>
+  $("#alertList").innerHTML = rows.length ? rows.map(a => `<div class="card" style="margin-bottom:12px">
+      <div class="toolbar"><b>#${a.id} ${esc(a.title)}</b><span class="pill">${esc(KIND[a.kind] || a.kind)}</span><span class="pill">${esc(ASTATUS[a.status] || a.status)}</span>
         <span>Deal ${score(a.deal_score)} · Affiliate ${score(a.affiliate_score)}</span>
-        ${a.status === "pending" || a.status === "failed" ? `<button class="btn primary" data-act="approve" data-id="${a.id}">אישור</button>
-        <button class="btn" data-act="reject" data-id="${a.id}">דחייה</button>` : ""}</div>
+        ${a.status === "pending" || a.status === "failed" ? `<span style="margin-inline-start:auto;display:flex;gap:6px"><button class="btn primary" data-act="approve" data-id="${a.id}">אישור</button>
+        <button class="btn" data-act="reject" data-id="${a.id}">דחייה</button></span>` : ""}</div>
       <pre>${esc(a.content.telegram || "")}</pre>
       <details><summary class="muted">על מה מבוססת כל טענה</summary>${(a.content.claims||[]).map(c => `<div>• ${esc(c.text)} <span class="muted">[${esc(c.basis)}]</span></div>`).join("")}</details>
-      ${a.error ? `<p class="bad">${esc(a.error)}</p>` : ""}</div>`).join("") : '<p class="muted">אין התראות.</p>';
+      ${a.error ? `<p class="bad">${esc(a.error)}</p>` : ""}</div>`).join("") : '<div class="empty">אין מבצעים בסטטוס הזה.</div>';
   document.querySelectorAll("#alertList [data-act]").forEach(b => b.onclick = async () => {
-    try { await api(`/api/alerts/${b.dataset.id}/${b.dataset.act}`, {method:"POST"}); flash("עודכן"); loadAlerts(); } catch (e) { flash(e.message, "bad"); }
+    try { await api(`/api/alerts/${b.dataset.id}/${b.dataset.act}`, {method:"POST"}); flash(b.dataset.act === "approve" ? "אושר" : "נדחה"); loadAlerts(); loadBadge(); }
+    catch (e) { flash(e.message, "bad"); }
   });
 }
+async function loadBadge() { try { const s = await api("/api/summary"); $("#pendingBadge").textContent = s.pending_alerts || ""; } catch {} }
 
+/* ------------------------------------------------------------ sources & programs */
 async function loadSources() {
   const rows = await api("/api/sources");
   $("#sourceTable").innerHTML = "<tr><th>דומיין</th><th>שם</th><th>סוג</th><th>אמינות</th><th>משלוח</th><th></th></tr>" +
     rows.map(r => `<tr><td>${esc(r.domain)}</td><td>${esc(r.name)}</td><td>${esc(r.type)}</td><td class="num">${r.trust_score ?? "–"}</td>
-      <td class="num">${r.shipping_cost ?? "לא ידוע"}</td><td><button class="btn" data-crawl="${r.id}">סריקה עכשיו</button>
+      <td class="num">${r.shipping_cost ?? "לא ידוע"}</td><td style="white-space:nowrap"><button class="btn" data-crawl="${r.id}">סריקה עכשיו</button>
       <button class="btn" data-del="${r.id}">מחיקה</button></td></tr>`).join("");
   document.querySelectorAll("[data-crawl]").forEach(b => b.onclick = async () => {
-    try { const j = await api("/api/crawl", {method:"POST", body:{source_id: Number(b.dataset.crawl)}}); flash("סריקה התחילה (" + j.id + ")"); }
-    catch (e) { flash(e.message, "bad"); }
+    try { const j = await api("/api/crawl", {method:"POST", body:{source_id: Number(b.dataset.crawl)}}); go("home"); watchJob(j.id, "home"); }
+    catch (e) { flash(e.message.includes("already running") ? "כבר רצה סריקה. אפשר לעקוב אחריה בדף הבית." : e.message, "bad"); }
   });
   document.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
-    if (!confirm("למחוק את המקור?")) return;
+    if (!confirm("למחוק את החנות?")) return;
     await api("/api/sources/" + b.dataset.del, {method:"DELETE"}); loadSources();
   });
 }
-
+const AFF_STATUS = {confirmed:'<span class="pill good">יש תוכנית שותפים</span>', signs:'<span class="pill warn">סימנים לתוכנית</span>',
+                    not_found:'<span class="pill">לא נמצאה</span>'};
 async function loadPrograms() {
-  const rows = await api("/api/programs");
+  const [rows, known] = await Promise.all([api("/api/programs"), api("/api/affiliate-stores")]);
+  const mine = known.filter(k => k.in_sources);
+  $("#affStoreTable").innerHTML = "<tr><th>חנות</th><th>תוכנית שותפים</th><th>מקור</th><th>הערה</th><th>נבדק</th></tr>" +
+    (mine.length ? mine.map(k => `<tr><td>${esc(k.name)}</td>
+      <td>${k.joined ? '<span class="pill good">הגדרת תוכנית</span> ' : ""}${AFF_STATUS[k.status] || '<span class="pill">לא נבדק</span>'}</td>
+      <td>${k.url ? `<a href="${safeUrl(k.url)}" target="_blank" rel="noopener">עמוד התוכנית</a>` : ""}${k.network ? ` <span class="muted">${esc(k.network)}</span>` : ""}</td>
+      <td class="muted">${esc(k.note)}</td><td class="num muted">${esc(k.checked)}</td></tr>`).join("")
+      : '<tr><td colspan="5" class="muted">אין חנויות ב-sources.json.</td></tr>');
   $("#programTable").innerHTML = "<tr><th>דומיין</th><th>רשת</th><th>פרמטרים / תבנית</th><th>עמלה</th><th>אומתה</th><th></th></tr>" +
     rows.map(r => `<tr><td>${esc(r.domain)}</td><td>${esc(r.network)}</td><td class="num">${esc(r.template || r.params_json)}</td>
       <td class="num">${r.commission_rate == null ? "לא ידוע" : (r.commission_rate*100).toFixed(1) + "%"}</td>
       <td>${r.commission_verified ? '<span class="pill good">כן</span>' : '<span class="pill warn">לא</span>'}</td>
       <td><button class="btn" data-pdel="${esc(r.domain)}">מחיקה</button></td></tr>`).join("");
   document.querySelectorAll("[data-pdel]").forEach(b => b.onclick = async () => {
-    if (!confirm("למחוק?")) return; await api("/api/programs/" + encodeURIComponent(b.dataset.pdel), {method:"DELETE"}); loadPrograms();
+    if (!confirm("למחוק?")) return; await api("/api/programs/" + encodeURIComponent(b.dataset.pdel), {method:"DELETE"}); metaLoaded = false; loadPrograms();
   });
 }
-
 $("#sourceForm").onsubmit = async e => {
   e.preventDefault(); const f = Object.fromEntries(new FormData(e.target));
   f.start_urls = f.start_urls ? f.start_urls.split(",").map(s => s.trim()).filter(Boolean) : [];
@@ -280,19 +635,26 @@ $("#programForm").onsubmit = async e => {
   const body = {domain:f.domain, network:f.network, template:f.template, commission_rate:f.commission_rate,
                 commission_verified: !!f.commission_verified, commission_source:f.commission_source,
                 params: f.param_key ? {[f.param_key]: f.param_value} : {}};
-  try { await api("/api/programs", {method:"POST", body}); flash("נשמר"); e.target.reset(); loadPrograms(); } catch (err) { flash(err.message, "bad"); }
+  try { await api("/api/programs", {method:"POST", body}); flash("נשמר"); e.target.reset(); metaLoaded = false; loadPrograms(); } catch (err) { flash(err.message, "bad"); }
 };
-$("#detectBtn").onclick = async () => { try { const r = await api("/api/detect", {method:"POST", body:{}}); flash(`${r.created.length} עסקאות חדשות`); loadAlerts(); } catch (e) { flash(e.message, "bad"); } };
-$("#publishBtn").onclick = async () => { if (!confirm("לשלוח את כל העסקאות המאושרות ל-n8n?")) return;
-  try { const r = await api("/api/publish", {method:"POST"}); flash(`פורסמו ${r.published}, נכשלו ${r.failed}`); loadAlerts(); } catch (e) { flash(e.message, "bad"); } };
-["#q"].forEach(s => $(s).addEventListener("keydown", e => e.key === "Enter" && loadOffers()));
+$("#detectBtn").onclick = async () => { try { const r = await api("/api/detect", {method:"POST", body:{}}); flash(`${r.created.length} מבצעים חדשים`); loadAlerts(); loadBadge(); } catch (e) { flash(e.message, "bad"); } };
+$("#publishBtn").onclick = async () => { if (!confirm("לפרסם את כל המבצעים המאושרים?")) return;
+  try { const r = await api("/api/publish", {method:"POST"}); flash(`פורסמו ${r.published}, נכשלו ${r.failed}`); loadAlerts(); }
+  catch (e) { flash(e.message.startsWith("no destination") ? "עוד לא הוגדר לאן לפרסם (טלגרם או n8n). המבצעים המאושרים נשמרים." : e.message, "bad"); } };
+$("#q").addEventListener("keydown", e => e.key === "Enter" && loadOffers());
 ["#cat", "#store", "#sort", "#verified"].forEach(s => $(s).addEventListener("change", loadOffers));
 $("#reload").onclick = loadOffers; $("#alertStatus").onchange = loadAlerts;
+document.querySelectorAll(".affOnly").forEach(c => { c.checked = AFF_ONLY; c.onchange = () => {
+  AFF_ONLY = c.checked; try { localStorage.setItem("affiliateOnly", AFF_ONLY ? "1" : "0"); } catch {}
+  document.querySelectorAll(".affOnly").forEach(x => x.checked = AFF_ONLY);
+  const tab = document.querySelector("section.on")?.id;
+  (tab === "offers" ? loadOffers() : tab === "compare" ? loadCompare() : Promise.resolve(affNote())).catch(e => flash(e.message, "bad"));
+}; });
 
-const loaders = {overview: loadOverview, offers: () => loadFilters().then(loadOffers), compare: loadCompare,
+const loaders = {home: loadHome, search: loadSearch, offers: () => loadFilters().then(loadOffers), compare: loadCompare,
                  alerts: loadAlerts, sources: loadSources, programs: loadPrograms};
 function load(tab) { loaders[tab]().catch(e => flash(e.message, "bad")); }
-load("overview");
+load("home");
 </script>
 </body>
 </html>
