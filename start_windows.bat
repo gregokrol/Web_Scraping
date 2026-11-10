@@ -19,20 +19,20 @@ echo    1   Scrape a product page or a whole store
 echo    2   Search AliExpress          (needs ALIEXPRESS_* keys)
 echo    3   Search Amazon              (needs AMAZON_* keys)
 echo    4   Import a product feed      (XML / CSV file or URL)
-echo    5   Open the dashboard in the browser
+echo    5   Open the app window (dashboard)
 echo    6   Run the full automation now
 echo    7   Show deals waiting for approval
 echo    8   Approve deals
 echo    9   Publish approved deals to Telegram
 echo   10   Check the Telegram connection
-echo   15   Find my Telegram channel id  (private channels)
-echo   16   Add product links to track
-echo   17   Show / remove tracked product links
-echo   18   Post a test message in the channel
 echo   11   Schedule the automation  (once or twice a day)
 echo   12   Edit settings  (automation / sources / affiliate)
 echo   13   Open the results folder
 echo   14   Run the self-tests
+echo   15   Find my Telegram channel id  (private channels)
+echo   16   Add product links to track
+echo   17   Show / remove tracked product links
+echo   18   Post a test message in the channel
 echo    0   Exit
 echo.
 set "CH="
@@ -92,9 +92,9 @@ if "%F%"=="" goto menu
 goto done
 
 :dashboard
-echo  The dashboard opens in your browser. Close this window or press Ctrl+C to stop it.
-"%PY%" main.py dashboard --open
-goto done
+rem the app window runs on its own (no console) and stops by itself after its window closes
+start "" "%~dp0.venv\Scripts\pythonw.exe" "%~dp0app_window.pyw"
+goto menu
 
 :run
 "%PY%" main.py run --config automation.json
@@ -149,9 +149,9 @@ set /p "T=  First run time, HH:MM (Enter = 08:13): "
 if "%T%"=="" set "T=08:13"
 choice /C 12 /M "  1 = once a day, 2 = twice a day (every 12 hours)"
 if errorlevel 2 (
-  "%PY%" main.py schedule --every twice-daily --at %T% --create
+  "%PY%" main.py schedule --every twice-daily --at %T% --hidden --create
 ) else (
-  "%PY%" main.py schedule --every daily --at %T% --create
+  "%PY%" main.py schedule --every daily --at %T% --hidden --create
 )
 goto done
 

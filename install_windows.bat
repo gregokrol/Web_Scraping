@@ -124,13 +124,15 @@ if errorlevel 1 (
 )
 
 rem ------------------------------------------------------------ 6. Desktop shortcut
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Desktop')+'\Web Scraping.lnk'); $s.TargetPath='%CD%\start_windows.bat'; $s.WorkingDirectory='%CD%'; $s.Save()" >nul 2>nul
+rem opens the app window (pythonw = no CMD screen). start_windows.bat keeps the text menu.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Desktop')+'\Web Scraping.lnk'); $s.TargetPath='%CD%\.venv\Scripts\pythonw.exe'; $s.Arguments=[char]34+'%CD%\app_window.pyw'+[char]34; $s.WorkingDirectory='%CD%'; $s.IconLocation='%CD%\affiliate_scraper\dashboard\static\app.ico'; $s.Description='Web Scraping - price tracking and deals'; $s.Save()" >nul 2>nul
 if not errorlevel 1 echo  [ok] Shortcut "Web Scraping" created on the desktop
 
 echo.
 echo  ==============================================
 echo   Done. Start with the "Web Scraping" desktop
-echo   shortcut, or double-click start_windows.bat
+echo   shortcut (app window). The text menu is
+echo   still in start_windows.bat
 echo  ==============================================
 pause
 exit /b 0

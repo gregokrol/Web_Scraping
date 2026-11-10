@@ -12,7 +12,7 @@ from affiliate_scraper.cli import main
 from affiliate_scraper.content import build_content
 from affiliate_scraper.db import Database
 from affiliate_scraper.models import Product
-from affiliate_scraper.scheduler import build_bat, build_schtasks_create
+from affiliate_scraper.scheduler import build_bat, build_schtasks_create, build_vbs, console_python
 from affiliate_scraper.validation import validate_product
 from affiliate_scraper.webhook import WebhookError, send_event
 
@@ -62,6 +62,11 @@ def seed_db(tmp_path, history=(120, 120, 120), current=90.0, deal=80.0):
 
 def set_price(db, oid, price):
     now = datetime.now(timezone.utc) + timedelta(seconds=1)
+    # price_history is UNIQUE(offer_id, observed_at). On Windows the clock ticks every ~15.6 ms, so two quick
+    # calls can get the same time; always step past the newest row instead.
+    last = db.conn.execute("SELECT MAX(observed_at) FROM price_history WHERE offer_id=?", (oid,)).fetchone()[0]
+    if last and now <= datetime.fromisoformat(last):
+        now = datetime.fromisoformat(last) + timedelta(milliseconds=1)
     db.conn.execute("UPDATE offers SET price=?, last_seen=? WHERE id=?", (price, now.isoformat(), oid))
     db.conn.execute("INSERT INTO price_history(offer_id, observed_at, price, currency, price_verified) VALUES (?,?,?,?,1)",
                     (oid, now.isoformat(), price, "ILS"))
@@ -147,6 +152,17 @@ def test_scheduler_commands():
         build_schtasks_create("W", "x.bat", "daily", "25:00")
     with pytest.raises(ValueError):
         build_schtasks_create("bad&name", "x.bat")
+
+
+def test_hidden_schedule_runs_through_wscript(tmp_path):
+    vbs = build_vbs(r"C:\My Projects\run_automation.bat")
+    assert '"""C:\\My Projects\\run_automation.bat""", 0, True' in vbs    # window style 0 = hidden
+    cmd = build_schtasks_create("W", r"C:\p\run_automation.bat", vbs_path=r"C:\p\run_automation.vbs")
+    assert cmd[cmd.index("/TR") + 1] == 'wscript.exe "C:\\p\\run_automation.vbs"'
+    (tmp_path / "pythonw.exe").write_text("")
+    (tmp_path / "python.exe").write_text("")
+    assert console_python(str(tmp_path / "pythonw.exe")) == str(tmp_path / "python.exe")
+    assert console_python(r"C:\Python\python.exe") == r"C:\Python\python.exe"
 
 
 def test_schedule_command_prints_without_creating(tmp_path, capsys):
@@ -236,3 +252,32 @@ def test_targets_command_edits_automation_json(tmp_path, capsys):
     assert json.loads((tmp_path / "automation.json").read_text(encoding="utf-8"))["targets"] == ["https://other.example/x"]
     capsys.readouterr()
     assert main(["targets", "list"]) == 0 and "other.example" in capsys.readouterr().out
+
+
+def test_automation_include_regex_may_start_with_dash(tmp_path):
+    from affiliate_scraper.cli import build_parser
+    from affiliate_scraper.commands import automation_scrape_jobs
+
+    regex = r"-\d{12,14}(\?|$)|/puzzle/"     # e.g. product URLs that end with a barcode
+    src = tmp_path / "sources.json"
+    src.write_text(json.dumps({"stores": [{"domain": "shop.example", "start_urls": ["https://shop.example/c"],
+                                           "discover": "links", "include": regex}]}), encoding="utf-8")
+    [job] = automation_scrape_jobs({"sources_config": str(src)})
+    args = build_parser().parse_args(job)        # used to fail: "--include: expected one argument"
+    assert args.include == regex and args.discover == "links"
+
+
+def test_automation_per_store_page_limits(tmp_path):
+    from affiliate_scraper.cli import build_parser
+    from affiliate_scraper.commands import automation_scrape_jobs
+
+    src = tmp_path / "sources.json"
+    src.write_text(json.dumps({"stores": [
+        {"domain": "big.example", "start_urls": ["https://big.example/c"], "discover": "links",
+         "max_pages": 500, "max_listing_pages": 35},
+        {"domain": "small.example", "start_urls": ["https://small.example/c"], "discover": "links"}]}),
+        encoding="utf-8")
+    big, small = (build_parser().parse_args(j) for j in automation_scrape_jobs(
+        {"sources_config": str(src), "max_pages": 100}))
+    assert (big.max_pages, big.max_listing_pages) == (500, 35)       # store limits override the common ones
+    assert (small.max_pages, small.max_listing_pages) == (100, 10)

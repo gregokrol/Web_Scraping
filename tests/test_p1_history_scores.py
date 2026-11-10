@@ -229,3 +229,33 @@ def test_repeated_observation_of_new_price_keeps_reference():
     assert st.prior_min_30d == 120 and st.previous_price == 120
     assert check_discount_claim(st, 90, 150)["status"] == "overstated"
     assert detect_price_drop(st)["drop_pct"] == 25.0
+
+
+def test_concurrent_store_upserts_do_not_collide(tmp_path):
+    """Regression: two connections saving the same store at once raised 'UNIQUE constraint failed: sources.domain'."""
+    import threading
+    path = tmp_path / "c.db"
+    Database(path).close()
+    errors = []
+
+    def worker(i):
+        db = Database(path)
+        try:
+            for _ in range(30):
+                db.upsert_source("shop.example", name=f"Shop {i}", trust_score=0.5)
+                db.upsert_program("shop.example", network=f"n{i}")
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+        finally:
+            db.close()
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    db = Database(path)
+    assert errors == []
+    assert db.query("SELECT COUNT(*) n FROM sources")[0]["n"] == 1
+    assert db.query("SELECT COUNT(*) n FROM affiliate_programs")[0]["n"] == 1
+    sid = db.upsert_source("shop.example", trust_score=0.9)
+    assert db.query("SELECT trust_score FROM sources WHERE id=?", (sid,))[0]["trust_score"] == 0.9

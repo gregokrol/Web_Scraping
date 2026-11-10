@@ -201,20 +201,17 @@ class Database:
 
     # ------------------------------------------------------------------ sources / programs
     def upsert_source(self, domain: str, **fields) -> int:
+        """Insert or update a store atomically (INSERT ... ON CONFLICT), safe when two
+        connections save the same store at the same time (app request + background crawl)."""
         now = now_iso()
         allowed = {"name", "type", "trust_score", "shipping_cost", "warranty_months", "config_json", "enabled"}
         data = {k: v for k, v in fields.items() if k in allowed}
+        cols = ["domain", *data, "created_at", "updated_at"]
+        updates = ", ".join([*(f"{k}=excluded.{k}" for k in data), "updated_at=excluded.updated_at"])
         with self.tx() as c:
-            row = c.execute("SELECT id FROM sources WHERE domain=?", (domain,)).fetchone()
-            if row:
-                if data:
-                    sets = ", ".join(f"{k}=?" for k in data)
-                    c.execute(f"UPDATE sources SET {sets}, updated_at=? WHERE id=?", (*data.values(), now, row["id"]))
-                return int(row["id"])
-            cols = ["domain", *data, "created_at", "updated_at"]
-            cur = c.execute(f"INSERT INTO sources({','.join(cols)}) VALUES ({','.join('?' * len(cols))})",
-                            (domain, *data.values(), now, now))
-            return int(cur.lastrowid)
+            c.execute(f"INSERT INTO sources({','.join(cols)}) VALUES ({','.join('?' * len(cols))}) "
+                      f"ON CONFLICT(domain) DO UPDATE SET {updates}", (domain, *data.values(), now, now))
+            return int(c.execute("SELECT id FROM sources WHERE domain=?", (domain,)).fetchone()["id"])
 
     def sync_stores(self, stores) -> None:
         for s in stores:
@@ -228,20 +225,15 @@ class Database:
         return row["trust_score"] if row and row["trust_score"] is not None else None
 
     def upsert_program(self, domain: str, **fields) -> None:
+        """Atomic insert-or-update (see upsert_source)."""
         allowed = {"network", "params_json", "template", "commission_rate", "commission_verified",
                    "commission_source", "cookie_days", "notes"}
         data = {k: v for k, v in fields.items() if k in allowed}
+        cols = ["domain", *data, "updated_at"]
+        updates = ", ".join([*(f"{k}=excluded.{k}" for k in data), "updated_at=excluded.updated_at"])
         with self.tx() as c:
-            row = c.execute("SELECT id FROM affiliate_programs WHERE domain=?", (domain,)).fetchone()
-            if row:
-                if data:
-                    sets = ", ".join(f"{k}=?" for k in data)
-                    c.execute(f"UPDATE affiliate_programs SET {sets}, updated_at=? WHERE id=?",
-                              (*data.values(), now_iso(), row["id"]))
-            else:
-                cols = ["domain", *data, "updated_at"]
-                c.execute(f"INSERT INTO affiliate_programs({','.join(cols)}) VALUES ({','.join('?' * len(cols))})",
-                          (domain, *data.values(), now_iso()))
+            c.execute(f"INSERT INTO affiliate_programs({','.join(cols)}) VALUES ({','.join('?' * len(cols))}) "
+                      f"ON CONFLICT(domain) DO UPDATE SET {updates}", (domain, *data.values(), now_iso()))
 
     def sync_programs(self, config) -> None:
         """Copy programs from affiliate_config.json. Only keys present in the file are overwritten,
@@ -336,6 +328,33 @@ class Database:
                           "deal_notes=?, group_id=?, match_confidence=? WHERE url=?",
                           (p.deal_score, p.affiliate_score, p.deal_status, p.affiliate_status, p.deal_notes,
                            p.group_id, p.match_confidence, p.url))
+
+    def recent_products(self, since: str, with_known_matches: bool = False) -> list[Product]:
+        """Offers seen at or after ``since`` (ISO time) as Product objects - e.g. every store of one automation run.
+
+        ``with_known_matches`` adds older offers of the same product / comparison group (a search that found a
+        product in one store still gets compared with the other stores an earlier scan found it in).
+        """
+        where = "o.last_seen >= ?"
+        params: tuple = (since,)
+        if with_known_matches:
+            where += (" OR o.product_id IN (SELECT product_id FROM offers WHERE last_seen >= ? AND product_id IS NOT NULL)"
+                      " OR (o.group_id <> '' AND o.group_id IN (SELECT group_id FROM offers WHERE last_seen >= ? "
+                      "AND group_id <> ''))")
+            params = (since, since, since)
+        rows = self.query("SELECT o.*, p.name AS p_name, p.brand, p.model, p.gtin FROM offers o "
+                          f"LEFT JOIN products p ON p.id = o.product_id WHERE {where} ORDER BY o.id", params)
+        out = []
+        for r in rows:
+            p = Product(url=r["url"], name=r["title"] or r["p_name"] or "", brand=r["brand"] or "",
+                        model=r["model"] or "", gtin=r["gtin"] or "", fetched_at=r["last_fetched_at"] or "",
+                        price_verified=bool(r["price_verified"]),
+                        validation_issues=[i for i in (r["validation_issues"] or "").split(";") if i])
+            for col in OFFER_COLUMNS:
+                if col not in ("domain", "price_verified") and r[col] is not None:
+                    setattr(p, col, r[col])
+            out.append(p)
+        return out
 
     def offer_id(self, url: str) -> Optional[int]:
         row = self.conn.execute("SELECT id FROM offers WHERE url=?", (url,)).fetchone()

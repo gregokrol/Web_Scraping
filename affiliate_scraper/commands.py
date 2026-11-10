@@ -8,14 +8,18 @@ from __future__ import annotations
 import csv
 import json
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Optional
+from urllib.parse import quote_plus, unquote
 
 from . import cli
 from .db import DEFAULT_DB, Database
 from .history import check_discount_claim, detect_price_drop, is_lowest_in_90d, stats_for_offer
 from .scoring import apply_scores
-from .utils import parse_int, parse_price
+from .utils import domain_matches, parse_int, parse_price
 
 
 def _err(msg: str) -> None:
@@ -418,20 +422,7 @@ def load_automation(path: str) -> dict:
 
 def automation_scrape_jobs(cfg: dict) -> list[list[str]]:
     """Build one scrape argv per store / target group (each becomes a crawl_run)."""
-    common = ["--db", cfg.get("db", DEFAULT_DB), "--delay", str(cfg.get("delay", 3)),
-              "--max-pages", str(cfg.get("max_pages", 100)), "-o", cfg.get("out_dir", "output"),
-              "--formats", ",".join(cfg.get("formats", ["csv", "json"])),
-              "--max-age-hours", str(cfg.get("max_age_hours", 24))]
-    if cfg.get("affiliate_config"):
-        common += ["-c", cfg["affiliate_config"]]
-    if cfg.get("sources_config"):
-        common += ["--sources", cfg["sources_config"]]
-    if cfg.get("render") == "js":
-        common += ["--render", "js"]
-    if cfg.get("no_cache"):
-        common.append("--no-cache")
-    if cfg.get("allow_private_hosts"):  # only for testing against your own local store
-        common.append("--allow-private-hosts")
+    common = _common_args(cfg)
     jobs = []
     if cfg.get("sources_config") and Path(cfg["sources_config"]).exists():
         from .sources import load_stores
@@ -443,12 +434,14 @@ def automation_scrape_jobs(cfg: dict) -> list[list[str]]:
             elif s.start_urls:
                 argv = [*s.start_urls, "--discover", s.discover or "none", "--name", f"auto_{s.domain}", *common]
                 if s.include:
-                    argv += ["--include", s.include]
-                # per-store politeness (later options override the common ones)
+                    argv.append(f"--include={s.include}")  # "=" form: a regex may start with "-"
+                # per-store politeness and limits (later options override the common ones)
                 if s.delay is not None:
                     argv += ["--delay", str(s.delay)]
-                if s.max_pages is not None:
-                    argv += ["--max-pages", str(s.max_pages)]
+                if s.max_pages:
+                    argv += ["--max-pages", str(int(s.max_pages))]
+                if s.max_listing_pages:
+                    argv += ["--max-listing-pages", str(int(s.max_listing_pages))]
                 jobs.append(argv)
     if cfg.get("targets"):
         argv = [*cfg["targets"], "--name", "auto_targets", *common]
@@ -466,6 +459,233 @@ def automation_scrape_jobs(cfg: dict) -> list[list[str]]:
     for g in cfg.get("ebay_gtins", []):
         jobs.append(["--ebay-gtin", str(g), "--name", "auto_ebay", *common])
     return jobs
+
+
+def _common_args(cfg: dict) -> list[str]:
+    """Scrape options every automation / search job shares (database, politeness, output, configs)."""
+    common = ["--db", cfg.get("db", DEFAULT_DB), "--delay", str(cfg.get("delay", 3)),
+              "--max-pages", str(cfg.get("max_pages", 100)), "-o", cfg.get("out_dir", "output"),
+              "--formats", ",".join(cfg.get("formats", ["csv", "json"])),
+              "--max-age-hours", str(cfg.get("max_age_hours", 24))]
+    if cfg.get("affiliate_config"):
+        common += ["-c", cfg["affiliate_config"]]
+    if cfg.get("sources_config"):
+        common += ["--sources", cfg["sources_config"]]
+    if cfg.get("render") == "js":
+        common += ["--render", "js"]
+    if cfg.get("no_cache"):
+        common.append("--no-cache")
+    if cfg.get("allow_private_hosts"):  # only for testing against your own local store
+        common.append("--allow-private-hosts")
+    return common
+
+
+# ===================================================================== product search
+SEARCH_PER_STORE = 12
+
+
+def clean_query(query: str) -> str:
+    """One line of plain words; raises ValueError for empty, too long or control-character input."""
+    q = " ".join(str(query).split())
+    if not 2 <= len(q) <= 100:
+        raise ValueError("search words must be 2-100 characters")
+    if any(ord(ch) < 32 for ch in q):
+        raise ValueError("search words contain control characters")
+    return q
+
+
+def relevance(query: str, *texts: str) -> float:
+    """Share of the search words found in a result's title / URL (0..1) - see :func:`discovery.relevance`."""
+    from .discovery import relevance as _relevance
+    return _relevance(clean_query(query), *texts)
+
+
+def joined_programs(db_path: str) -> list[str]:
+    """Domains you set up yourself in the app's affiliate-programs tab (the affiliate_programs table)."""
+    if not db_path or not Path(db_path).exists():
+        return []
+    db = Database(db_path)
+    try:
+        return [r["domain"] for r in db.query("SELECT domain FROM affiliate_programs")]
+    finally:
+        db.close()
+
+
+def affiliate_info(store, joined: list[str]) -> dict:
+    """What is known about one store's affiliate program: the facts in sources.json + whether you set one up."""
+    a = store.affiliate or {}
+    mine = any(domain_matches(store.domain, j) for j in joined)
+    return {"status": a.get("status", ""), "url": a.get("url", ""), "network": a.get("network", ""),
+            "note": a.get("note", ""), "checked": a.get("checked", ""), "joined": mine,
+            "has_program": mine or store.has_affiliate}
+
+
+def affiliate_domains(stores: list, joined: list[str]) -> list[str]:
+    """Domains of stores with an affiliate program - known from sources.json or set up by you."""
+    return sorted({s.domain for s in stores if affiliate_info(s, joined)["has_program"]}
+                  | {j.lower().removeprefix("www.") for j in joined})
+
+
+def search_stores(cfg: dict, only: Optional[list[str]] = None, affiliate_only: bool = False) -> list:
+    """Enabled stores from the automation's sources_config that have a search_url.
+
+    ``affiliate_only`` keeps the stores with an affiliate program (see :func:`affiliate_info`)."""
+    from .sources import load_stores
+    src = cfg.get("sources_config")
+    if not src or not Path(src).exists():
+        return []
+    stores = [s for s in load_stores(src)
+              if s.enabled and (s.search_url or s.search_sitemap) and (not only or s.domain in only)]
+    if affiliate_only:
+        joined = joined_programs(cfg.get("db", DEFAULT_DB))
+        stores = [s for s in stores if affiliate_info(s, joined)["has_program"]]
+    return stores
+
+
+def search_jobs(cfg: dict, query: str, per_store: int = SEARCH_PER_STORE,
+                only: Optional[list[str]] = None, affiliate_only: bool = False) -> list[tuple[str, list[str]]]:
+    """One scrape argv per store: its own search page -> the first ``per_store`` result products."""
+    q = quote_plus(clean_query(query))
+    jobs = []
+    for s in search_stores(cfg, only, affiliate_only):
+        if s.search_sitemap:
+            # the store's robots.txt forbids its search page: look for the words in its product sitemaps
+            argv = [s.search_sitemap, "--discover", "sitemap", f"--match={clean_query(query)}",
+                    "--name", f"search_{s.domain}", *_common_args(cfg), "--max-pages", str(int(per_store))]
+            include = s.search_include or s.include
+            if include:
+                argv.append(f"--include={include}")
+            jobs.append((s.domain, argv))
+            continue
+        argv = [s.search_url.replace("{q}", q), "--discover", "links", "--name", f"search_{s.domain}",
+                *_common_args(cfg), "--max-pages", str(int(per_store)), "--max-listing-pages", "1"]
+        # with result-card selector the cards ARE the products; else the product-URL regex decides
+        include = s.search_include or ("." if s.search_selector else s.include)
+        if include:
+            argv.append(f"--include={include}")
+        if s.search_selector:
+            argv.append(f"--link-selector={s.search_selector}")
+        jobs.append((s.domain, argv))
+    return jobs
+
+
+def _search_build(ap) -> None:
+    ap.add_argument("query", nargs="+", help="What to look for: product words, a model number or a barcode")
+    ap.add_argument("--config", default="automation.json", help="Automation settings (stores, database, delay)")
+    ap.add_argument("--per-store", type=int, default=SEARCH_PER_STORE,
+                    help="Read this many results from each store (default %(default)s)")
+    ap.add_argument("--store", action="append", default=[], help="Search only this store domain (repeatable)")
+    ap.add_argument("--affiliate-only", action="store_true",
+                    help="Only stores with an affiliate program (affiliate in sources.json, or one you set up)")
+    ap.add_argument("--parallel", type=int, default=6,
+                    help="Stores searched at the same time (default %(default)s; the delay between requests is per "
+                         "store, so each store still sees one request every few seconds; 1 = one after another)")
+    ap.add_argument("--dry-run", action="store_true", help="Show which search pages would be read")
+    ap.add_argument("-v", "--verbose", action="count", default=0)
+
+
+def _search_run(args) -> int:
+    try:
+        query = clean_query(" ".join(args.query))
+        cfg = load_automation(args.config)
+    except (OSError, ValueError) as exc:
+        _err(f"error: {exc}")
+        return 2
+    if not 1 <= args.per_store <= 50:
+        _err("error: --per-store must be 1-50")
+        return 2
+    if not 1 <= args.parallel <= 16:
+        _err("error: --parallel must be 1-16")
+        return 2
+    jobs = search_jobs(cfg, query, args.per_store, args.store or None, args.affiliate_only)
+    if not jobs:
+        src = cfg.get("sources_config") or "sources.json"
+        if args.affiliate_only and search_stores(cfg, args.store or None):
+            _err(f"error: none of the searchable stores has a known affiliate program - see 'affiliate' in {src} "
+                 "or set one up in the app's affiliate programs tab")
+        else:
+            _err(f"error: no store can be searched - add a search_url to the stores in {src}")
+        return 2
+    if args.dry_run:
+        for domain, j in jobs:
+            print(f"would search {domain}: {j[0]}")
+        return 0
+
+    started = datetime.now(timezone.utc).isoformat()
+    finished = []
+    lock = threading.Lock()
+
+    def one(job):
+        domain, argv = job
+        _err("\n=== scrape: " + argv[0])
+        try:
+            return cli.scrape_main([*argv, *(["-v"] * args.verbose)])
+        except Exception as exc:  # one broken store must not lose the others' results
+            _err(f"error: {domain}: {exc}")
+            return 1
+        finally:
+            with lock:
+                finished.append(domain)
+                _err(f"--- store done {len(finished)}/{len(jobs)}: {domain}")
+
+    # every store is a different host, and PoliteFetcher's delay is per host - so running the stores side by side
+    # is as polite as one after another, just faster. Each job has its own fetcher and database connection (WAL).
+    with ThreadPoolExecutor(max_workers=min(args.parallel, len(jobs))) as pool:
+        codes = list(pool.map(one, jobs))
+
+    since = _seconds_floor(started)
+    db = Database(cfg.get("db", DEFAULT_DB))
+    try:
+        compare_across_stores(db, cfg, since=since, with_known_matches=True)
+        rows = db.query("SELECT domain, title, url, price, currency, group_id FROM offers WHERE last_seen >= ? "
+                        f"AND domain IN ({','.join('?' * len(jobs))}) ORDER BY price IS NULL, price",
+                        (since, *[d for d, _ in jobs]))
+    finally:
+        db.close()
+    rows.sort(key=lambda r: -relevance(query, r["title"], r["url"]))   # stable: cheapest first within a level
+    stores = {r["domain"] for r in rows}
+    _err(f"\nSearch {query!r}: {len(rows)} product(s) in {len(stores)} of {len(jobs)} store(s).")
+    for r in rows[:15]:
+        price = f"{r['price']:,.2f} {r['currency']}" if r["price"] is not None else "-"
+        _err(f"  {price:>14}  {r['domain']:<20} {(r['title'] or '')[:60]}")
+    # a store without this product is a normal answer, not an error; 2 = bad arguments / config
+    return 2 if all(c == 2 for c in codes) else 0
+
+
+cli.register_subcommand("search", "Search the stores' own search pages for any product and compare prices",
+                        _search_build, _search_run)
+
+
+def _seconds_floor(iso: str) -> str:
+    """offers.last_seen has whole seconds; compare against the run start without its microseconds."""
+    return datetime.fromisoformat(iso).replace(microsecond=0).isoformat()
+
+
+def compare_across_stores(db: Database, cfg: dict, since: str, with_known_matches: bool = False) -> list:
+    """Match and re-score every offer seen since ``since`` together.
+
+    The automation scrapes each store in its own job, and a job can only compare the offers it fetched
+    itself - so on its own, no store was ever compared with another. This pass runs after all jobs.
+    """
+    from .affiliate import AffiliateConfig
+    from .matching import compare_prices
+    from .sources import load_stores
+
+    products = db.recent_products(since, with_known_matches=with_known_matches)
+    if not products:
+        return []
+    src = cfg.get("sources_config")
+    stores = load_stores(src) if src and Path(src).exists() else []
+    aff = cfg.get("affiliate_config")
+    config = AffiliateConfig.load(aff) if aff and Path(aff).exists() else AffiliateConfig()
+    for domain, prog in db.programs_as_config().items():
+        config.programs.setdefault(domain, prog)
+    comparisons = compare_prices(products, min_confidence=float(cfg.get("match_confidence", 0.75)))
+    apply_scores(products, comparisons, db=db, stores=stores, affiliate_config=config)
+    db.update_scores(products)
+    shared = [c for c in comparisons if c.n_stores >= 2]
+    _err(f"\nCross-store comparison: {len(products)} offer(s), {len(shared)} product(s) found in 2+ stores.")
+    return comparisons
 
 
 def _run_run(args) -> int:
@@ -493,6 +713,8 @@ def _run_run(args) -> int:
         codes.append(cli.scrape_main([*j, *(["-v"] * args.verbose)]))
 
     db = Database(cfg.get("db", DEFAULT_DB))
+    if len(jobs) > 1:
+        compare_across_stores(db, cfg, since=_seconds_floor(started))
     rules = DealRules.from_dict(cfg.get("deals"))
     rules.language = cfg.get("content", {}).get("language", rules.language)
     rules.disclosure = cfg.get("content", {}).get("disclosure") or rules.disclosure
@@ -555,10 +777,12 @@ def _schedule_build(ap) -> None:
     ap.add_argument("--config", default="automation.json")
     ap.add_argument("--create", action="store_true", help="Actually register the task (Windows only)")
     ap.add_argument("--remove", action="store_true", help="Delete the scheduled task (Windows only)")
+    ap.add_argument("--hidden", action="store_true", help="Run without a CMD window (via a small .vbs wrapper)")
 
 
 def _schedule_run(args) -> int:
-    from .scheduler import build_bat, build_schtasks_create, build_schtasks_delete, run_schtasks
+    from .scheduler import (build_bat, build_schtasks_create, build_schtasks_delete, build_vbs, console_python,
+                            run_schtasks)
     project = Path.cwd()
     try:
         if args.remove:
@@ -566,12 +790,16 @@ def _schedule_run(args) -> int:
             print(" ".join(cmd))
             return run_schtasks(cmd)
         bat = project / "run_automation.bat"
-        cmd = build_schtasks_create(args.task_name, bat, args.every, args.at, args.hours)
+        vbs = project / "run_automation.vbs" if args.hidden else None
+        cmd = build_schtasks_create(args.task_name, bat, args.every, args.at, args.hours, vbs_path=vbs)
     except ValueError as exc:
         _err(f"error: {exc}")
         return 2
-    bat.write_text(build_bat(project, sys.executable, args.config), encoding="utf-8")
+    bat.write_text(build_bat(project, console_python(sys.executable), args.config), encoding="utf-8")
     print(f"Wrote {bat}")
+    if vbs:
+        vbs.write_text(build_vbs(bat), encoding="utf-16")  # wscript reads UTF-16 with BOM, any path works
+        print(f"Wrote {vbs}")
     print("Task Scheduler command:\n  " + " ".join(cmd))
     if not args.create:
         print("\n(Not registered. Add --create to register it, or paste the command into CMD.)")

@@ -329,6 +329,19 @@ def _merge(target: dict, source: dict, label: str, sources: list[str]) -> None:
         sources.append(label)
 
 
+def _fuller_name(rec: dict, soup) -> None:
+    """Some shops put only the product TYPE in their structured data ("אוזניות אלחוטיות" - wireless earbuds)
+    while the page heading says which one ("אפל - Apple אוזניות אלחוטיות AirPods 4"). A generic name can't be
+    compared or searched, so a short structured name gives way to the heading - only when the heading contains it."""
+    name = (rec.get("name") or "").strip()
+    if not name or len(name.split()) > 3:
+        return
+    h1 = soup.find("h1")
+    heading = " ".join(h1.get_text(" ", strip=True).split()) if h1 else ""
+    if len(name) < len(heading) <= 200 and name.lower() in heading.lower():
+        rec["name"] = heading
+
+
 def extract_products(html: str, page_url: str, require_structured: bool = True,
                      selectors: Optional[dict[str, str]] = None, fetched_at: str = "") -> list[Product]:
     """Return all products found on a page (usually one for a product page).
@@ -363,6 +376,7 @@ def extract_products(html: str, page_url: str, require_structured: bool = True,
             if css:
                 _merge(rec, css, "html", sources)
             _merge(rec, from_html_fallback(soup), "html", sources)
+            _fuller_name(rec, soup)
         product_url = item.get("url") if (not single and item.get("url")) else url
         kwargs = {"fetched_at": fetched_at} if fetched_at else {}
         # source_type = where the *price* came from (decides price verification)

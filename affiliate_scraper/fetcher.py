@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urljoin, urlparse
-from urllib.robotparser import RobotFileParser
+from .robots import RobotsParser
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -126,7 +126,7 @@ class PoliteFetcher:
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
 
-        self._robots: dict[str, RobotFileParser] = {}
+        self._robots: dict[str, RobotsParser] = {}
         self._last_hit: dict[str, float] = {}
         self._host_delay: dict[str, float] = {}
         self._host_failures: dict[str, int] = {}
@@ -145,12 +145,12 @@ class PoliteFetcher:
         return [e for e in self.errors if e.url == url]
 
     # ------------------------------------------------------------------ robots
-    def _robots_for(self, url: str) -> RobotFileParser:
+    def _robots_for(self, url: str) -> RobotsParser:
         p = urlparse(url)
         origin = f"{p.scheme}://{p.netloc}"
         if origin in self._robots:
             return self._robots[origin]
-        rp = RobotFileParser(origin + "/robots.txt")
+        rp = RobotsParser(origin + "/robots.txt")
         try:
             resp = self._request(origin + "/robots.txt", check_robots=False)
             if resp is None:

@@ -38,7 +38,7 @@ from pathlib import Path
 
 from . import __version__
 from .affiliate import AffiliateConfig
-from .discovery import DEFAULT_PRODUCT_PATTERN, from_listing_pages, from_sitemaps
+from .discovery import DEFAULT_PRODUCT_PATTERN, check_selector, from_listing_pages, from_sitemaps, search_sitemaps
 from .exporters import DEFAULT_DISCLOSURE, EXPORTERS, export_run
 from .fetcher import DEFAULT_USER_AGENT, PoliteFetcher
 from .pipeline import SORT_KEYS, Filters, classify_target, run_scrape
@@ -85,7 +85,15 @@ def build_parser() -> argparse.ArgumentParser:
                    help="sitemap: read the site's XML sitemaps; links: follow links on the given listing pages")
     g.add_argument("--include", default=DEFAULT_PRODUCT_PATTERN,
                    help="Regex a URL must match to be treated as a product page (default: %(default)s)")
+    g.add_argument("--link-selector", default="",
+                   help="--discover links: only links inside these CSS-selected elements are products "
+                        "(e.g. 'a.product-preview-image')")
+    g.add_argument("--match", default="",
+                   help="With --discover sitemap: only product URLs whose address holds these words, best match "
+                        "first (searches a store whose robots.txt forbids its own search page)")
     g.add_argument("--max-pages", type=int, default=50, help="Max product pages to fetch (default: %(default)s)")
+    g.add_argument("--max-listing-pages", type=int, default=10,
+                   help="With --discover links: max category/listing pages to follow, incl. pagination (default: %(default)s)")
 
     g = ap.add_argument_group("politeness, cache & safety")
     g.add_argument("--delay", type=float, default=2.0, help="Seconds between requests to the same host (default: %(default)s)")
@@ -174,8 +182,24 @@ def collect_targets(args, fetcher: PoliteFetcher, err) -> list[str] | None:
     except ValueError as exc:
         err(f"error: --include: {exc}")
         return None
+    try:
+        check_selector(args.link_selector)
+    except ValueError as exc:
+        err(f"error: --link-selector: {exc}")
+        return None
 
-    if args.discover == "sitemap":
+    match = " ".join(args.match.split())
+    if match and (args.discover != "sitemap" or not 2 <= len(match) <= 100 or any(ord(c) < 32 for c in match)):
+        err("error: --match takes 2-100 characters of plain words, and only with --discover sitemap")
+        return None
+    if match:
+        found = []
+        for site in urls:
+            found += search_sitemaps(fetcher, site, match, include=args.include, limit=args.max_pages - len(found))
+            if len(found) >= args.max_pages:
+                break
+        urls = found
+    elif args.discover == "sitemap":
         found: list[str] = []
         for site in urls:
             found += from_sitemaps(fetcher, site, include=args.include, limit=args.max_pages - len(found))
@@ -183,7 +207,8 @@ def collect_targets(args, fetcher: PoliteFetcher, err) -> list[str] | None:
                 break
         urls = found
     elif args.discover == "links":
-        urls = from_listing_pages(fetcher, urls, include=args.include, limit=args.max_pages)
+        urls = from_listing_pages(fetcher, urls, include=args.include, limit=args.max_pages,
+                                  max_listing_pages=args.max_listing_pages, link_selector=args.link_selector or None)
     else:
         urls = urls[: args.max_pages]
     urls += [f"feed:{f}" for f in args.feed]
@@ -192,6 +217,32 @@ def collect_targets(args, fetcher: PoliteFetcher, err) -> list[str] | None:
     urls += [f"aliexpress:id:{i}" for i in args.aliexpress_id]
     urls += [f"ebay:search:{q}" for q in args.ebay_search] + [f"ebay:gtin:{g}" for g in args.ebay_gtin]
     return urls
+
+
+def explain_no_products(errors, max_shown: int = 5) -> list[str]:
+    """Why a run found nothing, printed on screen (not only in the error log).
+
+    Missing API keys come first: in that case nothing was searched at all, and a generic
+    "pages may lack structured data" hint would send the user looking in the wrong place.
+    """
+    missing = [e for e in errors if e.kind == "credentials_missing"]
+    other = [e for e in errors if e.kind != "credentials_missing"]
+    lines = []
+    if missing:
+        lines.append("No products found: API keys are missing, so nothing was searched.")
+        lines += [f"  {msg}" for msg in dict.fromkeys(e.message for e in missing)]
+        lines.append("  Set them with setx (RUN_ON_WINDOWS.md, section 7), then close this window and open a new one.")
+    else:
+        lines.append("No products found (pages may lack structured data, be blocked by robots.txt, or be filtered out).")
+    if other:
+        lines.append("Other problems:" if missing else "Reasons:")
+        for e in other[:max_shown]:
+            status = f" {e.status}" if e.status else ""
+            detail = f" - {e.message[:200]}" if e.message else ""
+            lines.append(f"  {e.url}: {e.kind}{status}{detail}")
+        if len(other) > max_shown:
+            lines.append(f"  ... and {len(other) - max_shown} more (see the error log)")
+    return lines
 
 
 def scrape_main(argv: list[str]) -> int:
@@ -288,7 +339,8 @@ def scrape_main(argv: list[str]) -> int:
 
     name = args.name or f"products_{datetime.now():%Y%m%d_%H%M%S}"
     if not result.products:
-        err("No products found (pages may lack structured data, be blocked by robots.txt, or be filtered out).")
+        for line in explain_no_products(result.errors):
+            err(line)
         if result.errors:
             from .exporters import errors_to_csv
             Path(args.out_dir).mkdir(parents=True, exist_ok=True)
