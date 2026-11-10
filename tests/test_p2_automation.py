@@ -222,3 +222,17 @@ def test_twice_daily_schedule_and_per_store_delay(tmp_path):
     args = build_parser().parse_args(job)
     assert args.delay == 10.0 and args.max_pages == 20 and args.discover == "none"
     assert args.sources == str(tmp_path / "sources.json")
+
+
+def test_targets_command_edits_automation_json(tmp_path, capsys):
+    (tmp_path / "automation.json").write_text(json.dumps({"targets": [], "delay": 3}), encoding="utf-8")
+    assert main(["targets", "add", "https://shop.example/p/1", "https://shop.example/p/1", "https://ksp.co.il/web/item/5",
+                 "file:///etc/passwd", "https://other.example/x"]) == 0
+    cfg = json.loads((tmp_path / "automation.json").read_text(encoding="utf-8"))
+    assert cfg["targets"] == ["https://shop.example/p/1", "https://other.example/x"] and cfg["delay"] == 3
+    err = capsys.readouterr().err
+    assert "site terms" in err and "bad link" in err
+    assert main(["targets", "remove", "1"]) == 0
+    assert json.loads((tmp_path / "automation.json").read_text(encoding="utf-8"))["targets"] == ["https://other.example/x"]
+    capsys.readouterr()
+    assert main(["targets", "list"]) == 0 and "other.example" in capsys.readouterr().out

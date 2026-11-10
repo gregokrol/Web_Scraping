@@ -608,3 +608,76 @@ def _dash_run(args) -> int:
 
 
 cli.register_subcommand("dashboard", "Local web dashboard (http://127.0.0.1:8765)", _dash_build, _dash_run)
+
+
+# ===================================================================== targets (edit automation.json safely)
+def _targets_build(ap) -> None:
+    ap.add_argument("action", choices=["add", "remove", "list"])
+    ap.add_argument("urls", nargs="*", help="Product page URLs")
+    ap.add_argument("--config", default="automation.json")
+    ap.add_argument("--sources", default="sources.json", help="Used to check sites whose terms forbid scraping")
+
+
+def _targets_run(args) -> int:
+    from .policy import CrawlPolicy
+    from .security import UnsafeURLError, check_url
+    path = Path(args.config)
+    if not path.exists():
+        example = Path("automation.example.json")
+        if not example.exists():
+            _err(f"error: {path} not found")
+            return 2
+        path.write_text(example.read_text(encoding="utf-8"), encoding="utf-8")
+    try:
+        cfg = load_automation(str(path))
+    except (OSError, ValueError) as exc:
+        _err(f"error: {path} is not valid JSON ({exc}). Fix it in Notepad or copy automation.example.json again.")
+        return 2
+    targets = [str(t) for t in cfg.get("targets", [])]
+
+    if args.action == "list":
+        for i, t in enumerate(targets, 1):
+            print(f"{i:3}. {t}")
+        if not targets:
+            print("(no product links yet)")
+        return 0
+
+    policy = CrawlPolicy.load(args.sources)
+    changed = 0
+    for url in args.urls:
+        url = url.strip().strip('"')
+        if args.action == "remove":
+            if url.isdigit() and 1 <= int(url) <= len(targets):
+                print(f"removed: {targets.pop(int(url) - 1)}")
+                changed += 1
+            elif url in targets:
+                targets.remove(url)
+                print(f"removed: {url}")
+                changed += 1
+            else:
+                _err(f"not in the list: {url}")
+            continue
+        try:
+            check_url(url)
+        except UnsafeURLError as exc:
+            _err(f"skipped (bad link): {url}  - {exc}")
+            continue
+        reason = policy.blocked_reason(url)
+        if reason:
+            _err(f"skipped (site terms): {url}  - {reason}")
+            continue
+        if url in targets:
+            print(f"already in the list: {url}")
+            continue
+        targets.append(url)
+        print(f"added: {url}")
+        changed += 1
+    if changed:
+        cfg["targets"] = targets
+        path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"{len(targets)} product link(s) in {path}")
+    return 0
+
+
+cli.register_subcommand("targets", "Add / remove / list product links in automation.json (no manual JSON editing)",
+                        _targets_build, _targets_run)

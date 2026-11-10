@@ -26,6 +26,8 @@ echo    8   Approve deals
 echo    9   Publish approved deals to Telegram
 echo   10   Check the Telegram connection
 echo   15   Find my Telegram channel id  (private channels)
+echo   16   Add product links to track
+echo   17   Show / remove tracked product links
 echo   11   Schedule the automation  (once or twice a day)
 echo   12   Edit settings  (automation / sources / affiliate)
 echo   13   Open the results folder
@@ -49,6 +51,8 @@ if "%CH%"=="12" goto settings
 if "%CH%"=="13" goto results
 if "%CH%"=="14" goto tests
 if "%CH%"=="15" goto tgfind
+if "%CH%"=="16" goto addtarget
+if "%CH%"=="17" goto listtargets
 if "%CH%"=="0" exit /b 0
 goto menu
 
@@ -116,6 +120,21 @@ goto done
 
 :tgfind
 "%PY%" main.py telegram-check --find-channel
+goto done
+
+:addtarget
+set "URL="
+set /p "URL=  Paste a product link (Enter = finish): "
+if "%URL%"=="" goto menu
+"%PY%" main.py targets add "%URL%"
+goto addtarget
+
+:listtargets
+"%PY%" main.py targets list
+set "N="
+set /p "N=  Number to remove (Enter = back): "
+if "%N%"=="" goto menu
+"%PY%" main.py targets remove %N%
 goto done
 
 :schedule
