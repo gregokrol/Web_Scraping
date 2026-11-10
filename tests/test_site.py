@@ -187,3 +187,16 @@ def test_relative_time_hebrew():
     ago = lambda **kw: _ago((now - timedelta(**kw)).isoformat(), now)  # noqa: E731
     assert (ago(minutes=1), ago(minutes=5), ago(hours=2), ago(hours=5), ago(days=1), ago(days=2), ago(days=9)) == \
            ("לפני דקה", "לפני 5 דקות", "לפני שעתיים", "לפני 5 שעות", "אתמול", "לפני יומיים", "לפני 9 ימים")
+
+
+def test_withdrawn_deal_leaves_the_site(tmp_path):
+    from affiliate_scraper.alerts import withdraw
+    db, oid, a = approved_deal(tmp_path)
+    decide(db, [a["id"]], True)
+    assert build_site(db, cfg(tmp_path))["deals"] == 1
+    calls = []
+    [res] = withdraw(db, [a["id"]], lambda chat, msg: calls.append((chat, msg)))
+    assert res["ok"] and res["telegram"] == "not posted" and calls == []   # it was never posted to Telegram
+    assert build_site(db, cfg(tmp_path))["deals"] == 0
+    assert not (tmp_path / "site" / f"deals/{a['id']}.html").exists()
+    assert withdraw(db, [999], None)[0]["ok"] is False

@@ -19,6 +19,10 @@ from affiliate_scraper.webhook import WebhookError, send_event
 from .conftest import product_html
 
 
+def _counts(res):
+    return {k: res[k] for k in ("published", "failed")}
+
+
 # ---------------------------------------------------------------- content
 OFFER = {"title": "Acme Kettle", "store": "Shop A", "price": 90.0, "currency": "ILS", "list_price": 150.0,
          "shipping_cost": 0, "rating": 4.6, "review_count": 120, "url": "https://a.example/k",
@@ -106,11 +110,11 @@ def test_publish_requires_approval_and_happens_once(tmp_path, local_site, monkey
     db, oid = seed_db(tmp_path)
     [a] = detect_deals(db, DealRules())
     hook = local_site.base + "/webhook"
-    assert publish_approved(db, hook) == {"published": 0, "failed": 0}   # pending -> nothing sent
+    assert _counts(publish_approved(db, hook)) == {"published": 0, "failed": 0}   # pending -> nothing sent
     assert local_site.events() == []
     decide(db, [a["id"]], approve=True)
-    assert publish_approved(db, hook) == {"published": 1, "failed": 0}
-    assert publish_approved(db, hook) == {"published": 0, "failed": 0}   # never twice
+    assert _counts(publish_approved(db, hook)) == {"published": 1, "failed": 0}
+    assert _counts(publish_approved(db, hook)) == {"published": 0, "failed": 0}   # never twice
     [ev] = local_site.events("deal.publish")
     assert ev["data"]["affiliate_url"].endswith("?ref=me") and "גילוי נאות" in ev["data"]["content"]["telegram"]
     post = local_site.posts[0]

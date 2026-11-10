@@ -159,6 +159,7 @@ def publish_approved(db: Database, url, session=None, auto_approve: bool = False
                     "ON o.id=a.offer_id WHERE a.status IN ('approved','failed') AND a.decided_at IS NOT NULL "
                     "ORDER BY a.id LIMIT ?", (limit,))
     sent, failed = 0, 0
+    published_ids: list[int] = []
     for r in rows:
         # claim the row first so a concurrent run cannot publish it twice
         with db.tx() as c:
@@ -172,16 +173,17 @@ def publish_approved(db: Database, url, session=None, auto_approve: bool = False
                    "content": json.loads(r["content_json"] or "{}"),
                    "page_url": page_url_for(r["id"]) if page_url_for else ""}
         try:
-            send("deal.publish", payload)
+            ref = send("deal.publish", payload)
             with db.tx() as c:
-                c.execute("UPDATE deal_alerts SET status='published', published_at=?, error=NULL WHERE id=?",
-                          (now_iso(), r["id"]))
+                c.execute("UPDATE deal_alerts SET status='published', published_at=?, error=NULL, published_ref=? "
+                          "WHERE id=?", (now_iso(), json.dumps(ref) if isinstance(ref, dict) else None, r["id"]))
             sent += 1
+            published_ids.append(r["id"])
         except PublishError as exc:
             with db.tx() as c:
                 c.execute("UPDATE deal_alerts SET status='failed', error=? WHERE id=?", (str(exc)[:300], r["id"]))
             failed += 1
-    return {"published": sent, "failed": failed}
+    return {"published": sent, "failed": failed, "ids": published_ids}
 
 
 def notify_pending(db: Database, url, session=None) -> int:
@@ -195,3 +197,32 @@ def notify_pending(db: Database, url, session=None) -> int:
     with db.tx() as c:
         c.executemany("UPDATE deal_alerts SET notified_at=? WHERE id=?", [(now_iso(), r["id"]) for r in rows])
     return len(rows)
+
+
+def withdraw(db: Database, alert_ids: list[int], delete_telegram=None) -> list[dict]:
+    """Take deals back: they disappear from the website on its next build and, when ``delete_telegram``
+    (callable(chat_id, message_id)) is given, the channel post is deleted. Works for any status.
+    Returns one result per id: {"id", "ok", "telegram": "deleted" | "not posted" | "<error>"}."""
+    results = []
+    for aid in alert_ids:
+        row = db.query("SELECT id, status, published_ref FROM deal_alerts WHERE id=?", (aid,))
+        if not row:
+            results.append({"id": aid, "ok": False, "telegram": "no such deal"})
+            continue
+        r = row[0]
+        tg_note = "not posted"
+        ref = json.loads(r["published_ref"] or "null") or {}
+        t = ref.get("telegram") if isinstance(ref, dict) else None
+        if t and delete_telegram:
+            try:
+                delete_telegram(t["chat_id"], t["message_id"])
+                tg_note = "deleted"
+            except PublishError as exc:
+                tg_note = f"could not delete ({exc}) - delete it in the channel by hand"
+        elif t:
+            tg_note = "still in the channel (Telegram not configured here) - delete it by hand"
+        with db.tx() as c:
+            c.execute("UPDATE deal_alerts SET status='withdrawn', decided_at=?, error=? WHERE id=?",
+                      (now_iso(), None if tg_note in ("deleted", "not posted") else tg_note[:300], aid))
+        results.append({"id": aid, "ok": True, "telegram": tg_note, "was": r["status"]})
+    return results

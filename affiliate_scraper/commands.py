@@ -754,6 +754,11 @@ def _run_run(args) -> int:
             except PublishError as exc:
                 _err(f"Notification problem: {exc}")
 
+    auto = cfg.get("require_approval", True) is False
+    if auto:
+        # automatic mode (testing): everything is approved; you remove what you don't want afterwards
+        from .alerts import decide
+        decide(db, [r["id"] for r in db.query("SELECT id FROM deal_alerts WHERE status='pending'")], True)
     if notify_targets:
         n = notify_pending(db, notify_all)
         failed = db.query("SELECT id, command, errors, errors_json FROM crawl_runs WHERE started_at >= ? "
@@ -765,10 +770,6 @@ def _run_run(args) -> int:
     from .site import SiteConfig, build_site, page_url, publish_site
     site_cfg = SiteConfig.from_dict(cfg.get("site"))
     site_on = bool((cfg.get("site") or {}).get("enabled"))
-    auto = cfg.get("require_approval", True) is False
-    if auto:
-        from .alerts import decide
-        decide(db, [r["id"] for r in db.query("SELECT id FROM deal_alerts WHERE status='pending'")], True)
     if site_on:
         # the website goes first, so the deal page exists when the Telegram post links to it
         try:
@@ -781,6 +782,16 @@ def _run_run(args) -> int:
     if publish_target:
         res = publish_approved(db, publish_target, auto_approve=auto,
                                page_url_for=(lambda aid: page_url(site_cfg, aid)) if site_on else None)
+        if res["ids"] and auto and tg and tg.admin_chat:
+            lines = [f"✅ פורסמו {len(res['ids'])} עסקאות אוטומטית:"]
+            for aid in res["ids"][:20]:
+                t = db.query("SELECT title, price, currency FROM deal_alerts WHERE id=?", (aid,))[0]
+                lines.append(f"#{aid} {t['title'][:55]} - {t['price']} {t['currency']}")
+            lines.append("להסרה מהערוץ ומהאתר: תפריט 24, או py main.py withdraw <מספר>")
+            try:
+                tg.notify_admin("\n".join(lines))
+            except PublishError as exc:
+                _err(f"Notification problem: {exc}")
         if res["published"] or res["failed"]:
             _err(f"Published to {'Telegram' if tg else 'n8n'}: {res}" + (" (auto-approved)" if auto else ""))
     else:
@@ -1044,3 +1055,68 @@ def _site_run(args) -> int:
 
 cli.register_subcommand("site", "Build / preview / publish the website made from your approved deals",
                         _site_build, _site_run)
+
+
+# ===================================================================== automatic / manual approval + withdraw
+def _approval_build(ap) -> None:
+    ap.add_argument("mode", choices=["auto", "manual", "status"],
+                    help="auto = every deal is published, you remove what you don't want; manual = you approve first")
+    ap.add_argument("--config", default="automation.json")
+
+
+def _approval_run(args) -> int:
+    path = Path(args.config)
+    try:
+        cfg = load_automation(str(path))
+    except (OSError, ValueError) as exc:
+        _err(f"error: {exc}")
+        return 2
+    if args.mode != "status":
+        cfg["require_approval"] = args.mode == "manual"
+        path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+    manual = cfg.get("require_approval", True) is not False
+    print("approval: MANUAL - deals wait for you (menu 8)" if manual else
+          "approval: AUTOMATIC - deals are published right away; remove one with menu 24 / py main.py withdraw <id>")
+    return 0
+
+
+def _withdraw_build(ap) -> None:
+    ap.add_argument("ids", nargs="+", type=int)
+    ap.add_argument("--config", default="automation.json", help="Used for the database and to rebuild the website")
+    ap.add_argument("--db", help="Database file (default: from the automation config)")
+
+
+def _withdraw_run(args) -> int:
+    from .alerts import withdraw
+    from .site import SiteConfig, build_site, publish_site
+    from .telegram import TelegramPublisher
+    cfg = {}
+    if Path(args.config).exists():
+        try:
+            cfg = load_automation(args.config)
+        except (OSError, ValueError):
+            cfg = {}
+    tg = TelegramPublisher()
+    deleter = tg.delete_message if tg.token else None
+    db = Database(args.db or cfg.get("db", DEFAULT_DB))
+    try:
+        results = withdraw(db, args.ids, deleter)
+        for r in results:
+            print(f"#{r['id']}: " + ("removed" if r["ok"] else "not found") + f" - Telegram: {r['telegram']}")
+        site = cfg.get("site") or {}
+        if site.get("enabled") and any(r["ok"] for r in results):
+            site_cfg = SiteConfig.from_dict(site)
+            try:
+                build_site(db, site_cfg)
+                print("website rebuilt" + (f" and {publish_site(site_cfg)}" if site_cfg.publish_dir else ""))
+            except RuntimeError as exc:
+                _err(f"Website problem: {exc}")
+    finally:
+        db.close()
+    return 0 if all(r["ok"] for r in results) else 1
+
+
+cli.register_subcommand("approval", "Switch between automatic publishing (testing) and manual approval",
+                        _approval_build, _approval_run)
+cli.register_subcommand("withdraw", "Remove published deals from the channel and the website",
+                        _withdraw_build, _withdraw_run)

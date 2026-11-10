@@ -39,6 +39,8 @@ echo   19   Add an automatic search  (e.g. "puzzle 1000")
 echo   20   Show / remove automatic searches
 echo   21   Website: build and preview
 echo   22   Website: publish now
+echo   23   Approval mode: automatic / manual
+echo   24   Remove a published deal (channel + website)
 echo    0   Exit
 echo.
 set "CH="
@@ -65,6 +67,8 @@ if "%CH%"=="19" goto addsearch
 if "%CH%"=="20" goto listsearches
 if "%CH%"=="21" goto sitepreview
 if "%CH%"=="22" goto sitepublish
+if "%CH%"=="23" goto approvalmode
+if "%CH%"=="24" goto withdraw
 if "%CH%"=="0" exit /b 0
 goto menu
 
@@ -174,6 +178,24 @@ goto done
 
 :sitepublish
 "%PY%" main.py site publish
+goto done
+
+:approvalmode
+"%PY%" main.py approval status
+choice /C 12 /M "  1 = automatic (publish everything, remove later), 2 = manual (approve first)"
+if errorlevel 2 (
+  "%PY%" main.py approval manual
+) else (
+  "%PY%" main.py approval auto
+)
+goto done
+
+:withdraw
+"%PY%" main.py alerts --status published
+set "IDS="
+set /p "IDS=  Deal numbers to remove (e.g. 3 5): "
+if "%IDS%"=="" goto menu
+"%PY%" main.py withdraw %IDS%
 goto done
 
 :schedule

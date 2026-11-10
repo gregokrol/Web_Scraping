@@ -111,7 +111,8 @@ def test_failed_telegram_post_marked_failed(tmp_path):
     [a] = detect_deals(db, DealRules())
     decide(db, [a["id"]], True)
     bot = Bot([R({"ok": False, "error_code": 403, "description": "Forbidden: bot is not a member of the channel"}, 403)])
-    assert publish_approved(db, pub(bot).send_event) == {"published": 0, "failed": 1}
+    res = publish_approved(db, pub(bot).send_event)
+    assert (res["published"], res["failed"]) == (0, 1)
     [row] = list_alerts(db)
     assert row["status"] == "failed" and "not a member" in row["error"]
 
@@ -228,3 +229,51 @@ def test_telegram_check_test_channel_posts_in_channel(monkeypatch, capsys):
     assert main(["telegram-check", "--test-channel"]) == 0
     assert ("sendMessage", {"chat_id": "@mechiremet", "text": "🔧 בדיקת חיבור - אפשר למחוק את ההודעה הזו"}) in calls
     assert "posted in the channel" in capsys.readouterr().out
+
+
+def test_auto_mode_posts_without_approval_and_reports_to_you(tmp_path, local_site, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    from affiliate_scraper.db import Database
+    from .conftest import product_html
+    monkeypatch.setattr(tgmod, "API", local_site.base)
+    monkeypatch.setattr(tgmod, "MIN_INTERVAL", 0)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "7123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw")
+    monkeypatch.setenv("TELEGRAM_CHANNEL", "@deals_il")
+    monkeypatch.setenv("TELEGRAM_ADMIN_CHAT", "42")
+    monkeypatch.setenv("TELEGRAM_WATERMARK", "0")
+    local_site.post_reply = b'{"ok": true, "result": {"message_id": 77, "chat": {"id": -1001}}}'
+    local_site.add("/products/k", product_html("Acme Kettle", "90", currency="ILS", gtin="4006381333931"))
+    cfg = {"db": str(tmp_path / "a.db"), "targets": [local_site.base + "/products/k"], "delay": 0, "no_cache": True,
+           "allow_private_hosts": True, "out_dir": str(tmp_path / "out"), "telegram": {"enabled": True},
+           "deals": {"min_deal_score": 0}, "require_approval": True}
+    (tmp_path / "automation.json").write_text(json.dumps(cfg), encoding="utf-8")
+    assert main(["approval", "auto"]) == 0
+    assert json.loads((tmp_path / "automation.json").read_text(encoding="utf-8"))["require_approval"] is False
+    assert main(["run"]) == 0
+    db = Database(tmp_path / "a.db")
+    oid = db.offer_id(local_site.base + "/products/k")
+    now = datetime.now(timezone.utc)
+    db.conn.executemany("INSERT INTO price_history(offer_id, observed_at, price, currency, price_verified) VALUES (?,?,?,?,1)",
+                        [(oid, (now - timedelta(days=d)).isoformat(), 120, "ILS") for d in (28, 18, 9)])
+    db.conn.commit()
+    db.close()
+    assert main(["run"]) == 0
+    bodies = [json.loads(p["body"]) for p in local_site.posts]
+    channel = [b for b in bodies if b.get("chat_id") == "@deals_il"]
+    admin = [b for b in bodies if b.get("chat_id") == "42"]
+    assert len(channel) == 1                                          # posted without waiting for approval
+    assert any("פורסמו" in b["text"] for b in admin) and not any("ממתינות" in b["text"] for b in admin)
+
+    db = Database(tmp_path / "a.db")
+    [row] = db.query("SELECT id, status, published_ref FROM deal_alerts")
+    db.close()
+    assert row["status"] == "published" and json.loads(row["published_ref"])["telegram"]["message_id"] == 77
+
+    local_site.posts.clear()
+    assert main(["withdraw", str(row["id"])]) == 0                  # remove it again
+    [deleted] = [json.loads(p["body"]) for p in local_site.posts]
+    assert local_site.posts[0]["path"].endswith("/deleteMessage") and deleted == {"chat_id": -1001, "message_id": 77}
+    db = Database(tmp_path / "a.db")
+    assert db.query("SELECT status FROM deal_alerts")[0]["status"] == "withdrawn"
+    db.close()

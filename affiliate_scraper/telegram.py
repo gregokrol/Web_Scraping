@@ -217,10 +217,17 @@ class TelegramPublisher:
             raise TelegramError("set TELEGRAM_ADMIN_CHAT (your own chat id) to receive approval requests")
         return self._api("sendMessage", {"chat_id": self.admin_chat, "text": text[:MESSAGE_LIMIT]})
 
-    def send_event(self, event: str, data: dict) -> None:
-        """Adapter for alerts.publish_approved / notify_pending."""
+    def delete_message(self, chat_id, message_id: int) -> None:
+        self._api("deleteMessage", {"chat_id": chat_id, "message_id": int(message_id)}, retries=1)
+
+    def send_event(self, event: str, data: dict):
+        """Adapter for alerts.publish_approved / notify_pending. For deal.publish returns where it was posted."""
         if event == "deal.publish":
-            self.post_deal(data)
+            msg = self.post_deal(data) or {}
+            if msg.get("message_id"):
+                return {"telegram": {"chat_id": (msg.get("chat") or {}).get("id") or self.channel,
+                                     "message_id": msg["message_id"]}}
+            return None
         elif event == "deals.pending_approval":
             lines = [f"{data['count']} עסקאות ממתינות לאישור:"]
             for a in data["alerts"][:20]:

@@ -459,11 +459,18 @@ def create_app(db_path: str, automation_config: str = "automation.json", allowed
 
     @app.post("/api/alerts/{alert_id}/{action}")
     def decide_alert(alert_id: int, action: str):
-        from ..alerts import decide
-        if action not in ("approve", "reject"):
-            raise HTTPException(400, "action must be approve or reject")
+        from ..alerts import decide, withdraw
+        if action not in ("approve", "reject", "withdraw"):
+            raise HTTPException(400, "action must be approve, reject or withdraw")
         d = db()
         try:
+            if action == "withdraw":
+                from ..telegram import TelegramPublisher
+                tg = TelegramPublisher()
+                [res] = withdraw(d, [alert_id], tg.delete_message if tg.token else None)
+                if not res["ok"]:
+                    raise HTTPException(404, "no such deal")
+                return {"ok": True, "telegram": res["telegram"]}
             n = decide(d, [alert_id], action == "approve")
             if not n:
                 raise HTTPException(409, "alert is not pending")
