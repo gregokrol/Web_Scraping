@@ -40,10 +40,13 @@ def build_schtasks_create(task_name: str, bat_path: Path, every: str = "daily", 
         if not 1 <= hours <= 23:
             raise ValueError("hours must be 1-23")
         cmd += ["/SC", "HOURLY", "/MO", str(hours), "/ST", at]
+    elif every == "twice-daily":
+        # every 12 hours from the start time, e.g. 08:13 and 20:13
+        cmd += ["/SC", "HOURLY", "/MO", "12", "/ST", at]
     elif every == "weekly":
         cmd += ["/SC", "WEEKLY", "/D", "MON", "/ST", at]
     else:
-        raise ValueError("every must be daily, hourly or weekly")
+        raise ValueError("every must be daily, twice-daily, hourly or weekly")
     return cmd
 
 

@@ -438,6 +438,11 @@ def automation_scrape_jobs(cfg: dict) -> list[list[str]]:
                 argv = [*s.start_urls, "--discover", s.discover or "none", "--name", f"auto_{s.domain}", *common]
                 if s.include:
                     argv += ["--include", s.include]
+                # per-store politeness (later options override the common ones)
+                if s.delay is not None:
+                    argv += ["--delay", str(s.delay)]
+                if s.max_pages is not None:
+                    argv += ["--max-pages", str(s.max_pages)]
                 jobs.append(argv)
     if cfg.get("targets"):
         argv = [*cfg["targets"], "--name", "auto_targets", *common]
@@ -536,7 +541,8 @@ cli.register_subcommand("run", "Full automation: scrape all sources, update hist
 
 # ===================================================================== P2: Windows Task Scheduler
 def _schedule_build(ap) -> None:
-    ap.add_argument("--every", choices=["daily", "hourly", "weekly"], default="daily")
+    ap.add_argument("--every", choices=["daily", "twice-daily", "hourly", "weekly"], default="daily",
+                    help="twice-daily = every 12 hours from --at (e.g. 08:13 and 20:13)")
     ap.add_argument("--at", default="08:17", help="Start time HH:MM (default %(default)s)")
     ap.add_argument("--hours", type=int, default=6, help="Interval for --every hourly")
     ap.add_argument("--task-name", default="WebScrapingAffiliate")

@@ -35,6 +35,8 @@ class StoreConfig:
     start_urls: list[str] = field(default_factory=list)
     discover: str = "none"                  # none | sitemap | links
     include: str = ""
+    delay: Optional[float] = None           # seconds between requests to THIS store (overrides --delay)
+    max_pages: Optional[int] = None         # cap on pages per run for this store
 
     @classmethod
     def from_dict(cls, d: dict) -> "StoreConfig":
@@ -43,6 +45,8 @@ class StoreConfig:
         t = d.get("type", "web")
         if t not in VALID_TYPES:
             raise ValueError(f"store {d['domain']}: type must be one of {VALID_TYPES}")
+        if d.get("delay") is not None and float(d["delay"]) < 0:
+            raise ValueError(f"store {d['domain']}: delay must be >= 0")
         trust = d.get("trust_score")
         if trust is not None and not (0 <= float(trust) <= 1):
             raise ValueError(f"store {d['domain']}: trust_score must be between 0 and 1")

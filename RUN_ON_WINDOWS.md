@@ -290,6 +290,7 @@ py main.py publish
 ```cmd
 py main.py schedule --every daily --at 07:43
 py main.py schedule --every daily --at 07:43 --create
+py main.py schedule --every twice-daily --at 08:13 --create
 py main.py schedule --every hourly --hours 6 --at 00:10 --create
 py main.py schedule --remove
 ```

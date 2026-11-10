@@ -205,3 +205,20 @@ def test_scrape_webhook_export(tmp_path, local_site):
     assert rc == 0
     [ev] = local_site.events("scrape.completed")
     assert ev["data"]["products"][0]["name"] == "A"
+
+
+def test_twice_daily_schedule_and_per_store_delay(tmp_path):
+    cmd = build_schtasks_create("WebScraping", r"C:\Web_Scraping\run_automation.bat", "twice-daily", "08:13")
+    assert cmd[-6:] == ["/SC", "HOURLY", "/MO", "12", "/ST", "08:13"]
+
+    from affiliate_scraper.commands import automation_scrape_jobs
+    sources = {"permitted_domains": ["ksp.co.il"], "stores": [
+        {"domain": "ksp.co.il", "name": "KSP", "start_urls": ["https://ksp.co.il/web/item/1"],
+         "discover": "none", "delay": 10, "max_pages": 20}]}
+    (tmp_path / "sources.json").write_text(json.dumps(sources), encoding="utf-8")
+    [job] = automation_scrape_jobs({"sources_config": str(tmp_path / "sources.json"), "delay": 3})
+    import argparse
+    from affiliate_scraper.cli import build_parser
+    args = build_parser().parse_args(job)
+    assert args.delay == 10.0 and args.max_pages == 20 and args.discover == "none"
+    assert args.sources == str(tmp_path / "sources.json")

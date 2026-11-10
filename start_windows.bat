@@ -26,7 +26,7 @@ echo    8   Approve deals
 echo    9   Publish approved deals to Telegram
 echo   10   Check the Telegram connection
 echo   15   Find my Telegram channel id  (private channels)
-echo   11   Schedule the automation every day
+echo   11   Schedule the automation  (once or twice a day)
 echo   12   Edit settings  (automation / sources / affiliate)
 echo   13   Open the results folder
 echo   14   Run the self-tests
@@ -120,9 +120,14 @@ goto done
 
 :schedule
 set "T="
-set /p "T=  Time to run every day, HH:MM (Enter = 07:43): "
-if "%T%"=="" set "T=07:43"
-"%PY%" main.py schedule --every daily --at %T% --create
+set /p "T=  First run time, HH:MM (Enter = 08:13): "
+if "%T%"=="" set "T=08:13"
+choice /C 12 /M "  1 = once a day, 2 = twice a day (every 12 hours)"
+if errorlevel 2 (
+  "%PY%" main.py schedule --every twice-daily --at %T% --create
+) else (
+  "%PY%" main.py schedule --every daily --at %T% --create
+)
 goto done
 
 :settings
