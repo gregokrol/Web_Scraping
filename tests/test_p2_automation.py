@@ -281,3 +281,27 @@ def test_automation_per_store_page_limits(tmp_path):
         {"sources_config": str(src), "max_pages": 100}))
     assert (big.max_pages, big.max_listing_pages) == (500, 35)       # store limits override the common ones
     assert (small.max_pages, small.max_listing_pages) == (100, 10)
+
+
+def test_saved_searches_command_and_run(tmp_path, monkeypatch, capsys):
+    (tmp_path / "automation.json").write_text(json.dumps({"db": str(tmp_path / "s.db")}), encoding="utf-8")
+    assert main(["searches", "add", "פאזל 1000", "פאזל 1000", "x", "אוזניות JBL"]) == 0
+    cfg = json.loads((tmp_path / "automation.json").read_text(encoding="utf-8"))
+    assert cfg["searches"] == ["פאזל 1000", "אוזניות JBL"]          # duplicate and 1-letter query skipped
+    capsys.readouterr()
+
+    import affiliate_scraper.commands as cmds
+    calls = []
+    real_main = cmds.cli.main
+
+    def fake_main(argv=None):
+        if argv and argv[0] == "search":
+            calls.append(argv[1])
+            return 0
+        return real_main(argv)
+    monkeypatch.setattr(cmds.cli, "main", fake_main)
+    assert main(["run", "--config", "automation.json"]) == 0           # no stores/targets: searches alone are enough
+    assert calls == ["פאזל 1000", "אוזניות JBL"]
+
+    assert main(["searches", "remove", "1"]) == 0
+    assert json.loads((tmp_path / "automation.json").read_text(encoding="utf-8"))["searches"] == ["אוזניות JBL"]

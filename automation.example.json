@@ -12,6 +12,7 @@
   "delay": 3,
   "max_pages": 100,
   "max_age_hours": 24,
+  "searches": [],
   "targets": [],
   "feeds": [],
   "amazon_searches": [

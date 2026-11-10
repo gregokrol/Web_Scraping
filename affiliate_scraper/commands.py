@@ -697,13 +697,18 @@ def _run_run(args) -> int:
         _err(f"error: cannot read {args.config}: {exc}")
         return 2
     jobs = automation_scrape_jobs(cfg)
-    if not jobs:
-        _err("error: nothing to do - add stores (sources_config) or targets/feeds to the automation config")
+    searches = [str(q) for q in cfg.get("searches", []) if str(q).strip()]
+    if not jobs and not searches:
+        _err("error: nothing to do - add searches (menu 19), stores (sources_config) or targets/feeds "
+             "to the automation config")
         return 2
     if args.dry_run:
         for j in jobs:
             print("would run: py main.py " + " ".join(j))
             cli.scrape_main([*j, "--dry-run"])
+        for q in searches:
+            print(f"would search all stores for: {q}")
+            cli.main(["search", q, "--config", args.config, "--dry-run"])
         return 0
 
     started = datetime.now(timezone.utc).isoformat()
@@ -711,6 +716,11 @@ def _run_run(args) -> int:
     for j in jobs:
         _err("\n=== scrape: " + " ".join(j[:3]) + (" ..." if len(j) > 3 else ""))
         codes.append(cli.scrape_main([*j, *(["-v"] * args.verbose)]))
+    # saved searches: every run looks the words up in every searchable store, so new products and prices are
+    # found automatically - no product links needed
+    for q in searches:
+        _err(f"\n=== search: {q}")
+        codes.append(cli.main(["search", q, "--config", args.config, *(["-v"] * args.verbose)]))
 
     db = Database(cfg.get("db", DEFAULT_DB))
     if len(jobs) > 1:
@@ -915,3 +925,65 @@ def _targets_run(args) -> int:
 
 cli.register_subcommand("targets", "Add / remove / list product links in automation.json (no manual JSON editing)",
                         _targets_build, _targets_run)
+
+
+# ===================================================================== saved searches (automatic)
+def _searches_build(ap) -> None:
+    ap.add_argument("action", choices=["add", "remove", "list"])
+    ap.add_argument("words", nargs="*", help="Search words, e.g. \"puzzle 1000\" (quote several words)")
+    ap.add_argument("--config", default="automation.json")
+
+
+def _searches_run(args) -> int:
+    path = Path(args.config)
+    if not path.exists():
+        example = Path("automation.example.json")
+        if not example.exists():
+            _err(f"error: {path} not found")
+            return 2
+        path.write_text(example.read_text(encoding="utf-8"), encoding="utf-8")
+    try:
+        cfg = load_automation(str(path))
+    except (OSError, ValueError) as exc:
+        _err(f"error: {path} is not valid JSON ({exc})")
+        return 2
+    searches = [str(q) for q in cfg.get("searches", [])]
+    if args.action == "list":
+        for i, q in enumerate(searches, 1):
+            print(f"{i:3}. {q}")
+        if not searches:
+            print("(no automatic searches yet)")
+        return 0
+    changed = 0
+    for w in args.words:
+        if args.action == "remove":
+            if w.isdigit() and 1 <= int(w) <= len(searches):
+                print(f"removed: {searches.pop(int(w) - 1)}")
+                changed += 1
+            elif w in searches:
+                searches.remove(w)
+                print(f"removed: {w}")
+                changed += 1
+            else:
+                _err(f"not in the list: {w}")
+            continue
+        try:
+            q = clean_query(w)
+        except ValueError as exc:
+            _err(f"skipped: {w!r} - {exc}")
+            continue
+        if q in searches:
+            print(f"already in the list: {q}")
+            continue
+        searches.append(q)
+        print(f"added: {q}")
+        changed += 1
+    if changed:
+        cfg["searches"] = searches
+        path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"{len(searches)} automatic search(es) in {path} - each run searches every store for them")
+    return 0
+
+
+cli.register_subcommand("searches", "Add / remove / list searches that every automation run performs in all stores",
+                        _searches_build, _searches_run)

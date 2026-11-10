@@ -1,5 +1,7 @@
 @echo off
 setlocal EnableExtensions
+rem UTF-8 console so Hebrew search words typed in the menu reach Python intact
+chcp 65001 >nul
 cd /d "%~dp0"
 title Web_Scraping
 if not exist ".venv\Scripts\python.exe" (
@@ -33,6 +35,8 @@ echo   15   Find my Telegram channel id  (private channels)
 echo   16   Add product links to track
 echo   17   Show / remove tracked product links
 echo   18   Post a test message in the channel
+echo   19   Add an automatic search  (e.g. "puzzle 1000")
+echo   20   Show / remove automatic searches
 echo    0   Exit
 echo.
 set "CH="
@@ -55,6 +59,8 @@ if "%CH%"=="15" goto tgfind
 if "%CH%"=="16" goto addtarget
 if "%CH%"=="17" goto listtargets
 if "%CH%"=="18" goto tgchannel
+if "%CH%"=="19" goto addsearch
+if "%CH%"=="20" goto listsearches
 if "%CH%"=="0" exit /b 0
 goto menu
 
@@ -141,6 +147,21 @@ goto done
 
 :tgchannel
 "%PY%" main.py telegram-check --test-channel
+goto done
+
+:addsearch
+set "Q="
+set /p "Q=  Search words (Enter = finish): "
+if "%Q%"=="" goto menu
+"%PY%" main.py searches add "%Q%"
+goto addsearch
+
+:listsearches
+"%PY%" main.py searches list
+set "N="
+set /p "N=  Number to remove (Enter = back): "
+if "%N%"=="" goto menu
+"%PY%" main.py searches remove %N%
 goto done
 
 :schedule
