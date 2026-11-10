@@ -99,4 +99,25 @@ background:rgba(6,11,24,.92);backdrop-filter:blur(12px);border-top:1px solid var
 .sticky .price{font-size:22px}.sticky .btn-buy{width:auto;flex:1;font-size:17px;padding:12px}body.has-sticky{padding-bottom:82px}}
 footer{color:var(--muted);font-size:13px;border-top:1px solid var(--line);margin-top:40px;padding:20px 0;background:rgba(0,0,0,.2)}
 footer a{color:var(--muted)}
+.ico{width:18px;height:18px;flex:none}
+.nav{display:flex;gap:6px;margin-inline-start:auto;margin-inline-end:10px}
+.nav a{color:var(--muted);text-decoration:none;font-weight:600;padding:8px 10px;border-radius:10px}
+.nav a:hover{color:var(--text);background:rgba(255,255,255,.06)}
+@media (max-width:640px){.nav a:nth-child(2){display:none}.brand span{display:none}.top .btn-tg{padding:10px 12px;font-size:14px}}
+.back{display:inline-flex;align-items:center;gap:6px;color:var(--text);text-decoration:none;font-weight:700;border:1px solid var(--line);
+background:rgba(255,255,255,.04);border-radius:12px;padding:8px 14px}
+.back:hover{border-color:var(--cyan)}
+.toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 10px}
+.searchbox{flex:1;min-width:240px;display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);
+border-radius:14px;padding:0 14px}
+.searchbox:focus-within{border-color:var(--cyan);box-shadow:var(--glow)}
+.searchbox input{flex:1;background:transparent;border:0;outline:0;color:var(--text);font:inherit;font-size:16px;padding:13px 0}
+#sort{background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:14px;padding:0 14px;font:inherit;min-height:48px}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}
+.chipf{background:rgba(255,255,255,.04);border:1px solid var(--line);color:var(--text);border-radius:99px;padding:7px 14px;font:inherit;
+font-weight:600;cursor:pointer}
+.chipf.on{background:linear-gradient(135deg,var(--yellow),var(--yellow2));color:#1a1300;border-color:transparent}
+.grid>.empty,.empty{grid-column:1/-1}
+.empty b{display:block;color:var(--text);font-size:20px;margin-bottom:6px}
+.card[hidden]{display:none}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
