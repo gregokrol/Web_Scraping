@@ -53,6 +53,7 @@ color:#1a1300;font-weight:800;font-size:18px;line-height:1;box-shadow:0 8px 22px
 .pr{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
 .price{font-size:26px;font-weight:800;color:#fff;font-variant-numeric:tabular-nums}
 .was{color:var(--muted);text-decoration:line-through;font-size:15px}
+.eilat{margin:4px 0 0;color:var(--muted);font-size:15px}.eilat b{color:var(--text);font-size:18px}
 .meta{color:var(--muted);font-size:13px;margin-top:auto}
 .ended{opacity:.55}.ended .ribbon{background:#4b5563}
 .warn{background:rgba(255,184,0,.1);border:1px solid rgba(255,184,0,.4);color:#ffe39a;border-radius:12px;padding:10px 12px;font-size:14px}
