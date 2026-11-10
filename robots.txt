@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://gregokrol.github.io/Web_Scraping/sitemap.xml
