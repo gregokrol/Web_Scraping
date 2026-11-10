@@ -1018,9 +1018,13 @@ cli.register_subcommand("searches", "Add / remove / list searches that every aut
 
 # ===================================================================== website
 def _site_build(ap) -> None:
-    ap.add_argument("action", choices=["build", "preview", "publish"],
-                    help="build = write the site folder; preview = build and open it; publish = build and push")
+    ap.add_argument("action", choices=["setup", "build", "preview", "publish"],
+                    help="setup = save the website settings; build = write the site folder; "
+                         "preview = build and open it; publish = build and push")
     ap.add_argument("--config", default="automation.json")
+    ap.add_argument("--publish-dir", help="setup: local clone of your GitHub Pages repository, e.g. C:/Projects/mechiremet")
+    ap.add_argument("--base-url", help="setup: the site address (default: from the clone's GitHub remote)")
+    ap.add_argument("--telegram-url", help="setup: channel link (default: from TELEGRAM_CHANNEL)")
 
 
 def _site_run(args) -> int:
@@ -1030,6 +1034,8 @@ def _site_run(args) -> int:
     except (OSError, ValueError) as exc:
         _err(f"error: {exc}")
         return 2
+    if args.action == "setup":
+        return _site_setup(args, cfg)
     site_cfg = SiteConfig.from_dict(cfg.get("site"))
     db = Database(cfg.get("db", DEFAULT_DB))
     try:
@@ -1050,6 +1056,58 @@ def _site_run(args) -> int:
         except RuntimeError as exc:
             _err(f"error: {exc}")
             return 1
+    return 0
+
+
+def pages_url_from_remote(remote: str) -> str:
+    """https://github.com/USER/REPO(.git) or git@github.com:USER/REPO.git -> https://USER.github.io/REPO/"""
+    import re
+    m = re.search(r"github\.com[:/]([^/]+)/([^/\s]+?)(?:\.git)?/?$", remote.strip())
+    if not m:
+        return ""
+    user, repo = m.group(1), m.group(2)
+    return f"https://{user.lower()}.github.io/" if repo.lower() == f"{user.lower()}.github.io" else \
+        f"https://{user.lower()}.github.io/{repo}/"
+
+
+def _site_setup(args, cfg: dict) -> int:
+    import os
+    import subprocess
+    if not args.publish_dir:
+        _err("error: give --publish-dir, the folder where you cloned the website repository")
+        return 2
+    folder = Path(args.publish_dir)
+    if not (folder / ".git").exists():
+        _err(f"error: {folder} is not a git clone - run: git clone https://github.com/<you>/<repo>.git first")
+        return 2
+    from .site import _refuse_project_folder
+    try:
+        _refuse_project_folder(folder, "--publish-dir")
+    except RuntimeError as exc:
+        _err(f"error: {exc}")
+        return 2
+    base = args.base_url
+    if not base:
+        remote = subprocess.run(["git", "-C", str(folder), "remote", "get-url", "origin"], capture_output=True,
+                                text=True, check=False).stdout
+        base = pages_url_from_remote(remote)
+    if not base.startswith("https://"):
+        _err("error: could not work out the site address - give --base-url https://<you>.github.io/<repo>/")
+        return 2
+    channel = os.environ.get("TELEGRAM_CHANNEL", "")
+    tg = args.telegram_url or (f"https://t.me/{channel.lstrip('@')}" if channel.startswith("@") else "")
+    site = dict(cfg.get("site") or {})
+    site.update({"enabled": True, "base_url": base if base.endswith("/") else base + "/",
+                 "publish_dir": folder.resolve().as_posix(), "out_dir": site.get("out_dir", "site"),
+                 "title": site.get("title", "מחיר אמת")})
+    if tg:
+        site["telegram_url"] = tg
+    site.pop("_comment", None)
+    cfg["site"] = site
+    Path(args.config).write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"website settings saved in {args.config}:")
+    for k in ("base_url", "publish_dir", "telegram_url"):
+        print(f"  {k}: {site.get(k, '(not set)')}")
     return 0
 
 

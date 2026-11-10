@@ -200,3 +200,21 @@ def test_withdrawn_deal_leaves_the_site(tmp_path):
     assert build_site(db, cfg(tmp_path))["deals"] == 0
     assert not (tmp_path / "site" / f"deals/{a['id']}.html").exists()
     assert withdraw(db, [999], None)[0]["ok"] is False
+
+
+def test_site_setup_writes_settings_from_the_clone(tmp_path, monkeypatch, capsys):
+    from affiliate_scraper.commands import pages_url_from_remote
+    assert pages_url_from_remote("https://github.com/GregoKrol/mechiremet.git\n") == "https://gregokrol.github.io/mechiremet/"
+    assert pages_url_from_remote("git@github.com:gregokrol/gregokrol.github.io.git") == "https://gregokrol.github.io/"
+    clone = tmp_path / "mechiremet"
+    subprocess.run(["git", "init", "-q", str(clone)], check=True)
+    subprocess.run(["git", "-C", str(clone), "remote", "add", "origin", "https://github.com/gregokrol/mechiremet.git"],
+                   check=True)
+    (tmp_path / "automation.json").write_text(json.dumps({"db": "x.db", "site": {"enabled": False}}), encoding="utf-8")
+    monkeypatch.setenv("TELEGRAM_CHANNEL", "@mechiremet")
+    assert main(["site", "setup", "--publish-dir", str(clone)]) == 0
+    site = json.loads((tmp_path / "automation.json").read_text(encoding="utf-8"))["site"]
+    assert site["enabled"] and site["base_url"] == "https://gregokrol.github.io/mechiremet/"
+    assert site["telegram_url"] == "https://t.me/mechiremet" and site["publish_dir"] == clone.resolve().as_posix()
+    project = Path(__file__).resolve().parents[1]
+    assert main(["site", "setup", "--publish-dir", str(project)]) == 2      # never the project itself
