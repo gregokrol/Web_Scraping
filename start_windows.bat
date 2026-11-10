@@ -28,6 +28,7 @@ echo   10   Check the Telegram connection
 echo   15   Find my Telegram channel id  (private channels)
 echo   16   Add product links to track
 echo   17   Show / remove tracked product links
+echo   18   Post a test message in the channel
 echo   11   Schedule the automation  (once or twice a day)
 echo   12   Edit settings  (automation / sources / affiliate)
 echo   13   Open the results folder
@@ -53,6 +54,7 @@ if "%CH%"=="14" goto tests
 if "%CH%"=="15" goto tgfind
 if "%CH%"=="16" goto addtarget
 if "%CH%"=="17" goto listtargets
+if "%CH%"=="18" goto tgchannel
 if "%CH%"=="0" exit /b 0
 goto menu
 
@@ -135,6 +137,10 @@ set "N="
 set /p "N=  Number to remove (Enter = back): "
 if "%N%"=="" goto menu
 "%PY%" main.py targets remove %N%
+goto done
+
+:tgchannel
+"%PY%" main.py telegram-check --test-channel
 goto done
 
 :schedule

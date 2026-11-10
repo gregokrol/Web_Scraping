@@ -213,3 +213,18 @@ def test_rejected_token_gets_clear_message():
     with pytest.raises(TelegramError, match="BotFather"):
         TelegramPublisher(token="7123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw", channel="@c", session=bot,
                           min_interval=0, watermark="0").check()
+
+
+def test_telegram_check_test_channel_posts_in_channel(monkeypatch, capsys):
+    calls = []
+
+    def fake_api(self, method, payload, retries=2, files=None):
+        calls.append((method, payload))
+        return {"getMe": {"id": 1, "username": "b"}, "getChat": {"title": "מחיר אמת"},
+                "getChatAdministrators": [{"user": {"id": 1}}]}.get(method, {})
+    monkeypatch.setattr(TelegramPublisher, "_api", fake_api)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "7123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw")
+    monkeypatch.setenv("TELEGRAM_CHANNEL", "@mechiremet")
+    assert main(["telegram-check", "--test-channel"]) == 0
+    assert ("sendMessage", {"chat_id": "@mechiremet", "text": "🔧 בדיקת חיבור - אפשר למחוק את ההודעה הזו"}) in calls
+    assert "posted in the channel" in capsys.readouterr().out

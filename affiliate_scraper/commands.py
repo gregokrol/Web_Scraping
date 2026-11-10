@@ -350,6 +350,8 @@ cli.register_subcommand("publish", "Post APPROVED deals to Telegram (--telegram)
 
 def _tgcheck_build(ap) -> None:
     ap.add_argument("--test-admin", action="store_true", help="Also send a test message to TELEGRAM_ADMIN_CHAT")
+    ap.add_argument("--test-channel", action="store_true",
+                    help="Post a short test message IN THE CHANNEL (delete it afterwards)")
     ap.add_argument("--find-channel", action="store_true",
                     help="List channels the bot was added to, with their numeric id (for private channels)")
 
@@ -386,6 +388,10 @@ def _tgcheck_run(args) -> int:
         if args.test_admin:
             tg.notify_admin("✅ Web_Scraping connected to Telegram")
             print("test message sent to admin chat")
+        if args.test_channel:
+            tg._api("sendMessage", {"chat_id": tg.channel,
+                                    "text": "🔧 בדיקת חיבור - אפשר למחוק את ההודעה הזו"})
+            print("test message posted in the channel - delete it there")
         return 0
     except TelegramError as exc:
         _err(f"Telegram problem: {exc}")
