@@ -130,7 +130,9 @@ def test_check_reports_admin_rights():
     me = {"ok": True, "result": {"id": 99, "username": "my_bot"}}
     chat = {"ok": True, "result": {"title": "Deals IL"}}
     admins = {"ok": True, "result": [{"user": {"id": 99}}]}
-    info = pub(Bot([R(me), R(chat), R(admins)])).check()
+    tg = pub(Bot([R(me), R(chat), R(admins)]))
+    tg.token = "7123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw"   # check() validates the token format first
+    info = tg.check()
     assert info == {"bot": "my_bot", "channel": "Deals IL", "bot_is_admin": True}
 
 
