@@ -25,6 +25,7 @@ echo    7   Show deals waiting for approval
 echo    8   Approve deals
 echo    9   Publish approved deals to Telegram
 echo   10   Check the Telegram connection
+echo   15   Find my Telegram channel id  (private channels)
 echo   11   Schedule the automation every day
 echo   12   Edit settings  (automation / sources / affiliate)
 echo   13   Open the results folder
@@ -47,6 +48,7 @@ if "%CH%"=="11" goto schedule
 if "%CH%"=="12" goto settings
 if "%CH%"=="13" goto results
 if "%CH%"=="14" goto tests
+if "%CH%"=="15" goto tgfind
 if "%CH%"=="0" exit /b 0
 goto menu
 
@@ -110,6 +112,10 @@ goto done
 
 :tgcheck
 "%PY%" main.py telegram-check --test-admin
+goto done
+
+:tgfind
+"%PY%" main.py telegram-check --find-channel
 goto done
 
 :schedule

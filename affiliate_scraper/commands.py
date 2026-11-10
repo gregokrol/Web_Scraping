@@ -350,11 +350,28 @@ cli.register_subcommand("publish", "Post APPROVED deals to Telegram (--telegram)
 
 def _tgcheck_build(ap) -> None:
     ap.add_argument("--test-admin", action="store_true", help="Also send a test message to TELEGRAM_ADMIN_CHAT")
+    ap.add_argument("--find-channel", action="store_true",
+                    help="List channels the bot was added to, with their numeric id (for private channels)")
 
 
 def _tgcheck_run(args) -> int:
     from .telegram import TelegramError, TelegramPublisher
     tg = TelegramPublisher()
+    if args.find_channel:
+        try:
+            chats = tg.find_chats()
+        except TelegramError as exc:
+            _err(f"Telegram problem: {exc}")
+            return 1
+        if not chats:
+            _err("No channels found. Add the bot as an ADMIN of your channel, post any message in the channel, "
+                 "then run this again (Telegram keeps these events for about 24 hours).")
+            return 1
+        for c in chats:
+            name = f"@{c['username']}" if c.get("username") else "(private)"
+            print(f"{c['title']}  {name}  id={c['id']}  type={c['type']}  bot={c.get('bot_status', '?')}")
+        print('\nUse it with:  setx TELEGRAM_CHANNEL "<id>"   (then open a new CMD window)')
+        return 0
     try:
         info = tg.check()
         print(f"bot: @{info['bot']}")

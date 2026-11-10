@@ -177,3 +177,15 @@ def test_automation_run_posts_to_telegram_channel(tmp_path, local_site, monkeypa
     assert main(["run"]) == 0
     channel_posts = [json.loads(p["body"]) for p in local_site.posts if json.loads(p["body"]).get("chat_id") == "@deals_il"]
     assert len(channel_posts) == 1 and "גילוי נאות" in (channel_posts[0].get("caption") or channel_posts[0].get("text"))
+
+
+def test_find_private_channel_id():
+    updates = {"ok": True, "result": [
+        {"update_id": 1, "my_chat_member": {"chat": {"id": -1001234567890, "title": "מחיר אמת", "type": "channel"},
+                                            "new_chat_member": {"status": "administrator"}}},
+        {"update_id": 2, "channel_post": {"chat": {"id": -1001234567890, "title": "מחיר אמת", "type": "channel"}}},
+        {"update_id": 3, "message": {"chat": {"id": 42, "type": "private"}}},
+    ]}
+    [chat] = pub(Bot([R(updates)])).find_chats()
+    assert chat == {"id": -1001234567890, "title": "מחיר אמת", "type": "channel", "username": "",
+                    "bot_status": "administrator"}

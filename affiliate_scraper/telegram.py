@@ -153,6 +153,26 @@ class TelegramPublisher:
         elif event == "crawl.errors" and self.admin_chat:
             self.notify_admin(f"⚠️ {len(data.get('runs', []))} ריצות עם שגיאות. פרטים: py main.py db errors")
 
+    def find_chats(self) -> list[dict]:
+        """Channels/groups the bot was recently added to or saw posts in (from getUpdates).
+
+        Private channels have no @username - this is how you get their numeric id (-100...).
+        Telegram keeps updates for about 24 hours, so add the bot (or post in the channel) shortly before.
+        """
+        updates = self._api("getUpdates", {"allowed_updates": ["my_chat_member", "channel_post", "message"]})
+        found: dict[int, dict] = {}
+        for u in updates or []:
+            for key in ("my_chat_member", "channel_post", "message"):
+                chat = (u.get(key) or {}).get("chat")
+                if chat and chat.get("type") in ("channel", "supergroup", "group"):
+                    entry = {"id": chat["id"], "title": chat.get("title", ""), "type": chat["type"],
+                             "username": chat.get("username", "")}
+                    status = ((u.get("my_chat_member") or {}).get("new_chat_member") or {}).get("status")
+                    if status:
+                        entry["bot_status"] = status
+                    found[chat["id"]] = {**found.get(chat["id"], {}), **entry}
+        return list(found.values())
+
     def check(self) -> dict:
         """Verify the token and the channel permissions (getMe + getChat)."""
         me = self._api("getMe", {})
