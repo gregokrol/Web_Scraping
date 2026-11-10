@@ -170,3 +170,20 @@ def test_site_command_build(tmp_path, capsys):
                                                           "site": {"out_dir": str(tmp_path / "web")}}), encoding="utf-8")
     assert main(["site", "build"]) == 0
     assert "Built 3 page(s), 1 deal(s)" in capsys.readouterr().out
+
+
+def test_listing_shows_each_product_once_with_its_best_offer():
+    from affiliate_scraper.site import best_per_product
+    deals = [{"id": 3, "group_id": "g1", "offer_id": 1, "ended": False, "price": 120.0},
+             {"id": 2, "group_id": "g1", "offer_id": 2, "ended": False, "price": 99.0},
+             {"id": 1, "group_id": "g1", "offer_id": 3, "ended": True, "price": 80.0},
+             {"id": 4, "group_id": "", "offer_id": 9, "ended": False, "price": 10.0}]
+    assert [d["id"] for d in best_per_product(deals)] == [2, 4]
+
+
+def test_relative_time_hebrew():
+    from affiliate_scraper.site import _ago
+    now = datetime(2026, 11, 10, 12, 0, tzinfo=timezone.utc)
+    ago = lambda **kw: _ago((now - timedelta(**kw)).isoformat(), now)  # noqa: E731
+    assert (ago(minutes=1), ago(minutes=5), ago(hours=2), ago(hours=5), ago(days=1), ago(days=2), ago(days=9)) == \
+           ("לפני דקה", "לפני 5 דקות", "לפני שעתיים", "לפני 5 שעות", "אתמול", "לפני יומיים", "לפני 9 ימים")
