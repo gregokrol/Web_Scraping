@@ -32,6 +32,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+from .policy import CrawlPolicy
 from .security import UnsafeURLError, check_url
 
 log = logging.getLogger(__name__)
@@ -42,6 +43,10 @@ CACHE_FORMAT_VERSION = 2
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(microsecond=0)
+
+
+class TermsBlockedError(PermissionError):
+    """The site's terms forbid automated collection (see policy.py)."""
 
 
 @dataclass
@@ -85,6 +90,7 @@ class PoliteFetcher:
         max_retry_after: float = 60.0,
         max_host_failures: int = 3,
         connect_timeout: float = 10.0,
+        policy: Optional[CrawlPolicy] = None,
     ):
         self.user_agent = user_agent
         self.min_delay = min_delay
@@ -100,6 +106,7 @@ class PoliteFetcher:
         self.max_bytes = max_bytes
         self.max_retry_after = max_retry_after
         self.max_host_failures = max_host_failures
+        self.policy = policy or CrawlPolicy()   # sites whose terms forbid scraping (not bypassed by ignore-robots)
 
         self.session = session or requests.Session()
         self.session.headers.update({
@@ -164,6 +171,8 @@ class PoliteFetcher:
         try:
             check_url(url, self.allow_private)
         except UnsafeURLError:
+            return False
+        if self.policy.blocked_reason(url):
             return False
         if not self.respect_robots:
             return True
@@ -247,6 +256,9 @@ class PoliteFetcher:
         current = url
         for _ in range(max_redirects + 1):
             check_url(current, self.allow_private)
+            reason = self.policy.blocked_reason(current)
+            if reason:
+                raise TermsBlockedError(f"{current}: {reason}")
             if check_robots and self.respect_robots and not self._robots_for(current).can_fetch(self.user_agent, current):
                 raise PermissionError(f"robots.txt disallows {current}")
             self.stats["requests"] += 1
@@ -307,6 +319,11 @@ class PoliteFetcher:
             self._error(url, "unsafe_url", str(exc))
             return None
 
+        reason = self.policy.blocked_reason(url)
+        if reason:
+            self._error(url, "blocked_by_terms", reason)
+            return None
+
         if self.use_cache:
             cached = self._cache_load(url)
             if cached:
@@ -324,6 +341,9 @@ class PoliteFetcher:
             self._throttle(url)
             try:
                 resp = self._request(url)
+            except TermsBlockedError as exc:
+                self._error(url, "blocked_by_terms", str(exc))
+                return None
             except PermissionError as exc:
                 self._error(url, "robots", str(exc))
                 return None

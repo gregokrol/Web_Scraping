@@ -47,7 +47,7 @@
 | לבצע שינויים בענף פיתוח נפרד | ✅ | `claude/web-scraping-v3` |
 | בדיקות אוטומטיות לכל יכולת חדשה | ✅ | `tests/` עם 106 בדיקות |
 | להשתמש ב-API רשמי כשזמין | ⚠️ | Amazon Creators API, AliExpress Affiliate API, eBay ו-Product Feeds מומשו. עוד לא נבדקו מול מפתחות אמיתיים |
-| לכבד robots.txt, תנאי שימוש והגבלות קצב | ✅ | `fetcher.py`: robots, Crawl-delay, השהיה לכל אתר |
+| לכבד robots.txt, תנאי שימוש והגבלות קצב | ✅ | `fetcher.py`: robots, Crawl-delay, השהיה לכל אתר. `policy.py`: אתרים שתנאי השימוש שלהם אוסרים סריקה (KSP) חסומים, גם עם `--ignore-robots` |
 | לא לעקוף CAPTCHA, חסימות או הרשאות | ✅ | ב-403 או באתגר בוט, המערכת מפסיקה לפנות לאתר |
 | לא לשמור מפתחות וסיסמאות בקוד | ✅ | משתני סביבה בלבד, ו-`tests/test_no_secrets.py` בודק את המאגר |
 | דיוק ואמינות לפני כמות | ✅ | סימון "לא מאומת" ו-`insufficient_data` במקום ניחושים |

@@ -1,5 +1,8 @@
 {
   "_comment": "Copy to sources.json. Only enter facts you know - nothing here is guessed by the system. trust_score is YOUR 0-1 rating of the store.",
+  "_policy": "ksp.co.il is blocked built-in (its terms forbid automated collection without written permission). Add a domain to permitted_domains ONLY after you received written permission or a feed from that site.",
+  "blocked_domains": {},
+  "permitted_domains": [],
   "stores": [
     {
       "domain": "example-israeli-store.co.il",

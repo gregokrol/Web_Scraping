@@ -58,6 +58,10 @@ class BrowserPageAdapter(WebPageAdapter):
         if not is_safe_url(url, fetcher.allow_private):
             fetcher.errors.append(FetchError(url=url, kind="unsafe_url", message="blocked"))
             return None
+        terms = fetcher.policy.blocked_reason(url)
+        if terms:
+            fetcher.errors.append(FetchError(url=url, kind="blocked_by_terms", message=terms))
+            return None
         if fetcher.host_status(url):
             fetcher.errors.append(FetchError(url=url, kind="host_skipped", message=fetcher.host_status(url) or ""))
             return None

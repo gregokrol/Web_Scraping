@@ -42,6 +42,7 @@ from .discovery import DEFAULT_PRODUCT_PATTERN, from_listing_pages, from_sitemap
 from .exporters import DEFAULT_DISCLOSURE, EXPORTERS, export_run
 from .fetcher import DEFAULT_USER_AGENT, PoliteFetcher
 from .pipeline import SORT_KEYS, Filters, classify_target, run_scrape
+from .policy import CrawlPolicy
 from .security import UnsafeURLError, check_url, safe_regex
 from .sources import load_stores
 
@@ -149,6 +150,7 @@ def make_fetcher(args) -> PoliteFetcher:
         use_cache=not args.no_cache,
         cache_ttl_hours=args.cache_ttl_hours,
         allow_private=args.allow_private_hosts,
+        policy=CrawlPolicy.load(args.sources),
     )
 
 
@@ -244,7 +246,9 @@ def scrape_main(argv: list[str]) -> int:
         for t in targets:
             adapter, norm = classify_target(t, stores, args.render)
             if norm.startswith(("http://", "https://")):
-                status = "allowed" if fetcher.allowed(norm) else "BLOCKED (robots.txt or unsafe URL)"
+                terms = fetcher.policy.blocked_reason(norm)
+                status = ("BLOCKED by site terms" if terms else
+                          "allowed" if fetcher.allowed(norm) else "BLOCKED (robots.txt or unsafe URL)")
             else:
                 status = "local/API source"
             print(f"  [{adapter:7}] {status:38} {t}")
