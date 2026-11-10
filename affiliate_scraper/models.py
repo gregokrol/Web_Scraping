@@ -35,6 +35,7 @@ class Product:
     gtin: str = ""           # normalised to 14 digits by validation
     price: Optional[float] = None
     list_price: Optional[float] = None
+    eilat_price: Optional[float] = None     # VAT-free price for Eilat, only when the store's page states it
     currency: str = ""
     shipping_cost: Optional[float] = None   # None = unknown, 0 = free
     tax: Optional[float] = None             # known extra tax/fees not included in price

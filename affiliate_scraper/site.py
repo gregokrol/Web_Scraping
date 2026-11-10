@@ -193,6 +193,7 @@ color:#1a1300;font-weight:800;font-size:18px;line-height:1;box-shadow:0 8px 22px
 .pr{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
 .price{font-size:26px;font-weight:800;color:#fff;font-variant-numeric:tabular-nums}
 .was{color:var(--muted);text-decoration:line-through;font-size:15px}
+.eilat{margin:4px 0 0;color:var(--muted);font-size:15px}.eilat b{color:var(--text);font-size:18px}
 .meta{color:var(--muted);font-size:13px;margin-top:auto}
 .ended{opacity:.55}.ended .ribbon{background:#4b5563}
 .warn{background:rgba(255,184,0,.1);border:1px solid rgba(255,184,0,.4);color:#ffe39a;border-radius:12px;padding:10px 12px;font-size:14px}
@@ -387,7 +388,7 @@ def collect_deals(db: Database, cfg: SiteConfig, now: Optional[datetime] = None)
     rows = db.query(
         "SELECT a.id, a.kind, a.title, a.price, a.currency, a.content_json, a.created_at, a.status, a.offer_id, "
         "o.url, o.affiliate_url, o.image, o.store, o.domain, o.group_id, o.last_fetched_at, o.source, "
-        "o.price AS current_price, o.currency AS current_currency, o.price_verified AS current_verified "
+        "o.eilat_price, o.price AS current_price, o.currency AS current_currency, o.price_verified AS current_verified "
         f"FROM deal_alerts a JOIN offers o ON o.id=a.offer_id WHERE a.status IN ({','.join('?' * len(PUBLIC_STATUSES))}) "
         "ORDER BY a.id DESC", PUBLIC_STATUSES)
     out = []
@@ -438,7 +439,14 @@ def _deal_page(db: Database, d: dict, cfg: SiteConfig) -> str:
     link = _safe_url(d["affiliate_url"] or d["url"])
     url = page_url(cfg, d["id"])
     # the price and its check time are shown above the list already - skip that claim here
-    claims = "".join(f"<li>{e(c['text'])}</li>" for c in content.get("claims", []) if c.get("basis") != "verified_price")
+    claims = "".join(f"<li>{e(c['text'])}</li>" for c in content.get("claims", [])
+                     if c.get("basis") not in ("verified_price", "eilat_price"))
+    eilat = ""
+    # the Eilat price belongs to the CURRENT store price - show it only while that is still the deal price
+    if (d.get("eilat_price") and not d["ended"] and d["current_price"] is not None
+            and abs(d["current_price"] - d["price"]) <= 0.01 * d["price"] and d["eilat_price"] < d["price"]):
+        eilat = (f'<p class="eilat">מחיר באילת: <b>{e(_money(d["eilat_price"], d["currency"]))}</b>'
+                 '<small> (לפי אתר החנות, ללא מע"מ)</small></p>')
     hist = db.query("SELECT observed_at, price FROM price_history WHERE offer_id=? AND price_verified=1 AND currency=? "
                     "ORDER BY observed_at", (d["offer_id"], d["currency"]))
     chart = price_chart_svg([(h["observed_at"], h["price"]) for h in hist], d["currency"])
@@ -485,7 +493,7 @@ def _deal_page(db: Database, d: dict, cfg: SiteConfig) -> str:
             f'<div class="deal"><div class="gallery">{img}</div><div>'
             f'<span class="kind">{e(label)}</span>'
             f'<h1>{e(d["title"])}</h1>'
-            f'<div class="bigprice"><span class="price">{e(_money(d["price"], d["currency"]))}</span>{chip}</div>{was}'
+            f'<div class="bigprice"><span class="price">{e(_money(d["price"], d["currency"]))}</span>{chip}</div>{was}{eilat}'
             f'<p class="meta">ב-{e(d["store"])} · המחיר נבדק ב-{e(_when(d["checked_at"]))} ({e(d["ago"])})</p>{warn}'
             f'<div class="panel"><h2>למה זו עסקה</h2><ul class="checks">{claims}</ul>'
             f'<p class="meta">כל טענה כאן מבוססת על בדיקה: מחיר מאומת, היסטוריית מחירים או השוואה בין חנויות.</p></div>'

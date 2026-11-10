@@ -303,3 +303,25 @@ def test_other_pages_of_the_same_store_are_not_a_saving(tmp_path):
     db.conn.commit()
     [d] = collect_deals(db, cfg(tmp_path))
     assert d["savings_pct"] == 10
+
+
+def test_eilat_price_is_read_from_the_page_and_shown(tmp_path):
+    from affiliate_scraper.extractors import extract_products
+    ld = '<script type="application/ld+json">{"@type":"Product","name":"Acme Kettle 1.7L","offers":{"price":"549","priceCurrency":"ILS"}}</script>'
+    [p] = extract_products(f"<html><body>{ld}<h1>Acme Kettle 1.7L</h1><div>549 ₪</div>"
+                           "<div>מחיר באילת: 465.25 ₪</div></body></html>", "https://a.example/k")
+    assert p.eilat_price == 465.25
+    [p] = extract_products(f"<html><body>{ld}<div>מחיר באילת: 99</div></body></html>", "https://a.example/k")
+    assert p.eilat_price is None                                   # not plausible (< 75%) -> ignored
+    [p] = extract_products(f"<html><body>{ld}</body></html>", "https://a.example/k")
+    assert p.eilat_price is None                                   # never calculated by us
+    db, oid = seed_db(tmp_path)
+    db.conn.execute("UPDATE offers SET eilat_price=76.27 WHERE id=?", (oid,))
+    db.conn.commit()
+    [a] = detect_deals(db, DealRules())
+    content = json.loads(db.conn.execute("SELECT content_json FROM deal_alerts WHERE id=?", (a["id"],)).fetchone()[0])
+    assert "מחיר באילת: ₪76.27" in content["telegram"] or "מחיר באילת: 76.27" in content["telegram"]
+    decide(db, [a["id"]], "approve")
+    build_site(db, cfg(tmp_path))
+    page = (Path(cfg(tmp_path).out_dir) / "deals" / f"{a['id']}.html").read_text(encoding="utf-8")
+    assert "מחיר באילת" in page and "76.27" in page

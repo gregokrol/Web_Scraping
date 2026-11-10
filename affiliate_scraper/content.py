@@ -25,12 +25,12 @@ DISCLOSURE = {
 }
 
 T = {
-    "he": {"price": "מחיר: {price}", "asof": "(נבדק ב-{when} UTC)", "below_median": "{pct}% מתחת למחיר החציוני ב-{n} חנויות",
+    "he": {"price": "מחיר: {price}", "eilat": "מחיר באילת: {price}", "asof": "(נבדק ב-{when} UTC)", "below_median": "{pct}% מתחת למחיר החציוני ב-{n} חנויות",
            "lowest90": "המחיר הנמוך ביותר ב-90 הימים האחרונים", "drop": "ירד ב-{pct}% (מ-{old})",
            "was": "במקום {was} (הנחה של {pct}%, אומתה מול היסטוריית המחירים)", "free_ship": "משלוח חינם",
            "ship": "משלוח: {cost}", "rating": "דירוג {rating}/5 ({n} ביקורות)", "store": "בחנות {store}",
            "cta": "לפרטים ורכישה", "excl_ship": "(לא כולל משלוח)"},
-    "en": {"price": "Price: {price}", "asof": "(checked {when} UTC)", "below_median": "{pct}% below the median price across {n} stores",
+    "en": {"price": "Price: {price}", "eilat": "Eilat price: {price}", "asof": "(checked {when} UTC)", "below_median": "{pct}% below the median price across {n} stores",
            "lowest90": "Lowest price in the last 90 days", "drop": "Down {pct}% (from {old})",
            "was": "Was {was} ({pct}% off, verified against price history)", "free_ship": "Free shipping",
            "ship": "Shipping: {cost}", "rating": "Rated {rating}/5 ({n} reviews)", "store": "at {store}",
@@ -60,6 +60,8 @@ def build_content(offer: dict, history: Optional[dict] = None, comparison: Optio
 
     when = (offer.get("last_fetched_at") or "")[:16].replace("T", " ")
     claim(t["price"].format(price=_money(offer.get("price"), cur)) + " " + t["asof"].format(when=when), "verified_price")
+    if offer.get("eilat_price") and offer.get("price") and offer["eilat_price"] < offer["price"]:
+        claim(t["eilat"].format(price=_money(offer["eilat_price"], cur)), "eilat_price")
 
     if (comparison and comparison.get("n_compared", 0) >= 2 and not comparison.get("uncertain")
             and comparison.get("median_price") and offer.get("price") is not None):

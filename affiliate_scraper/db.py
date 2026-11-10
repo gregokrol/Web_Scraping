@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS offers (
     source_id INTEGER REFERENCES sources(id),
     url TEXT UNIQUE NOT NULL,
     domain TEXT, store TEXT, store_url TEXT, sku TEXT, title TEXT,
-    price REAL, list_price REAL, currency TEXT, shipping_cost REAL, tax REAL,
+    price REAL, list_price REAL, eilat_price REAL, currency TEXT, shipping_cost REAL, tax REAL,
     availability TEXT, condition TEXT, color TEXT, size TEXT, warranty_months INTEGER,
     rating REAL, review_count INTEGER, image TEXT, category TEXT,
     affiliate_url TEXT, commission_rate REAL, price_verified INTEGER, validation_status TEXT, validation_issues TEXT,
@@ -124,7 +124,7 @@ CREATE INDEX IF NOT EXISTS ix_alerts_offer ON deal_alerts(offer_id, created_at);
 
 OFFER_COLUMNS = ("domain", "store", "store_url", "sku", "price", "list_price", "currency", "shipping_cost", "tax",
                  "availability", "condition", "color", "size", "warranty_months", "rating", "review_count",
-                 "image", "category", "affiliate_url", "commission_rate", "price_verified", "validation_status", "source",
+                 "image", "category", "affiliate_url", "commission_rate", "eilat_price", "price_verified", "validation_status", "source",
                  "source_type", "group_id", "match_confidence", "deal_score", "affiliate_score", "deal_notes")
 
 
@@ -166,7 +166,7 @@ class Database:
     def _migrate(self) -> None:
         """Add columns introduced after a database was created (safe to run every time)."""
         cols = {r[1] for r in self.conn.execute("PRAGMA table_info(offers)")}
-        for col, typ in (("commission_rate", "REAL"),):
+        for col, typ in (("commission_rate", "REAL"), ("eilat_price", "REAL")):
             if col not in cols:
                 self.conn.execute(f"ALTER TABLE offers ADD COLUMN {col} {typ}")
         cols = {r[1] for r in self.conn.execute("PRAGMA table_info(deal_alerts)")}

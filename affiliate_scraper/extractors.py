@@ -306,6 +306,27 @@ def from_selectors(soup: BeautifulSoup, base_url: str, selectors: dict[str, str]
     return {k: v for k, v in rec.items() if v not in (None, "")}
 
 
+_EILAT = re.compile(r"(?:מחיר\s*(?:ל|ב)?\s*אילת|לתושבי\s*אילת|באילת)\s*[:：-]?\s*(?:₪|ש\"ח)?\s*"
+                    r"(\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)")
+
+
+def eilat_price(soup: BeautifulSoup, price: Optional[float]) -> Optional[float]:
+    """The Eilat (VAT-free) price as the store's own page states it - never calculated by us.
+
+    Accepted only if it is plausibly the same product without VAT: below the price and not less
+    than 75% of it (VAT in Israel is 18%, so the real ratio is about 85%).
+    """
+    if not price:
+        return None
+    m = _EILAT.search(soup.get_text(" "))
+    if not m:
+        return None
+    value = parse_float(m.group(1).replace(",", ""))
+    if value is None or not (price * 0.75 <= value < price):
+        return None
+    return round(value, 2)
+
+
 def from_html_fallback(soup: BeautifulSoup) -> dict:
     h1 = soup.find("h1")
     title = soup.find("title")
@@ -383,6 +404,8 @@ def extract_products(html: str, page_url: str, require_structured: bool = True,
         price_source = next((s for s, d in (("json-ld", item if ld else {}), ("microdata", micro[0] if micro else {}),
                                             ("og", meta), ("html", css)) if d.get("price") is not None
                              and d.get("price") == rec.get("price")), sources[0] if sources else "")
+        if single and rec.get("price") is not None:
+            rec["eilat_price"] = eilat_price(soup, rec["price"])
         p = Product(url=strip_tracking(product_url), source="+".join(dict.fromkeys(sources)),
                     source_type=price_source, **kwargs, **rec)
         if p.is_valid:
