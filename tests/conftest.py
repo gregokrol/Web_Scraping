@@ -114,3 +114,14 @@ def _chromium_path(monkeypatch):
 def _isolated_cwd(tmp_path, monkeypatch):
     """Default DB / cache / output paths are relative - keep them out of the repository."""
     monkeypatch.chdir(tmp_path)
+
+
+CREDENTIAL_ENV_PREFIXES = ("TELEGRAM_", "AMAZON_", "ALIEXPRESS_", "EBAY_", "N8N_", "WEBHOOK_")
+
+
+@pytest.fixture(autouse=True)
+def _no_real_credentials(monkeypatch):
+    """Tests must never see (or use) the real keys saved on the user's computer with setx."""
+    for name in list(os.environ):
+        if name.startswith(CREDENTIAL_ENV_PREFIXES):
+            monkeypatch.delenv(name, raising=False)
