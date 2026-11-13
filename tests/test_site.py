@@ -325,3 +325,19 @@ def test_eilat_price_is_read_from_the_page_and_shown(tmp_path):
     build_site(db, cfg(tmp_path))
     page = (Path(cfg(tmp_path).out_dir) / "deals" / f"{a['id']}.html").read_text(encoding="utf-8")
     assert "מחיר באילת" in page and "76.27" in page
+
+
+def test_static_pages_do_not_bake_in_how_long_ago(tmp_path):
+    """'Checked 1 minute ago' written at build time would stay on the static page for hours - the
+    browser computes it. Building again minutes later gives the same pages (no needless commits)."""
+    db, oid, a = approved_deal(tmp_path)
+    decide(db, [a["id"]], True)
+    now = datetime.now(timezone.utc)
+    out = Path(cfg(tmp_path).out_dir)
+    build_site(db, cfg(tmp_path), now=now)
+    first = {p.name: p.read_text(encoding="utf-8") for p in [out / "index.html", out / "deals" / f"{a['id']}.html"]}
+    build_site(db, cfg(tmp_path), now=now + timedelta(minutes=7))
+    again = {p.name: p.read_text(encoding="utf-8") for p in [out / "index.html", out / "deals" / f"{a['id']}.html"]}
+    assert first == again
+    page = first[f"{a['id']}.html"]
+    assert '<time class="ago" data-paren datetime="' in page and "לפני דקה" not in page.split("<script>(function(){")[0]

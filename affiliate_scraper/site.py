@@ -105,6 +105,24 @@ def _ago(ts: str, now: Optional[datetime] = None) -> str:
     return "אתמול" if d == 1 else ("לפני יומיים" if d == 2 else f"לפני {d} ימים")
 
 
+def _ago_tag(ts: str, fallback: str, paren: bool = False) -> str:
+    """The page is static: "5 minutes ago" written at build time would stay on the page for hours.
+    Store the real time; the visitor's browser turns it into "לפני X" (AGO_JS). Without JS: the fallback."""
+    dt = _parse_iso(ts or "")
+    if not dt:
+        return e(fallback)
+    iso = dt.astimezone(timezone.utc).replace(microsecond=0).isoformat()
+    return f'<time class="ago"{" data-paren" if paren else ""} datetime="{e(iso)}">{e(fallback)}</time>'
+
+
+AGO_JS = """<script>(function(){function ago(s){if(s<3600){var m=Math.max(1,Math.floor(s/60));
+return m==1?"לפני דקה":m==2?"לפני 2 דקות":"לפני "+m+" דקות"}if(s<86400){var h=Math.floor(s/3600);
+return h==1?"לפני שעה":h==2?"לפני שעתיים":"לפני "+h+" שעות"}var d=Math.floor(s/86400);
+return d==1?"אתמול":d==2?"לפני יומיים":"לפני "+d+" ימים"}
+document.querySelectorAll("time.ago").forEach(function(t){var x=Date.parse(t.getAttribute("datetime"));if(!x)return;
+var s=Math.max(0,(Date.now()-x)/1000),a=ago(s);t.textContent=t.hasAttribute("data-paren")?" ("+a+")":a})})()</script>"""
+
+
 def price_chart_svg(points: list[tuple[str, float]], currency: str) -> str:
     """Server-side SVG chart of verified price observations (no JavaScript, no external library)."""
     pts = [(dt, p) for ts, p in points if p is not None and (dt := _parse_iso(ts))]
@@ -311,6 +329,7 @@ def _layout(cfg: SiteConfig, title: str, description: str, body: str, path: str,
 <p>{e(DISCLOSURE)}</p>
 <p><a href="{root}how-we-check.html">איך אנחנו בודקים מחירים</a> · <a href="{root}feed.xml">RSS</a>{tg_footer}</p>
 </div></footer>
+{AGO_JS}
 {tail}
 </body>
 </html>
@@ -377,7 +396,8 @@ def _card(d: dict, cfg: SiteConfig, depth: int = 0) -> str:
             f'<div class="thumb">{img}{ribbon}{new}{save}</div><div class="b">'
             f'<span class="t">{e(d["title"])}</span>'
             f'<div class="pr"><span class="price">{e(_money(d["price"], d["currency"]))}</span>{was}</div>'
-            f'{stale}<span class="meta">{e(d["store"])} · נבדק {e(d["ago"])}</span></div></a>')
+            f'{stale}<span class="meta">{e(d["store"])} · נבדק {_ago_tag(d["checked_at"], "ב-" + _when(d["checked_at"]))}'
+            '</span></div></a>')
 
 
 def collect_deals(db: Database, cfg: SiteConfig, now: Optional[datetime] = None) -> list[dict]:
@@ -494,7 +514,7 @@ def _deal_page(db: Database, d: dict, cfg: SiteConfig) -> str:
             f'<span class="kind">{e(label)}</span>'
             f'<h1>{e(d["title"])}</h1>'
             f'<div class="bigprice"><span class="price">{e(_money(d["price"], d["currency"]))}</span>{chip}</div>{was}{eilat}'
-            f'<p class="meta">ב-{e(d["store"])} · המחיר נבדק ב-{e(_when(d["checked_at"]))} ({e(d["ago"])})</p>{warn}'
+            f'<p class="meta">ב-{e(d["store"])} · המחיר נבדק ב-{e(_when(d["checked_at"]))}{_ago_tag(d["checked_at"], "", paren=True)}</p>{warn}'
             f'<div class="panel"><h2>למה זו עסקה</h2><ul class="checks">{claims}</ul>'
             f'<p class="meta">כל טענה כאן מבוססת על בדיקה: מחיר מאומת, היסטוריית מחירים או השוואה בין חנויות.</p></div>'
             f'<a class="btn btn-buy" href="{e(link)}" target="_blank" rel="sponsored nofollow noopener">{buy_text}</a>'

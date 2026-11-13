@@ -165,11 +165,11 @@ def test_search_box_in_the_app(two_stores):
     assert client.post("/api/search", json={"q": "x"}, headers=h).status_code == 400
     job = client.post("/api/search", json={"q": "puzzle 1000"}, headers=h).json()
     assert job["kind"] == "search" and [s["name"] for s in job["stores"]] == ["Store A", "Store B"]
-    for _ in range(300):
-        if client.get(f"/api/jobs/{job['id']}").json()["status"] != "running":
-            break
+    deadline = time.monotonic() + 60          # a loaded machine can be slow; finishing early exits at once
+    while client.get(f"/api/jobs/{job['id']}").json()["status"] == "running" and time.monotonic() < deadline:
         time.sleep(0.02)
     j = client.get(f"/api/jobs/{job['id']}").json()
+    assert j["status"] != "running", "search job did not finish within 60 s"
     assert (j["fetched"], j["targets"], j["stores_done"]) == (3, 3, 2)     # both stores, searched side by side
     r = client.get(f"/api/search/{job['id']}").json()
     assert r["status"] == "done" and r["q"] == "puzzle 1000"

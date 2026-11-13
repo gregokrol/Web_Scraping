@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -157,12 +158,27 @@ class Database:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
         if self.path != ":memory:":
-            self.conn.execute("PRAGMA journal_mode = WAL")
+            self._wal()
         self.conn.executescript(SCHEMA)
         self._migrate()
         if not self.conn.execute("SELECT 1 FROM schema_info").fetchone():
             self.conn.execute("INSERT INTO schema_info(version) VALUES (?)", (SCHEMA_VERSION,))
         self.conn.commit()
+
+    def _wal(self) -> None:
+        """Switch to WAL once. Changing the journal mode does not wait for a busy database, so two
+        connections opening a NEW database at the same moment (stores searched side by side) could
+        fail with "database is locked" - check first, then retry for a while."""
+        for attempt in range(60):
+            try:
+                if self.conn.execute("PRAGMA journal_mode").fetchone()[0].lower() != "wal":
+                    self.conn.execute("PRAGMA journal_mode = WAL")
+                return
+            except sqlite3.OperationalError as exc:
+                if "locked" not in str(exc) and "busy" not in str(exc):
+                    raise
+                time.sleep(0.05 + 0.01 * attempt)
+        raise sqlite3.OperationalError("database is locked (could not switch to WAL)")
 
     def _migrate(self) -> None:
         """Add columns introduced after a database was created (safe to run every time)."""

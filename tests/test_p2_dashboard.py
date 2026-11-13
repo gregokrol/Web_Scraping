@@ -134,8 +134,9 @@ def test_manual_crawl_uses_polite_pipeline(setup):
     assert post(client, "/api/crawl", json={"urls": []}).status_code == 400
 
 
-def wait_job(client, job_id):
-    for _ in range(200):
+def wait_job(client, job_id, timeout=60):
+    deadline = time.monotonic() + timeout     # a loaded machine can be slow; finishing early exits at once
+    while time.monotonic() < deadline:
         j = client.get(f"/api/jobs/{job_id}").json()
         if j["status"] != "running":
             return j
@@ -151,7 +152,7 @@ def test_run_now_runs_automation_and_reports_progress(tmp_path):
         print("=== scrape: https://www.shop.example/category")
         print("Fetching 3 page(s)")
         print("  [2/3] https://www.shop.example/p/2")
-        gate.wait(5)
+        gate.wait(60)
         print("  [3/3] https://www.shop.example/p/3")
         return 0
 
@@ -159,7 +160,8 @@ def test_run_now_runs_automation_and_reports_progress(tmp_path):
                                    allowed_hosts=["testserver"], crawl_runner=runner, token=TOKEN))
     job = post(client, "/api/run").json()
     assert job["kind"] == "run"
-    for _ in range(200):
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
         j = client.get(f"/api/jobs/{job['id']}").json()
         if j.get("done") == 2:
             break

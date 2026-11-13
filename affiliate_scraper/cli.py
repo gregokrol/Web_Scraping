@@ -358,7 +358,8 @@ def scrape_main(argv: list[str]) -> int:
         price = f"{p.price:,.2f} {p.currency}" if p.price is not None else "-"
         flag = "" if p.price_verified else " (unverified)"
         deal = f"D{p.deal_score:>3.0f}" if p.deal_score is not None else "D  -"
-        err(f"  {p.score:5.1f} {deal}  {price:>14}{flag}  {p.name[:55]}")
+        eilat = f"  [Eilat {p.eilat_price:,.2f}]" if p.eilat_price else ""
+        err(f"  {p.score:5.1f} {deal}  {price:>14}{flag}  {p.name[:55]}{eilat}")
     err("\nWrote:\n" + "\n".join(f"  {p}" for p in paths))
     return 0
 
