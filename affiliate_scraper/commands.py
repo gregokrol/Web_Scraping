@@ -796,6 +796,17 @@ def _run_run(args) -> int:
             _err(f"Published to {'Telegram' if tg else 'n8n'}: {res}" + (" (auto-approved)" if auto else ""))
     else:
         _err("No publishing destination configured - deals wait in the dashboard / `py main.py alerts`.")
+    # daily self-check: one report a day to your private chat (twice-daily runs still send one)
+    if (cfg.get("health") or {}).get("daily", True) and tg and tg.admin_chat:
+        from .health import due, format_report, mark_sent, run_health
+        if due(db):
+            report = format_report(run_health(db, cfg, tg))
+            try:
+                tg.notify_admin(report)
+                mark_sent(db)
+                _err("Daily self-check sent to your Telegram chat.")
+            except PublishError as exc:
+                _err(f"Notification problem: {exc}")
     db.close()
     return 0 if any(c == 0 for c in codes) else 1
 
@@ -1212,3 +1223,46 @@ cli.register_subcommand("approval", "Switch between automatic publishing (testin
                         _approval_build, _approval_run)
 cli.register_subcommand("withdraw", "Remove published deals from the channel and the website",
                         _withdraw_build, _withdraw_run)
+
+
+# ---------------------------------------------------------------- health
+def _health_build(ap) -> None:
+    ap.add_argument("--config", default="automation.json")
+    ap.add_argument("--db", default=None)
+    ap.add_argument("--telegram", action="store_true", help="also send the report to TELEGRAM_ADMIN_CHAT")
+    ap.add_argument("--no-site-check", action="store_true", help="do not open the public website")
+
+
+def _health_run(args) -> int:
+    from .health import format_report, mark_sent, run_health
+    from .telegram import TelegramPublisher
+    from .webhook import PublishError
+    cfg = {}
+    if Path(args.config).exists():
+        try:
+            cfg = load_automation(args.config)
+        except (OSError, ValueError) as exc:
+            _err(f"warning: cannot read {args.config}: {exc}")
+    tg = TelegramPublisher()
+    db = Database(args.db or cfg.get("db", DEFAULT_DB))
+    try:
+        res = run_health(db, cfg, tg if tg.configured else None, check_site=not args.no_site_check)
+        report = format_report(res)
+        print(report)
+        if args.telegram:
+            if not tg.admin_chat:
+                _err("TELEGRAM_ADMIN_CHAT is not set - the report was only printed here.")
+            else:
+                try:
+                    tg.notify_admin(report)
+                    mark_sent(db)
+                    print("\nSent to your Telegram chat.")
+                except PublishError as exc:
+                    _err(f"Notification problem: {exc}")
+    finally:
+        db.close()
+    return 0 if res["ok"] else 1
+
+
+cli.register_subcommand("health", "Self-check: runs, store errors, published deals still true, Telegram, website",
+                        _health_build, _health_run)

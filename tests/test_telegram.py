@@ -160,7 +160,7 @@ def test_automation_run_posts_to_telegram_channel(tmp_path, local_site, monkeypa
     local_site.add("/products/k", product_html("Acme Kettle", "90", currency="ILS", gtin="4006381333931"))
     cfg = {"db": str(tmp_path / "t.db"), "targets": [local_site.base + "/products/k"], "delay": 0, "no_cache": True,
            "allow_private_hosts": True, "out_dir": str(tmp_path / "out"), "telegram": {"enabled": True},
-           "deals": {"min_deal_score": 0}}
+           "deals": {"min_deal_score": 0}, "health": {"daily": False}}   # the self-check has its own test
     (tmp_path / "automation.json").write_text(json.dumps(cfg), encoding="utf-8")
     assert main(["run"]) == 0
     db = Database(tmp_path / "t.db")
@@ -246,7 +246,7 @@ def test_auto_mode_posts_without_approval_and_reports_to_you(tmp_path, local_sit
     local_site.add("/products/k", product_html("Acme Kettle", "90", currency="ILS", gtin="4006381333931"))
     cfg = {"db": str(tmp_path / "a.db"), "targets": [local_site.base + "/products/k"], "delay": 0, "no_cache": True,
            "allow_private_hosts": True, "out_dir": str(tmp_path / "out"), "telegram": {"enabled": True},
-           "deals": {"min_deal_score": 0}, "require_approval": True}
+           "deals": {"min_deal_score": 0}, "require_approval": True, "health": {"daily": False}}
     (tmp_path / "automation.json").write_text(json.dumps(cfg), encoding="utf-8")
     assert main(["approval", "auto"]) == 0
     assert json.loads((tmp_path / "automation.json").read_text(encoding="utf-8"))["require_approval"] is False
