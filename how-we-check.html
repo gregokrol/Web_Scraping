@@ -45,6 +45,12 @@
 <p>גילוי נאות: האתר כולל קישורי שותפים. רכישה דרכם עשויה לזכות אותנו בעמלה, ללא עלות נוספת עבורך. המחירים נבדקו במועד המצוין ועשויים להשתנות - המחיר הקובע הוא המחיר באתר החנות.</p>
 <p><a href="how-we-check.html">איך אנחנו בודקים מחירים</a> · <a href="feed.xml">RSS</a> · <a href="https://t.me/mechiremet">הערוץ בטלגרם</a></p>
 </div></footer>
+<script>(function(){function ago(s){if(s<3600){var m=Math.max(1,Math.floor(s/60));
+return m==1?"לפני דקה":m==2?"לפני 2 דקות":"לפני "+m+" דקות"}if(s<86400){var h=Math.floor(s/3600);
+return h==1?"לפני שעה":h==2?"לפני שעתיים":"לפני "+h+" שעות"}var d=Math.floor(s/86400);
+return d==1?"אתמול":d==2?"לפני יומיים":"לפני "+d+" ימים"}
+document.querySelectorAll("time.ago").forEach(function(t){var x=Date.parse(t.getAttribute("datetime"));if(!x)return;
+var s=Math.max(0,(Date.now()-x)/1000),a=ago(s);t.textContent=t.hasAttribute("data-paren")?" ("+a+")":a})})()</script>
 
 </body>
 </html>
