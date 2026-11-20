@@ -829,8 +829,8 @@ def _schedule_build(ap) -> None:
 
 
 def _schedule_run(args) -> int:
-    from .scheduler import (build_bat, build_schtasks_create, build_schtasks_delete, build_vbs, console_python,
-                            run_schtasks)
+    from .scheduler import (build_bat, build_schtasks_create, build_schtasks_delete, build_task_settings, build_vbs,
+                            console_python, run_schtasks)
     project = Path.cwd()
     try:
         if args.remove:
@@ -852,7 +852,16 @@ def _schedule_run(args) -> int:
     if not args.create:
         print("\n(Not registered. Add --create to register it, or paste the command into CMD.)")
         return 0
-    return run_schtasks(cmd)
+    code = run_schtasks(cmd)
+    if code == 0:
+        # also run on battery, make up a run missed while the computer slept, never hang for days
+        if run_schtasks(build_task_settings(args.task_name)) == 0:
+            print("Task settings: runs on battery too, and a missed run starts as soon as the computer is on.")
+        else:
+            _err("warning: could not change the task settings - a laptop on battery or asleep at the time "
+                 "may skip runs. Task Scheduler -> the task -> Conditions: untick 'Start only if on AC power'; "
+                 "Settings: tick 'Run task as soon as possible after a scheduled start is missed'.")
+    return code
 
 
 cli.register_subcommand("schedule", "Create a Windows Task Scheduler task that runs the automation",

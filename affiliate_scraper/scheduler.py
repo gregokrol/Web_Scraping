@@ -61,6 +61,17 @@ def build_schtasks_create(task_name: str, bat_path: Path, every: str = "daily", 
     return cmd
 
 
+def build_task_settings(task_name: str) -> list[str]:
+    """schtasks cannot set these, and Windows' defaults silently skip runs: a laptop on battery never
+    starts the task, and a run missed while the computer slept is not made up. Fix both (PowerShell)."""
+    if not TASK_NAME_RE.match(task_name):
+        raise ValueError("task name may contain letters, digits, space, _ - . only")
+    script = ("$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries "
+              "-StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 3); "
+              f"Set-ScheduledTask -TaskName '{task_name}' -Settings $s | Out-Null")
+    return ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script]
+
+
 def build_schtasks_delete(task_name: str) -> list[str]:
     if not TASK_NAME_RE.match(task_name):
         raise ValueError("bad task name")

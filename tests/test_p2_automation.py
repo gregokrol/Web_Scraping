@@ -334,3 +334,13 @@ def test_vague_title_is_skipped(tmp_path):
     db.conn.commit()
     assert detect_deals(db, DealRules()) == []
     assert len(detect_deals(db, DealRules(skip_vague_titles=False))) == 1
+
+
+def test_task_settings_run_on_battery_and_after_missed_start():
+    from affiliate_scraper.scheduler import build_task_settings
+    cmd = build_task_settings("WebScrapingAffiliate")
+    script = cmd[-1]
+    assert cmd[0] == "powershell" and "-AllowStartIfOnBatteries" in script and "-StartWhenAvailable" in script
+    assert "-DontStopIfGoingOnBatteries" in script and "'WebScrapingAffiliate'" in script
+    with pytest.raises(ValueError):
+        build_task_settings("x'; Remove-Item C:\\ -Recurse #")
