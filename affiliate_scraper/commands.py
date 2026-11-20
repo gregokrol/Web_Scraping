@@ -5,6 +5,7 @@ Registered with cli.py so the classic ``py main.py <urls>`` stays unchanged.
 
 from __future__ import annotations
 
+import argparse
 import csv
 import json
 import sys
@@ -1307,10 +1308,13 @@ cli.register_subcommand("health", "Self-check: runs, store errors, published dea
 
 # ---------------------------------------------------------------- stores (sources.json)
 def _stores_build(ap) -> None:
-    ap.add_argument("action", choices=["list", "daily-off", "daily-on", "sale-add", "sale-remove"])
+    ap.add_argument("action", choices=["list", "daily-off", "daily-on", "sale-add", "sale-remove", "find-sales"])
     ap.add_argument("domains", nargs="*", help="Store domains, or 'all'. sale-add: a store's sale page URL(s)")
     ap.add_argument("--sources", default=None, help="Default: sources_config from automation.json, else sources.json")
     ap.add_argument("--config", default="automation.json")
+    ap.add_argument("--again", action="store_true", help="find-sales: also stores that already have a sale page")
+    ap.add_argument("--delay", type=float, default=3.0, help=argparse.SUPPRESS)
+    ap.add_argument("--allow-private-hosts", action="store_true", help=argparse.SUPPRESS)
 
 
 def _stores_run(args) -> int:
@@ -1340,6 +1344,8 @@ def _stores_run(args) -> int:
         return 0
     if args.action in ("sale-add", "sale-remove"):
         return _stores_sale(args, path, data)
+    if args.action == "find-sales":
+        return _stores_find_sales(args, path, data)
     want = {d.lower() for d in args.domains}
     if not want:
         _err("error: name the store domains, or 'all'")
@@ -1379,6 +1385,75 @@ def _save_sources(path: Path, data: dict) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     tmp.replace(path)
+
+
+def _product_pattern(st: dict) -> str:
+    return st.get("include") or st.get("search_include") or r"/products?/"
+
+
+def _attach_sale(st: dict, url: str) -> bool:
+    urls = st.setdefault("start_urls", [])
+    if url in urls:
+        return False
+    urls.append(url)
+    st.setdefault("sale_urls", []).append(url)
+    st.setdefault("discover", "links")
+    if not st.get("include") and st.get("search_include"):
+        st["include"] = st["search_include"]        # which links on the page are products
+    st.setdefault("max_pages", SALE_MAX_PAGES)
+    st.setdefault("max_listing_pages", SALE_MAX_LISTING_PAGES)
+    return True
+
+
+def _store_home(st: dict) -> str:
+    from urllib.parse import urlparse
+    for key in ("search_url", "search_sitemap"):
+        p = urlparse(str(st.get(key) or "").replace("{q}", "x"))
+        if p.scheme in ("http", "https") and p.netloc:
+            return f"{p.scheme}://{p.netloc}/"
+    return f"https://www.{st['domain']}/"
+
+
+def _stores_find_sales(args, path: Path, data: dict) -> int:
+    """Open each store's home page and add its sale page automatically (see salefinder.py)."""
+    from .fetcher import PoliteFetcher
+    from .policy import CrawlPolicy
+    from .salefinder import find_sale_page
+    want = {d.lower() for d in args.domains} - {"all"}
+    policy = CrawlPolicy.load(str(path))
+    fetcher = PoliteFetcher(min_delay=args.delay, allow_private=args.allow_private_hosts, policy=policy,
+                            use_cache=False)
+    added = 0
+    for st in data.get("stores", []):
+        dom = str(st.get("domain", "")).lower()
+        if (want and dom not in want) or st.get("enabled") is False:
+            continue
+        if st.get("sale_urls") and not args.again:
+            print(f"  {dom:24} already has a sale page")
+            continue
+        home = _store_home(st)
+        reason = policy.blocked_reason(home)
+        if reason:
+            print(f"  {dom:24} skipped - {reason}")
+            continue
+        try:
+            found = find_sale_page(fetcher, home, dom, _product_pattern(st))
+        except Exception as exc:  # noqa: BLE001 - one store's problem must not stop the others
+            found = None
+            _err(f"  {dom}: {exc}")
+        if found and _attach_sale(st, found["url"]):
+            added += 1
+            print(f"  {dom:24} found: {found['url']}  ({found['products']} products on the page)")
+            _save_sources(path, data)                # saved after each store: an interruption loses nothing
+        elif found:
+            print(f"  {dom:24} already in the list: {found['url']}")
+        else:
+            why = next((f"{e.kind}" for e in fetcher.errors_for(home)), "no sale link with products on the home page")
+            print(f"  {dom:24} not found ({why})")
+    print(f"\n{added} sale page(s) added. They are scanned in every automatic run (menu 6 / the schedule).")
+    if added == 0:
+        print("A store not found here: open its sale page in the browser and use menu 29 to paste the link.")
+    return 0
 
 
 def _stores_sale(args, path: Path, data: dict) -> int:
@@ -1421,17 +1496,9 @@ def _stores_sale(args, path: Path, data: dict) -> int:
         if reason:
             _err(f"skipped: {url} - {reason}")
             continue
-        urls = st.setdefault("start_urls", [])
-        if url in urls:
+        if not _attach_sale(st, url):
             print(f"already in the list: {st['domain']}")
             continue
-        urls.append(url)
-        st.setdefault("sale_urls", []).append(url)
-        st.setdefault("discover", "links")
-        if not st.get("include") and st.get("search_include"):
-            st["include"] = st["search_include"]        # which links on the page are products
-        st.setdefault("max_pages", SALE_MAX_PAGES)
-        st.setdefault("max_listing_pages", SALE_MAX_LISTING_PAGES)
         print(f"added sale page: {st['domain']} (up to {st['max_pages']} products per run)")
         changed += 1
     if changed:

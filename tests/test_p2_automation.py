@@ -431,3 +431,35 @@ def test_sale_page_added_to_the_daily_scan(tmp_path, capsys, monkeypatch):
     from affiliate_scraper.commands import automation_scrape_jobs
     jobs = automation_scrape_jobs({"sources_config": str(tmp_path / "sources.json")})
     assert sorted(j[0] for j in jobs) == ["https://fox.co.il/collections/sale", "https://www.bug.co.il/sale"]
+
+
+def test_find_sales_finds_the_sale_page_by_itself(tmp_path, local_site, capsys, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    prods = "".join(f'<a href="/products/item-{i}">Item {i}</a>' for i in range(5))
+    local_site.add("/", '<nav><a href="/products/sale-hoodie">Sale hoodie</a><a href="/pages/sale-terms">תקנון מבצעים</a>'
+                        '<a href="/collections/new">חדש</a><a href="/collections/%D7%9E%D7%91%D7%A6%D7%A2%D7%99%D7%9D">'
+                        'מבצעים</a><a href="/collections/outlet-empty">Outlet</a><a href="https://other.example/sale">sale</a></nav>')
+    local_site.add("/collections/%D7%9E%D7%91%D7%A6%D7%A2%D7%99%D7%9D", f"<main>{prods}</main>")
+    local_site.add("/collections/outlet-empty", "<main>nothing here</main>")    # no products -> not a sale page
+    src = {"stores": [{"domain": "127.0.0.1", "search_url": local_site.base + "/search?q={q}",
+                       "search_include": "/products/"}]}
+    (tmp_path / "sources.json").write_text(json.dumps(src), encoding="utf-8")
+    assert main(["stores", "find-sales", "--delay", "0", "--allow-private-hosts"]) == 0
+    out = capsys.readouterr().out
+    [st] = json.loads((tmp_path / "sources.json").read_text(encoding="utf-8"))["stores"]
+    assert st["sale_urls"] == [local_site.base + "/collections/%D7%9E%D7%91%D7%A6%D7%A2%D7%99%D7%9D"]
+    assert st["start_urls"] == st["sale_urls"] and st["include"] == "/products/" and "5 products" in out
+    assert local_site.count("/pages/sale-terms") == 0 and local_site.count("/products/sale-hoodie") == 0
+    assert main(["stores", "find-sales", "--delay", "0", "--allow-private-hosts"]) == 0   # second time: kept
+    assert "already has a sale page" in capsys.readouterr().out
+
+
+def test_find_sales_says_when_nothing_is_found(tmp_path, local_site, capsys, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    local_site.add("/", '<a href="/collections/new">חדש</a>')
+    src = {"stores": [{"domain": "127.0.0.1", "search_url": local_site.base + "/s?q={q}"}]}
+    (tmp_path / "sources.json").write_text(json.dumps(src), encoding="utf-8")
+    assert main(["stores", "find-sales", "--delay", "0", "--allow-private-hosts"]) == 0
+    out = capsys.readouterr().out
+    assert "not found" in out and "menu 29" in out
+    assert "sale_urls" not in json.loads((tmp_path / "sources.json").read_text(encoding="utf-8"))["stores"][0]
