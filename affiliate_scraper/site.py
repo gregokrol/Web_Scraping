@@ -375,7 +375,7 @@ LISTING_JS = """<script>
 })();
 </script>"""
 
-KIND_LABEL = {"price_drop": "📉 ירידת מחיר", "lowest_90d": "🏆 הנמוך ב-90 יום", "top_deal": "🔥 עסקה משתלמת"}
+KIND_LABEL = {"price_drop": "📉 ירידת מחיר", "price_change": "📉 ירידת מחיר", "lowest_90d": "🏆 הנמוך ב-90 יום", "top_deal": "🔥 עסקה משתלמת"}
 
 
 def _card(d: dict, cfg: SiteConfig, depth: int = 0) -> str:
@@ -403,7 +403,7 @@ def _card(d: dict, cfg: SiteConfig, depth: int = 0) -> str:
 def collect_deals(db: Database, cfg: SiteConfig, now: Optional[datetime] = None) -> list[dict]:
     """Approved deals + the REAL numbers that make them attractive (nothing here is estimated or invented)."""
     from .alerts import store_prices
-    from .history import is_lowest_in_90d, stats_for_offer
+    from .history import is_lowest_in_90d, stable_previous_price, stats_for_offer
     now = now or datetime.now(timezone.utc)
     rows = db.query(
         "SELECT a.id, a.kind, a.title, a.price, a.currency, a.content_json, a.created_at, a.status, a.offer_id, "
@@ -426,7 +426,8 @@ def collect_deals(db: Database, cfg: SiteConfig, now: Optional[datetime] = None)
         d["ended"] = bool(d["current_verified"] and d["current_price"] is not None and d["current_currency"] == d["currency"]
                           and d["current_price"] > d["price"] * 1.01)
         st = stats_for_offer(db, d["offer_id"], now=now)
-        prev = st.previous_price if (st.sufficient and st.previous_price and st.previous_price > d["price"]) else None
+        ref = stable_previous_price(st)
+        prev = ref if (ref and ref > d["price"]) else None
         d["prev_price"] = prev
         drop = round((prev - d["price"]) / prev * 100) if prev else None
         d["lowest90"] = is_lowest_in_90d(st) or any(c.get("basis") == "price_history_90d"

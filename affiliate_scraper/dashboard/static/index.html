@@ -570,7 +570,7 @@ async function loadCompare() {
 }
 
 /* ------------------------------------------------------------ alerts */
-const KIND = {price_drop:"ירידת מחיר", top_deal:"מבצע מוביל", lowest_90d:"הכי זול ב-90 יום"};
+const KIND = {price_drop:"ירידת מחיר", price_change:"ירידת מחיר", top_deal:"מבצע מוביל", lowest_90d:"הכי זול ב-90 יום"};
 const ASTATUS = {pending:"ממתין", approved:"אושר", rejected:"נדחה", published:"פורסם", failed:"נכשל", publishing:"מתפרסם"};
 async function loadAlerts() {
   const rows = await api("/api/alerts?status=" + $("#alertStatus").value);

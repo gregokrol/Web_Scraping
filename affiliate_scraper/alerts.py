@@ -23,7 +23,8 @@ from typing import Optional
 
 from .content import build_content
 from .db import Database
-from .history import check_discount_claim, detect_price_drop, is_lowest_in_90d, stats_for_offer
+from .history import (check_discount_claim, detect_price_change, detect_price_drop, is_lowest_in_90d,
+                      stable_previous_price, stats_for_offer)
 from .models import now_iso
 from .webhook import PublishError, send_event
 
@@ -111,9 +112,9 @@ def is_vague_title(title: Optional[str]) -> bool:
 def savings_evidence(st, price: float, comparison: Optional[dict]) -> Optional[dict]:
     """Best verified saving: vs the store's own earlier price, or vs the median of other stores."""
     best = None
-    if st.sufficient:
-        ref = st.prior_median_90d or st.previous_price
-        if ref and ref > price:
+    ref = (st.prior_median_90d or st.previous_price) if st.sufficient else stable_previous_price(st)
+    if ref:
+        if ref > price:
             best = {"basis": "history", "reference": ref, "pct": round((ref - price) / ref * 100, 1)}
     # vs the cheapest OTHER store - a conservative figure, never vs another page of the same store
     other = (comparison or {}).get("cheapest_other")
@@ -137,8 +138,10 @@ def detect_deals(db: Database, rules: DealRules, now: Optional[datetime] = None)
         drop = detect_price_drop(st, rules.price_drop_pct)
         lowest = is_lowest_in_90d(st)
         kind = None
+        if not drop:
+            drop = detect_price_change(st, rules.price_drop_pct)     # short history, stable previous price
         if drop:
-            kind = "price_drop"
+            kind = drop.get("kind", "price_drop")
         elif lowest:
             kind = "lowest_90d"
         elif o["deal_score"] is not None and o["deal_score"] >= rules.min_deal_score:

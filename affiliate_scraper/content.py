@@ -4,7 +4,8 @@ Every sentence maps to a data point that was checked:
 
 * price + "as of" time (always shown, prices change)
 * "N% below the median of K stores" - only with >= 2 comparable verified offers and a certain match
-* "lowest price in 90 days" / "dropped X%" - only with sufficient price history
+* "lowest price in 90 days" - only with sufficient price history; "dropped X%" - also from a short history
+  when the previous price held for at least two checks in a row (history.detect_price_change)
 * the store's "was" price - only if the discount claim was verified against history
 * free shipping / rating - only if known (rating only with >= 10 reviews)
 

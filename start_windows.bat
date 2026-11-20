@@ -44,6 +44,7 @@ echo   24   Remove a published deal (channel + website)
 echo   25   Self-check now (report to your Telegram)
 echo   26   Add ready-made searches by category (no typing Hebrew)
 echo   27   Stores: show / turn the daily page scan off
+echo   28   Add a store's SALE page (copy its link from the browser)
 echo    0   Exit
 echo.
 set "CH="
@@ -75,6 +76,7 @@ if "%CH%"=="24" goto withdraw
 if "%CH%"=="25" goto health
 if "%CH%"=="26" goto presets
 if "%CH%"=="27" goto stores
+if "%CH%"=="28" goto sale
 if "%CH%"=="0" exit /b 0
 goto menu
 
@@ -210,6 +212,14 @@ set "D="
 set /p "D=  Stores to stop scanning daily (e.g. bug.co.il, or all; Enter = none): "
 if "%D%"=="" goto menu
 "%PY%" main.py stores daily-off %D%
+goto done
+
+:sale
+echo   Open the store in your browser, click its sale page (mivtzaim), copy the address bar.
+set "U="
+set /p "U=  Paste the sale page link (Enter = cancel): "
+if "%U%"=="" goto menu
+"%PY%" main.py stores sale-add "%U%"
 goto done
 
 :health

@@ -375,3 +375,59 @@ def test_stores_daily_scan_off_and_on_keeps_the_pages(tmp_path, capsys, monkeypa
     assert automation_scrape_jobs({"sources_config": str(tmp_path / "sources.json")}) == []   # no daily page scan
     assert main(["stores", "daily-on", "bug.co.il"]) == 0
     assert json.loads((tmp_path / "sources.json").read_text(encoding="utf-8"))["stores"][0]["start_urls"]
+
+
+def _short_history(tmp_path, prices, hours_apart=12):
+    """A product checked a few times, twice a day - less than the week a full history needs."""
+    db = Database(tmp_path / "s.db")
+    now = datetime.now(timezone.utc)
+    p = validate_product(Product(url="https://a.example/v", name="Acme Vacuum X200", price=prices[-1], currency="ILS",
+                                 availability="InStock", source="json-ld", source_type="json-ld"))
+    p.deal_score = 40
+    db.save_products([p])
+    oid = db.offer_id(p.url)
+    db.conn.execute("DELETE FROM price_history WHERE offer_id=?", (oid,))
+    n = len(prices)
+    db.conn.executemany("INSERT INTO price_history(offer_id, observed_at, price, currency, price_verified) VALUES (?,?,?,?,1)",
+                        [(oid, (now - timedelta(hours=hours_apart * (n - 1 - i))).isoformat(), v, "ILS")
+                         for i, v in enumerate(prices)])
+    db.conn.commit()
+    return db, oid
+
+
+def test_price_change_found_after_two_checks_without_a_week_of_history(tmp_path):
+    db, oid = _short_history(tmp_path, [500, 500, 420])          # 16% down, the old price held 2 checks
+    [a] = detect_deals(db, DealRules())
+    assert a["kind"] == "price_change"
+    content = json.loads(db.conn.execute("SELECT content_json FROM deal_alerts").fetchone()[0])
+    assert "ירד ב-16%" in content["telegram"]
+
+
+def test_one_off_price_is_not_a_reference(tmp_path):
+    db, _ = _short_history(tmp_path, [500, 420])                 # the old price was seen only once
+    assert detect_deals(db, DealRules()) == []
+    (tmp_path / "b").mkdir()
+    db2, _ = _short_history(tmp_path / "b", [500, 500, 470])
+    assert detect_deals(db2, DealRules()) == []                  # 6% < 10% drop threshold
+
+
+def test_sale_page_added_to_the_daily_scan(tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    src = {"stores": [
+        {"domain": "fox.co.il", "search_url": "https://fox.co.il/search?q={q}", "search_include": "/products/"},
+        {"domain": "bug.co.il", "start_urls": ["https://www.bug.co.il/puzzles"], "search_url": "https://www.bug.co.il/s?q={q}"},
+        {"domain": "ksp.co.il", "search_url": "https://ksp.co.il/s?q={q}"}]}
+    (tmp_path / "sources.json").write_text(json.dumps(src), encoding="utf-8")
+    assert main(["stores", "sale-add", "https://fox.co.il/collections/sale", "https://www.bug.co.il/sale"]) == 0
+    assert main(["stores", "sale-add", "https://ksp.co.il/web/cat/sale"]) == 1          # blocked store, never added
+    assert main(["stores", "sale-add", "https://unknown.example/sale"]) == 1
+    fox, bug, ksp = json.loads((tmp_path / "sources.json").read_text(encoding="utf-8"))["stores"]
+    assert fox["start_urls"] == ["https://fox.co.il/collections/sale"] and fox["include"] == "/products/"
+    assert fox["discover"] == "links" and fox["max_pages"] == 80 and "start_urls" not in ksp
+    assert main(["stores", "daily-off", "all"]) == 0                  # puzzles off, the sale pages stay
+    fox, bug, _ = json.loads((tmp_path / "sources.json").read_text(encoding="utf-8"))["stores"]
+    assert bug["start_urls"] == ["https://www.bug.co.il/sale"] and bug["_start_urls_off"] == ["https://www.bug.co.il/puzzles"]
+    assert fox["start_urls"] == ["https://fox.co.il/collections/sale"]
+    from affiliate_scraper.commands import automation_scrape_jobs
+    jobs = automation_scrape_jobs({"sources_config": str(tmp_path / "sources.json")})
+    assert sorted(j[0] for j in jobs) == ["https://fox.co.il/collections/sale", "https://www.bug.co.il/sale"]

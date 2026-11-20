@@ -1307,8 +1307,8 @@ cli.register_subcommand("health", "Self-check: runs, store errors, published dea
 
 # ---------------------------------------------------------------- stores (sources.json)
 def _stores_build(ap) -> None:
-    ap.add_argument("action", choices=["list", "daily-off", "daily-on"])
-    ap.add_argument("domains", nargs="*", help="Store domains, or 'all'")
+    ap.add_argument("action", choices=["list", "daily-off", "daily-on", "sale-add", "sale-remove"])
+    ap.add_argument("domains", nargs="*", help="Store domains, or 'all'. sale-add: a store's sale page URL(s)")
     ap.add_argument("--sources", default=None, help="Default: sources_config from automation.json, else sources.json")
     ap.add_argument("--config", default="automation.json")
 
@@ -1328,13 +1328,18 @@ def _stores_run(args) -> int:
     stores = data.get("stores", [])
     if args.action == "list":
         for st in stores:
-            daily = len(st.get("start_urls") or [])
+            sales = len(st.get("sale_urls") or [])
+            daily = len(st.get("start_urls") or []) - sales
             off = len(st.get("_start_urls_off") or [])
             scan = f"daily scan: {daily} page(s)" if daily else ("daily scan: off" + (f" ({off} saved)" if off else ""))
+            if sales:
+                scan += f", sale: {sales}"
             search = "search: yes" if (st.get("search_url") or st.get("search_sitemap")) else "search: no"
             print(f"  {st.get('domain', '?'):24} {scan:28} {search}")
         print("\nDaily scan = the store pages read in every run. Search = used by the automatic searches (menu 19).")
         return 0
+    if args.action in ("sale-add", "sale-remove"):
+        return _stores_sale(args, path, data)
     want = {d.lower() for d in args.domains}
     if not want:
         _err("error: name the store domains, or 'all'")
@@ -1343,24 +1348,95 @@ def _stores_run(args) -> int:
     for st in stores:
         if "all" not in want and str(st.get("domain", "")).lower() not in want:
             continue
-        if args.action == "daily-off" and st.get("start_urls"):
-            st["_start_urls_off"] = st.pop("start_urls")          # kept, so daily-on brings them back
-            print(f"daily scan off: {st['domain']}")
+        sales = st.get("sale_urls") or []
+        pages = [u for u in st.get("start_urls") or [] if u not in sales]
+        if args.action == "daily-off" and pages:
+            # category pages are kept (daily-on brings them back); sale pages stay on
+            st["_start_urls_off"] = [*(st.get("_start_urls_off") or []), *pages]
+            st["start_urls"] = [u for u in st.get("start_urls") or [] if u in sales]
+            if not st["start_urls"]:
+                st.pop("start_urls")
+            print(f"daily scan off: {st['domain']}" + (" (sale pages stay on)" if sales else ""))
             changed += 1
         elif args.action == "daily-on" and st.get("_start_urls_off"):
-            st["start_urls"] = st.pop("_start_urls_off")
+            st["start_urls"] = [*(st.get("start_urls") or []), *st.pop("_start_urls_off")]
             print(f"daily scan on: {st['domain']}")
             changed += 1
     known = {str(st.get("domain", "")).lower() for st in stores}
     for d in want - known - {"all"}:
         _err(f"not in {path}: {d}")
     if changed:
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        tmp.replace(path)
+        _save_sources(path, data)
     else:
         print("nothing changed")
     return 0
+
+
+SALE_MAX_PAGES, SALE_MAX_LISTING_PAGES = 80, 5
+
+
+def _save_sources(path: Path, data: dict) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def _stores_sale(args, path: Path, data: dict) -> int:
+    """A store's own sale page ("מבצעים") becomes part of its daily scan: the listing is read and the
+    product pages on it are checked - the same polite, robots.txt-respecting crawl as any other page."""
+    from urllib.parse import urlparse
+
+    from .policy import CrawlPolicy
+    from .security import UnsafeURLError, check_url
+    from .utils import domain_matches
+    stores = data.get("stores", [])
+    policy = CrawlPolicy.load(str(path))
+    changed = 0
+    for url in args.domains:
+        url = url.strip()
+        try:
+            check_url(url)
+        except UnsafeURLError as exc:
+            _err(f"skipped: {url} - {exc}")
+            continue
+        host = (urlparse(url).hostname or "").lower()
+        st = next((x for x in sorted(stores, key=lambda x: -len(str(x.get("domain", ""))))
+                   if domain_matches(host, str(x.get("domain", "")))), None)
+        if st is None:
+            _err(f"skipped: {url} - {host} is not one of the stores in {path}")
+            continue
+        if args.action == "sale-remove":
+            urls = st.get("start_urls") or []
+            if url in urls:
+                urls.remove(url)
+                st["start_urls"] = urls
+                sales = st.get("sale_urls") or []
+                st["sale_urls"] = [u for u in sales if u != url]
+                print(f"removed sale page: {st['domain']}")
+                changed += 1
+            else:
+                _err(f"not in the list: {url}")
+            continue
+        reason = policy.blocked_reason(url)
+        if reason:
+            _err(f"skipped: {url} - {reason}")
+            continue
+        urls = st.setdefault("start_urls", [])
+        if url in urls:
+            print(f"already in the list: {st['domain']}")
+            continue
+        urls.append(url)
+        st.setdefault("sale_urls", []).append(url)
+        st.setdefault("discover", "links")
+        if not st.get("include") and st.get("search_include"):
+            st["include"] = st["search_include"]        # which links on the page are products
+        st.setdefault("max_pages", SALE_MAX_PAGES)
+        st.setdefault("max_listing_pages", SALE_MAX_LISTING_PAGES)
+        print(f"added sale page: {st['domain']} (up to {st['max_pages']} products per run)")
+        changed += 1
+    if changed:
+        _save_sources(path, data)
+    return 0 if changed or args.action == "sale-remove" else 1
 
 
 cli.register_subcommand("stores", "Show the stores and turn their daily page scan off / on (sources.json)",

@@ -38,6 +38,7 @@ class HistoryStats:
     prior_min_30d: Optional[float] = None    # lowest price in the 30 days BEFORE the current observation
     prior_median_90d: Optional[float] = None
     prior_max_90d: Optional[float] = None
+    prev_period_obs: int = 0                 # how many checks in a row saw the previous price
     sufficient: bool = False
     status: str = "insufficient_data"
     flags: list[str] = field(default_factory=list)
@@ -72,6 +73,10 @@ def compute_stats(observations: list[tuple[str, float]], now: Optional[datetime]
     prior = obs[:k]
     if prior:
         st.previous_price = prior[-1][1]
+        j = len(prior) - 1
+        while j > 0 and abs(prior[j - 1][1] - st.previous_price) <= 0.005 * st.previous_price:
+            j -= 1
+        st.prev_period_obs = len(prior) - j
 
     in30 = [p for dt, p in obs if dt >= now - timedelta(days=30)]
     in90 = [p for dt, p in obs if dt >= now - timedelta(days=90)]
@@ -101,6 +106,29 @@ def detect_price_drop(st: HistoryStats, threshold_pct: float = 10.0) -> Optional
     if drop_pct >= threshold_pct and below_median:
         return {"kind": "price_drop", "drop_pct": round(drop_pct, 1), "from": prev, "to": cur,
                 "lowest_90d": is_lowest_in_90d(st)}
+    return None
+
+
+def stable_previous_price(st: HistoryStats, min_checks: int = 2) -> Optional[float]:
+    """The previous price, if it can be trusted as a reference: a full history, or a short one where the
+    previous price was seen in at least ``min_checks`` checks in a row (not a one-off glitch)."""
+    if st.previous_price is None:
+        return None
+    if st.sufficient or st.prev_period_obs >= min_checks:
+        return st.previous_price
+    return None
+
+
+def detect_price_change(st: HistoryStats, threshold_pct: float = 10.0) -> Optional[dict]:
+    """A drop vs the previous price before there is a week of history (two checks are enough
+    when the previous price held for at least two checks in a row)."""
+    prev = stable_previous_price(st)
+    cur = st.current_price
+    if prev is None or cur is None or st.sufficient:
+        return None          # with a full history detect_price_drop decides
+    drop_pct = (prev - cur) / prev * 100 if prev else 0
+    if drop_pct >= threshold_pct:
+        return {"kind": "price_change", "drop_pct": round(drop_pct, 1), "from": prev, "to": cur}
     return None
 
 
