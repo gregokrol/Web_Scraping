@@ -39,6 +39,7 @@ def run_health(db: Database, cfg: dict, tg=None, now: Optional[datetime] = None,
     # 1. did the automation run?
     last = db.query("SELECT MAX(started_at) t FROM crawl_runs")[0]["t"]
     age = _hours_since(last, now)
+    not_running = age is None or age > max_gap
     if age is None:
         problems.append("האוטומציה עוד לא רצה אף פעם (תפריט 6, ואז תזמון בתפריט 11).")
     elif age > max_gap:
@@ -69,11 +70,14 @@ def run_health(db: Database, cfg: dict, tg=None, now: Optional[datetime] = None,
         warnings.append(f"{dom}: {n} שגיאות {kind}{note}")
 
     # 3. stores that used to answer and went quiet
+    # (when the automation itself did not run, every store is "quiet" - that is one problem, not one per store)
     rows = db.query("SELECT domain, MAX(last_seen) t FROM offers WHERE domain IS NOT NULL GROUP BY domain")
-    for r in rows:
-        h = _hours_since(r["t"], now)
-        if h is not None and 48 < h <= 30 * 24:
-            warnings.append(f"{r['domain']}: לא נמצאו מוצרים כבר {h / 24:.0f} ימים.")
+    quiet = [(r["domain"], h) for r in rows if (h := _hours_since(r["t"], now)) is not None and 48 < h <= 30 * 24]
+    if not_running and quiet:
+        info.append(f"{len(quiet)} חנויות לא נסרקו, כי האוטומציה לא רצה. אין בעיה בחנויות עצמן.")
+    else:
+        for dom, h in quiet:
+            warnings.append(f"{dom}: לא נמצאו מוצרים כבר {h / 24:.0f} ימים.")
 
     # 4. are the published deals still true?
     from .site import SiteConfig, collect_deals
@@ -88,7 +92,7 @@ def run_health(db: Database, cfg: dict, tg=None, now: Optional[datetime] = None,
         elif not (d["savings_pct"] or d["lowest90"]):
             withdraw_ids.append(d["id"])
             warnings.append(f"#{d['id']} {title}: אין חיסכון מוכח מול מחיר קודם או חנות אחרת.")
-        elif d["stale"]:
+        elif d["stale"] and not not_running:
             warnings.append(f"#{d['id']} {title}: המחיר לא נבדק יותר מ-{site_cfg.stale_hours} שעות.")
     info.append(f"עסקאות שפורסמו: {len(live)}.")
 

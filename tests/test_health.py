@@ -103,3 +103,17 @@ def test_automation_run_sends_the_daily_report_once(tmp_path, local_site, monkey
     assert len(reports()) == 1
     assert main(["run"]) == 0
     assert len(reports()) == 1                       # twice a day -> still one report a day
+
+
+def test_no_run_is_one_problem_not_one_line_per_store(tmp_path):
+    db, oid = seed_db(tmp_path)
+    old = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+    db.conn.execute("UPDATE offers SET last_seen=? WHERE id=?", (old, oid))
+    db.conn.commit()
+    _run(db, 230)
+    res = run_health(db, {})
+    assert len(res["problems"]) == 1 and "230" in res["problems"][0]
+    assert not any("לא נמצאו מוצרים" in w for w in res["warnings"])
+    assert any("לא נסרקו, כי האוטומציה לא רצה" in i for i in res["info"])
+    _run(db, 1)                                               # it runs again but the store stays quiet -> per store
+    assert any("לא נמצאו מוצרים כבר 10 ימים" in w for w in run_health(db, {})["warnings"])
