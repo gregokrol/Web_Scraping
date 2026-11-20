@@ -1,0 +1,107 @@
+{
+  "_comment": "Store sale pages checked on 2026-11-20 with the bot itself (robots.txt allowed, products and verified prices read from each page). 'py main.py stores update' (menu 28) adds them to your sources.json; seasonal pages (Black Friday, November sale) end - run menu 28 again later and the self-check reports pages that stopped working.",
+  "checked": "2026-11-20",
+  "stores": [
+    {
+      "domain": "bug.co.il",
+      "sale_urls": [
+        "https://www.bug.co.il/sale/hyperx/novembersale",
+        "https://www.bug.co.il/sale/jbl",
+        "https://www.bug.co.il/sale/sonos/novembersale",
+        "https://www.bug.co.il/sale/nothing/headphone/cmf/bf/2026",
+        "https://www.bug.co.il/sale/oura/bf/2026",
+        "https://www.bug.co.il/sale/ultrahuman/ring/pro",
+        "https://www.bug.co.il/sale/therabody/novembersale",
+        "https://www.bug.co.il/sale/roborock/novembersale/2026",
+        "https://www.bug.co.il/sale/steelseries/novembersale/2026",
+        "https://www.bug.co.il/sale/insta360/accessories/cameras/2026",
+        "https://www.bug.co.il/sale/msi/2026",
+        "https://www.bug.co.il/bf/sale/xtrem/",
+        "https://www.bug.co.il/sale/kooduu/bf",
+        "https://www.bug.co.il/sale/apple/airpods/4/mxp63zm/a"
+      ],
+      "set": {
+        "link_selector": "a.product-preview-image",
+        "include": "^https://www\\.bug\\.co\\.il/",
+        "max_pages": 150
+      },
+      "_comment": "Bug's sale pages are per brand; product addresses have no fixed shape, so the product cards are the products"
+    },
+    {
+      "domain": "centertoys.co.il",
+      "sale_urls": [
+        "https://centertoys.co.il/product-category/%d7%a6%d7%a2%d7%a6%d7%95%d7%a2%d7%99%d7%9d-%d7%91%d7%9e%d7%91%d7%a6%d7%a2/"
+      ]
+    },
+    {
+      "domain": "amigo.co.il",
+      "sale_urls": [
+        "https://www.amigo.co.il/hot-sales/"
+      ]
+    },
+    {
+      "domain": "ivory.co.il",
+      "sale_urls": [
+        "https://www.ivory.co.il/sales.html"
+      ]
+    },
+    {
+      "domain": "homecenter.co.il",
+      "sale_urls": [
+        "https://www.homecenter.co.il/collections/monthly"
+      ]
+    },
+    {
+      "domain": "megasport.co.il",
+      "sale_urls": [
+        "https://www.megasport.co.il/collections/shoesale"
+      ]
+    },
+    {
+      "domain": "foxhome.co.il",
+      "sale_urls": [
+        "https://www.foxhome.co.il/collections/black-friday"
+      ]
+    },
+    {
+      "domain": "kravitz.co.il",
+      "sale_urls": [
+        "https://www.kravitz.co.il/collections/%D7%9E%D7%95%D7%A6%D7%A8%D7%99%D7%9D-%D7%91%D7%9E%D7%91%D7%A6%D7%A2"
+      ]
+    },
+    {
+      "domain": "shilav.co.il",
+      "sale_urls": [
+        "https://www.shilav.co.il/collections/sale-1"
+      ]
+    },
+    {
+      "domain": "fox.co.il",
+      "sale_urls": [
+        "https://fox.co.il/collections/black-friday-sale"
+      ]
+    },
+    {
+      "domain": "renuar.co.il",
+      "sale_urls": [
+        "https://renuar.co.il/collections/women-50off-items"
+      ]
+    },
+    {
+      "domain": "twentyfourseven.co.il",
+      "sale_urls": [
+        "https://twentyfourseven.co.il/collections/sale-woman"
+      ]
+    }
+  ],
+  "not_added": {
+    "idigital.co.il": "no sale page linked from the home page",
+    "cwc.co.il": "robots.txt forbids the sale pages",
+    "ace.co.il": "robots.txt forbids every address with '?' and the catalog pages",
+    "payngo.co.il": "bot protection (Cloudflare) - never bypassed",
+    "alm.co.il": "bot protection (Incapsula) - never bypassed",
+    "eoo.co.il": "bot protection (Cloudflare) - never bypassed",
+    "ksp.co.il": "blocked by policy.py (terms); its pages are built with JavaScript",
+    "traklin.co.il": "its robots.txt asks AI agents not to read the site - not checked"
+  }
+}

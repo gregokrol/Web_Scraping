@@ -463,3 +463,30 @@ def test_find_sales_says_when_nothing_is_found(tmp_path, local_site, capsys, mon
     out = capsys.readouterr().out
     assert "not found" in out and "menu 29" in out
     assert "sale_urls" not in json.loads((tmp_path / "sources.json").read_text(encoding="utf-8"))["stores"][0]
+
+
+def test_stores_update_adds_the_checked_sale_pages(tmp_path, capsys, monkeypatch):
+    from pathlib import Path as P
+    pack = json.loads((P(__file__).parent.parent / "stores_il_sales.json").read_text(encoding="utf-8"))
+    assert all(u.startswith("https://") for s in pack["stores"] for u in s["sale_urls"])
+    monkeypatch.chdir(tmp_path)
+    src = {"stores": [
+        {"domain": "bug.co.il", "_start_urls_off": ["https://www.bug.co.il/puzzles"], "include": "-\\d{12,14}(\\?|$)",
+         "search_url": "https://www.bug.co.il/search?q={q}", "max_pages": 300},
+        {"domain": "fox.co.il", "search_url": "https://fox.co.il/search?q={q}", "search_include": "/products/",
+         "my_note": "kept"}]}
+    (tmp_path / "sources.json").write_text(json.dumps(src), encoding="utf-8")
+    (tmp_path / "pack.json").write_text(json.dumps(pack), encoding="utf-8")
+    assert main(["stores", "update", "--pack", "pack.json"]) == 0
+    out = capsys.readouterr().out
+    bug, fox = json.loads((tmp_path / "sources.json").read_text(encoding="utf-8"))["stores"]
+    assert bug["link_selector"] == "a.product-preview-image" and bug["max_pages"] == 150 and len(bug["sale_urls"]) >= 5
+    assert bug["_start_urls_off"] == ["https://www.bug.co.il/puzzles"]                 # the puzzles stay off
+    assert fox["sale_urls"] == ["https://fox.co.il/collections/black-friday-sale"] and fox["my_note"] == "kept"
+    assert "payngo.co.il" in out and "not in your" in out                               # other stores: skipped
+    from affiliate_scraper.commands import automation_scrape_jobs
+    [bug_job, fox_job] = automation_scrape_jobs({"sources_config": str(tmp_path / "sources.json")})
+    assert "--link-selector=a.product-preview-image" in bug_job and "--include=/products/" in fox_job
+    assert main(["stores", "update", "--pack", "pack.json"]) == 0                       # again: nothing doubled
+    assert len(json.loads((tmp_path / "sources.json").read_text(encoding="utf-8"))["stores"][0]["sale_urls"]) \
+        == len(bug["sale_urls"])

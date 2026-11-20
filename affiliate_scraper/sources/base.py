@@ -52,6 +52,9 @@ class StoreConfig:
     search_url: str = ""
     search_include: str = ""
     search_selector: str = ""
+    # CSS selector for the product cards on the daily-scan pages (start_urls), for a store whose product
+    # addresses have no fixed shape - only links inside these cards are products
+    link_selector: str = ""
     # for a store whose robots.txt forbids its own search page but that publishes product sitemaps with the
     # product name in each URL: the site's address (e.g. "https://www.shop.co.il/"). A search then looks for the
     # words in the sitemaps' product URLs (search_include = the product-URL regex) instead of a search page.

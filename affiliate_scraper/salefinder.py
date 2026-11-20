@@ -24,6 +24,15 @@ def _norm(url: str) -> str:
     return urlunparse((p.scheme, p.netloc.lower(), p.path or "/", "", p.query, ""))
 
 
+def _abs(href: str, base_url: str, domain: str) -> str:
+    """Some shops write links as "www.shop.co.il/sale" (no scheme) - that is their own host, not a path."""
+    h = href.strip()
+    bare = h.split("/")[0].lower()
+    if bare and (bare == domain or bare.endswith("." + domain)) and not h.startswith(("http:", "https:", "//")):
+        h = "https://" + h
+    return urljoin(base_url, h)
+
+
 def _same_site(url: str, domain: str) -> bool:
     host = (urlparse(url).hostname or "").lower()
     return host == domain or host.endswith("." + domain)
@@ -37,7 +46,7 @@ def sale_candidates(html: str, base_url: str, domain: str, product_re: re.Patter
         href = a["href"].strip()
         if not href or href.startswith(("#", "mailto:", "tel:", "javascript:")):
             continue
-        url = _norm(urljoin(base_url, href))
+        url = _norm(_abs(href, base_url, domain))
         if not url.startswith(("http://", "https://")) or not _same_site(url, domain):
             continue
         path = unquote(urlparse(url).path + "?" + urlparse(url).query).lower()
@@ -54,7 +63,7 @@ def product_links(html: str, base_url: str, domain: str, product_re: re.Pattern)
     soup = BeautifulSoup(html, "lxml")
     out = set()
     for a in soup.find_all("a", href=True):
-        url = _norm(urljoin(base_url, a["href"].strip()))
+        url = _norm(_abs(a["href"], base_url, domain))
         if _same_site(url, domain) and product_re.search(url):
             out.add(url.split("?")[0])
     return out

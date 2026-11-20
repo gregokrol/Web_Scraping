@@ -436,6 +436,8 @@ def automation_scrape_jobs(cfg: dict) -> list[list[str]]:
                 argv = [*s.start_urls, "--discover", s.discover or "none", "--name", f"auto_{s.domain}", *common]
                 if s.include:
                     argv.append(f"--include={s.include}")  # "=" form: a regex may start with "-"
+                if s.link_selector:
+                    argv.append(f"--link-selector={s.link_selector}")
                 # per-store politeness and limits (later options override the common ones)
                 if s.delay is not None:
                     argv += ["--delay", str(s.delay)]
@@ -1308,10 +1310,11 @@ cli.register_subcommand("health", "Self-check: runs, store errors, published dea
 
 # ---------------------------------------------------------------- stores (sources.json)
 def _stores_build(ap) -> None:
-    ap.add_argument("action", choices=["list", "daily-off", "daily-on", "sale-add", "sale-remove", "find-sales"])
+    ap.add_argument("action", choices=["list", "daily-off", "daily-on", "sale-add", "sale-remove", "find-sales", "update"])
     ap.add_argument("domains", nargs="*", help="Store domains, or 'all'. sale-add: a store's sale page URL(s)")
     ap.add_argument("--sources", default=None, help="Default: sources_config from automation.json, else sources.json")
     ap.add_argument("--config", default="automation.json")
+    ap.add_argument("--pack", default="stores_il_sales.json", help="update: the checked sale pages to add")
     ap.add_argument("--again", action="store_true", help="find-sales: also stores that already have a sale page")
     ap.add_argument("--delay", type=float, default=3.0, help=argparse.SUPPRESS)
     ap.add_argument("--allow-private-hosts", action="store_true", help=argparse.SUPPRESS)
@@ -1346,6 +1349,8 @@ def _stores_run(args) -> int:
         return _stores_sale(args, path, data)
     if args.action == "find-sales":
         return _stores_find_sales(args, path, data)
+    if args.action == "update":
+        return _stores_update(args, path, data)
     want = {d.lower() for d in args.domains}
     if not want:
         _err("error: name the store domains, or 'all'")
@@ -1453,6 +1458,39 @@ def _stores_find_sales(args, path: Path, data: dict) -> int:
     print(f"\n{added} sale page(s) added. They are scanned in every automatic run (menu 6 / the schedule).")
     if added == 0:
         print("A store not found here: open its sale page in the browser and use menu 29 to paste the link.")
+    return 0
+
+
+PACK_SETTABLE = {"link_selector", "include", "max_pages", "max_listing_pages", "discover"}
+
+
+def _stores_update(args, path: Path, data: dict) -> int:
+    """Add the sale pages that were checked and shipped with the code (stores_il_sales.json).
+    Only adds: your own pages, settings and stores stay as they are."""
+    try:
+        pack = json.loads(Path(args.pack).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        _err(f"error: cannot read {args.pack}: {exc}")
+        return 2
+    by_domain = {str(st.get("domain", "")).lower(): st for st in data.get("stores", [])}
+    added = 0
+    for entry in pack.get("stores", []):
+        dom = str(entry.get("domain", "")).lower()
+        st = by_domain.get(dom)
+        if st is None:
+            print(f"  {dom:24} not in your {path} - skipped")
+            continue
+        for k, v in (entry.get("set") or {}).items():
+            if k in PACK_SETTABLE:
+                st[k] = v
+        new = [u for u in entry.get("sale_urls", []) if _attach_sale(st, u)]
+        added += len(new)
+        print(f"  {dom:24} " + (f"{len(new)} sale page(s) added" if new else "up to date"))
+    for dom, why in (pack.get("not_added") or {}).items():
+        print(f"  {dom:24} not added: {why}")
+    if added:
+        _save_sources(path, data)
+    print(f"\n{added} sale page(s) added (checked {pack.get('checked', '?')}). They are scanned in every run.")
     return 0
 
 

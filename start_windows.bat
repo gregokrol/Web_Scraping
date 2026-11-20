@@ -217,7 +217,8 @@ if "%D%"=="" goto menu
 goto done
 
 :findsales
-echo   Looking for each store's sale page (a few minutes, the stores are read politely)...
+echo   Adding the checked sale pages, then looking for more (a few minutes, read politely)...
+"%PY%" main.py stores update
 "%PY%" main.py stores find-sales
 goto done
 
