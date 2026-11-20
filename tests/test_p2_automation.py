@@ -344,3 +344,34 @@ def test_task_settings_run_on_battery_and_after_missed_start():
     assert "-DontStopIfGoingOnBatteries" in script and "'WebScrapingAffiliate'" in script
     with pytest.raises(ValueError):
         build_task_settings("x'; Remove-Item C:\\ -Recurse #")
+
+
+def test_search_presets_add_hebrew_words_without_typing_them(tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "automation.json").write_text(json.dumps({"searches": []}), encoding="utf-8")
+    assert main(["searches", "presets"]) == 0 and "electronics" in capsys.readouterr().out
+    assert main(["searches", "add-preset", "electronics", "appliances"]) == 0
+    saved = json.loads((tmp_path / "automation.json").read_text(encoding="utf-8"))["searches"]
+    assert "אוזניות אלחוטיות" in saved and "שואב אבק רובוטי" in saved and len(saved) == len(set(saved)) == 16
+    assert main(["searches", "add-preset", "electronics"]) == 0                  # again: nothing duplicated
+    assert len(json.loads((tmp_path / "automation.json").read_text(encoding="utf-8"))["searches"]) == 16
+    assert main(["searches", "add-preset", "puzzles"]) == 2
+
+
+def test_stores_daily_scan_off_and_on_keeps_the_pages(tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    src = {"_comment": "x", "stores": [
+        {"domain": "bug.co.il", "name": "באג", "start_urls": ["https://www.bug.co.il/פאזלים"], "search_url": "https://x.example/s?q={q}"},
+        {"domain": "ivory.co.il", "search_url": "https://x.example/s?q={q}"}]}
+    (tmp_path / "sources.json").write_text(json.dumps(src, ensure_ascii=False), encoding="utf-8")
+    assert main(["stores", "list"]) == 0
+    out = capsys.readouterr().out
+    assert "daily scan: 1 page(s)" in out and "daily scan: off" in out
+    assert main(["stores", "daily-off", "all"]) == 0
+    data = json.loads((tmp_path / "sources.json").read_text(encoding="utf-8"))
+    assert "start_urls" not in data["stores"][0] and data["stores"][0]["_start_urls_off"] == ["https://www.bug.co.il/פאזלים"]
+    assert data["stores"][0]["name"] == "באג" and data["_comment"] == "x"          # nothing else touched
+    from affiliate_scraper.commands import automation_scrape_jobs
+    assert automation_scrape_jobs({"sources_config": str(tmp_path / "sources.json")}) == []   # no daily page scan
+    assert main(["stores", "daily-on", "bug.co.il"]) == 0
+    assert json.loads((tmp_path / "sources.json").read_text(encoding="utf-8"))["stores"][0]["start_urls"]

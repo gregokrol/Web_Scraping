@@ -42,6 +42,8 @@ echo   22   Website: publish now
 echo   23   Approval mode: automatic / manual
 echo   24   Remove a published deal (channel + website)
 echo   25   Self-check now (report to your Telegram)
+echo   26   Add ready-made searches by category (no typing Hebrew)
+echo   27   Stores: show / turn the daily page scan off
 echo    0   Exit
 echo.
 set "CH="
@@ -71,6 +73,8 @@ if "%CH%"=="22" goto sitepublish
 if "%CH%"=="23" goto approvalmode
 if "%CH%"=="24" goto withdraw
 if "%CH%"=="25" goto health
+if "%CH%"=="26" goto presets
+if "%CH%"=="27" goto stores
 if "%CH%"=="0" exit /b 0
 goto menu
 
@@ -190,6 +194,22 @@ if errorlevel 2 (
 ) else (
   "%PY%" main.py approval auto
 )
+goto done
+
+:presets
+"%PY%" main.py searches presets
+set "P="
+set /p "P=  Categories to add, e.g. electronics appliances: "
+if "%P%"=="" goto menu
+"%PY%" main.py searches add-preset %P%
+goto done
+
+:stores
+"%PY%" main.py stores list
+set "D="
+set /p "D=  Stores to stop scanning daily (e.g. bug.co.il, or all; Enter = none): "
+if "%D%"=="" goto menu
+"%PY%" main.py stores daily-off %D%
 goto done
 
 :health

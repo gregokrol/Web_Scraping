@@ -975,8 +975,24 @@ cli.register_subcommand("targets", "Add / remove / list product links in automat
 
 
 # ===================================================================== saved searches (automatic)
+# Ready-made searches by category: chosen by an English name, so nothing Hebrew has to be typed into CMD.
+# Specific product words, so the results are real products that can be compared and tracked over time.
+SEARCH_PRESETS = {
+    "electronics": ["אוזניות אלחוטיות", "AirPods", "רמקול בלוטוס", "שעון חכם", "Samsung Galaxy", "iPhone",
+                    "מטען מהיר", "סוללה ניידת"],
+    "appliances": ["שואב אבק רובוטי", "שואב אבק אלחוטי", "מכונת קפה", "סיר טיגון ללא שמן", "מיקרוגל", "מקרר",
+                   "מכונת כביסה", "מזגן"],
+    "computers": ["מחשב נייד", "מסך מחשב", "PlayStation 5", "בקר PS5", "עכבר גיימינג", "מקלדת אלחוטית", "iPad",
+                  "כונן SSD"],
+    "home": ["סט סירים", "מחבת", "מצעים", "שמיכה", "מגבות", "מקדחה", "סט כלי עבודה", "גריל גז"],
+    "fashion": ["נעלי ריצה", "סניקרס", "ג'ינס", "מעיל", "תיק גב"],
+    "baby": ["עגלת תינוק", "כיסא בטיחות", "בקבוק האכלה", "מוניטור תינוק", "טיולון"],
+    "sport": ["נעלי ספורט", "משקולות", "הליכון", "אופניים", "מזרן יוגה"],
+}
+
+
 def _searches_build(ap) -> None:
-    ap.add_argument("action", choices=["add", "remove", "list"])
+    ap.add_argument("action", choices=["add", "remove", "list", "presets", "add-preset"])
     ap.add_argument("words", nargs="*", help="Search words, e.g. \"puzzle 1000\" (quote several words)")
     ap.add_argument("--config", default="automation.json")
 
@@ -995,6 +1011,18 @@ def _searches_run(args) -> int:
         _err(f"error: {path} is not valid JSON ({exc})")
         return 2
     searches = [str(q) for q in cfg.get("searches", [])]
+    if args.action == "presets":
+        for name, words in SEARCH_PRESETS.items():
+            print(f"{name:12} {', '.join(words)}")
+        print("\nAdd one or more: py main.py searches add-preset electronics appliances")
+        return 0
+    if args.action == "add-preset":
+        bad = [w for w in args.words if w.lower() not in SEARCH_PRESETS]
+        if bad or not args.words:
+            _err(f"error: choose from: {', '.join(SEARCH_PRESETS)}" + (f" (unknown: {', '.join(bad)})" if bad else ""))
+            return 2
+        args.words = [q for name in args.words for q in SEARCH_PRESETS[name.lower()]]
+        args.action = "add"
     if args.action == "list":
         for i, q in enumerate(searches, 1):
             print(f"{i:3}. {q}")
@@ -1275,3 +1303,65 @@ def _health_run(args) -> int:
 
 cli.register_subcommand("health", "Self-check: runs, store errors, published deals still true, Telegram, website",
                         _health_build, _health_run)
+
+
+# ---------------------------------------------------------------- stores (sources.json)
+def _stores_build(ap) -> None:
+    ap.add_argument("action", choices=["list", "daily-off", "daily-on"])
+    ap.add_argument("domains", nargs="*", help="Store domains, or 'all'")
+    ap.add_argument("--sources", default=None, help="Default: sources_config from automation.json, else sources.json")
+    ap.add_argument("--config", default="automation.json")
+
+
+def _stores_run(args) -> int:
+    path = Path(args.sources or "sources.json")
+    if not args.sources and Path(args.config).exists():
+        try:
+            path = Path(load_automation(args.config).get("sources_config") or path)
+        except (OSError, ValueError):
+            pass
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        _err(f"error: cannot read {path}: {exc}")
+        return 2
+    stores = data.get("stores", [])
+    if args.action == "list":
+        for st in stores:
+            daily = len(st.get("start_urls") or [])
+            off = len(st.get("_start_urls_off") or [])
+            scan = f"daily scan: {daily} page(s)" if daily else ("daily scan: off" + (f" ({off} saved)" if off else ""))
+            search = "search: yes" if (st.get("search_url") or st.get("search_sitemap")) else "search: no"
+            print(f"  {st.get('domain', '?'):24} {scan:28} {search}")
+        print("\nDaily scan = the store pages read in every run. Search = used by the automatic searches (menu 19).")
+        return 0
+    want = {d.lower() for d in args.domains}
+    if not want:
+        _err("error: name the store domains, or 'all'")
+        return 2
+    changed = 0
+    for st in stores:
+        if "all" not in want and str(st.get("domain", "")).lower() not in want:
+            continue
+        if args.action == "daily-off" and st.get("start_urls"):
+            st["_start_urls_off"] = st.pop("start_urls")          # kept, so daily-on brings them back
+            print(f"daily scan off: {st['domain']}")
+            changed += 1
+        elif args.action == "daily-on" and st.get("_start_urls_off"):
+            st["start_urls"] = st.pop("_start_urls_off")
+            print(f"daily scan on: {st['domain']}")
+            changed += 1
+    known = {str(st.get("domain", "")).lower() for st in stores}
+    for d in want - known - {"all"}:
+        _err(f"not in {path}: {d}")
+    if changed:
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        tmp.replace(path)
+    else:
+        print("nothing changed")
+    return 0
+
+
+cli.register_subcommand("stores", "Show the stores and turn their daily page scan off / on (sources.json)",
+                        _stores_build, _stores_run)
