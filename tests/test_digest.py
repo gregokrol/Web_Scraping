@@ -80,3 +80,18 @@ def test_automation_run_sends_the_summary_once_a_day(tmp_path, local_site, monke
     assert "Acme Kettle" in s["text"]
     assert main(["run"]) == 0
     assert len(summaries()) == 1                 # twice a day -> still one summary a day
+
+
+def test_manual_digest_says_so_in_telegram_when_empty(tmp_path, local_site, capsys, monkeypatch):
+    import affiliate_scraper.telegram as tgmod
+    monkeypatch.chdir(tmp_path)
+    db, _ = seed_db(tmp_path)
+    db.close()
+    monkeypatch.setattr(tgmod, "API", local_site.base)
+    monkeypatch.setattr(tgmod, "MIN_INTERVAL", 0)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:SECRET")
+    monkeypatch.setenv("TELEGRAM_ADMIN_CHAT", "42")
+    local_site.post_reply = b'{"ok": true, "result": {"message_id": 1}}'
+    assert main(["digest", "--db", str(tmp_path / "a.db"), "--telegram"]) == 1
+    [body] = [json.loads(p["body"]) for p in local_site.posts]
+    assert body["chat_id"] == "42" and "אין כרגע עסקאות לשיתוף" in body["text"]

@@ -1594,7 +1594,19 @@ def _digest_run(args) -> int:
         text = build_digest(db, SiteConfig.from_dict(cfg.get("site")), count=count,
                             hours=args.hours or float(dcfg.get("hours", 48)))
         if not text:
-            print("No deals to share right now (only active deals with a proven saving from the last 48 hours).")
+            msg = "No deals to share right now (only active deals with a proven saving from the last 48 hours)."
+            print(msg)
+            if args.telegram:
+                tg = TelegramPublisher()
+                if tg.admin_chat:
+                    try:     # so you can see it works - the daily automatic summary stays silent instead
+                        tg.notify_admin("📋 סיכום יומי: אין כרגע עסקאות לשיתוף. נשלחות רק עסקאות פעילות עם "
+                                        "חיסכון מוכח מ-48 השעות האחרונות. ההיסטוריה של המחירים נבנית בכל סריקה.")
+                        print("Told your Telegram chat.")
+                    except PublishError as exc:
+                        _err(f"Notification problem: {exc}")
+                else:
+                    _err("TELEGRAM_ADMIN_CHAT is not set.")
             return 1
         out = Path(cfg.get("out_dir", "output"))
         out.mkdir(parents=True, exist_ok=True)
