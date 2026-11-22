@@ -138,6 +138,7 @@ setx TELEGRAM_ADMIN_CHAT "your-chat-id"
 **עדכון לגרסה חדשה:** מפעילים שוב את `install_windows.bat`. הוא מעדכן את הקוד ושומר את ההגדרות שלך.
 
 **מדריכים מפורטים:**
+- [STATUS.md](STATUS.md): איפה אנחנו עומדים, מה נעשה ומה נשאר
 - [RUN_ON_WINDOWS.md](RUN_ON_WINDOWS.md): כל הפקודות ופתרון תקלות
 - [docs/N8N.md](docs/N8N.md): חיבור ל-n8n
 - [docs/UPGRADE_V3.md](docs/UPGRADE_V3.md): סטטוס הפיצ'רים
