@@ -799,6 +799,21 @@ def _run_run(args) -> int:
             _err(f"Published to {'Telegram' if tg else 'n8n'}: {res}" + (" (auto-approved)" if auto else ""))
     else:
         _err("No publishing destination configured - deals wait in the dashboard / `py main.py alerts`.")
+    # daily summary to share in WhatsApp / Facebook groups: once a day, to your private chat
+    dcfg = cfg.get("digest") or {}
+    if dcfg.get("daily", True) and tg and tg.admin_chat:
+        from .digest import build_digest
+        from .health import due, mark_sent
+        if due(db, key="digest_sent_at"):
+            text = build_digest(db, site_cfg, count=int(dcfg.get("count", 5)), hours=float(dcfg.get("hours", 48)))
+            if text:
+                try:
+                    tg.notify_admin("📋 סיכום יומי לשיתוף - מעתיקים את ההודעה הבאה כמו שהיא:")
+                    tg.notify_admin(text)
+                    mark_sent(db, key="digest_sent_at")
+                    _err("Daily summary to share sent to your Telegram chat.")
+                except PublishError as exc:
+                    _err(f"Notification problem: {exc}")
     # daily self-check: one report a day to your private chat (twice-daily runs still send one)
     if (cfg.get("health") or {}).get("daily", True) and tg and tg.admin_chat:
         from .health import due, format_report, mark_sent, run_health
@@ -1546,3 +1561,61 @@ def _stores_sale(args, path: Path, data: dict) -> int:
 
 cli.register_subcommand("stores", "Show the stores and turn their daily page scan off / on (sources.json)",
                         _stores_build, _stores_run)
+
+
+# ---------------------------------------------------------------- daily summary to share
+def _digest_build(ap) -> None:
+    ap.add_argument("--config", default="automation.json")
+    ap.add_argument("--db", default=None)
+    ap.add_argument("--count", type=int, default=None, help="How many deals (default 5)")
+    ap.add_argument("--hours", type=float, default=None, help="Deals published in the last N hours (default 48)")
+    ap.add_argument("--telegram", action="store_true", help="also send it to TELEGRAM_ADMIN_CHAT")
+
+
+def _digest_run(args) -> int:
+    from .digest import build_digest
+    from .health import mark_sent
+    from .site import SiteConfig
+    from .telegram import TelegramPublisher
+    from .webhook import PublishError
+    cfg = {}
+    if Path(args.config).exists():
+        try:
+            cfg = load_automation(args.config)
+        except (OSError, ValueError) as exc:
+            _err(f"warning: cannot read {args.config}: {exc}")
+    dcfg = cfg.get("digest") or {}
+    count = args.count or int(dcfg.get("count", 5))
+    if not 1 <= count <= 10:
+        _err("error: --count must be 1-10")
+        return 2
+    db = Database(args.db or cfg.get("db", DEFAULT_DB))
+    try:
+        text = build_digest(db, SiteConfig.from_dict(cfg.get("site")), count=count,
+                            hours=args.hours or float(dcfg.get("hours", 48)))
+        if not text:
+            print("No deals to share right now (only active deals with a proven saving from the last 48 hours).")
+            return 1
+        out = Path(cfg.get("out_dir", "output"))
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "daily_summary.txt").write_text(text + "\n", encoding="utf-8")
+        print(text)
+        print(f"\nSaved to {out / 'daily_summary.txt'} (open it in Notepad and copy).")
+        if args.telegram:
+            tg = TelegramPublisher()
+            if not tg.admin_chat:
+                _err("TELEGRAM_ADMIN_CHAT is not set - the summary was only saved here.")
+            else:
+                try:
+                    tg.notify_admin(text)
+                    mark_sent(db, key="digest_sent_at")
+                    print("Sent to your Telegram chat - long-press the message, Copy, paste in the group.")
+                except PublishError as exc:
+                    _err(f"Notification problem: {exc}")
+    finally:
+        db.close()
+    return 0
+
+
+cli.register_subcommand("digest", "Today's best deals as one message to share in WhatsApp / Facebook groups",
+                        _digest_build, _digest_run)

@@ -141,16 +141,16 @@ def format_report(res: dict) -> str:
     return "\n".join(lines)
 
 
-def due(db: Database, now: Optional[datetime] = None, every_hours: float = 20) -> bool:
-    """True if the daily report was not sent in the last ``every_hours`` (twice-daily runs -> one report)."""
+def due(db: Database, now: Optional[datetime] = None, every_hours: float = 20, key: str = "health_sent_at") -> bool:
+    """True if the daily message was not sent in the last ``every_hours`` (twice-daily runs -> one message)."""
     now = now or datetime.now(timezone.utc)
-    row = db.query("SELECT value FROM meta WHERE key='health_sent_at'")
+    row = db.query("SELECT value FROM meta WHERE key=?", (key,))
     h = _hours_since(row[0]["value"] if row else None, now)
     return h is None or h >= every_hours
 
 
-def mark_sent(db: Database, now: Optional[datetime] = None) -> None:
+def mark_sent(db: Database, now: Optional[datetime] = None, key: str = "health_sent_at") -> None:
     now = now or datetime.now(timezone.utc)
     with db.tx() as c:
-        c.execute("INSERT INTO meta(key, value) VALUES ('health_sent_at', ?) "
-                  "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (now.isoformat(),))
+        c.execute("INSERT INTO meta(key, value) VALUES (?, ?) "
+                  "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, now.isoformat()))

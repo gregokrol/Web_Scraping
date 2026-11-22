@@ -46,6 +46,7 @@ echo   26   Add ready-made searches by category (no typing Hebrew)
 echo   27   Stores: show / turn the daily page scan off
 echo   28   Find the stores' SALE pages automatically
 echo   29   Add a store's sale page by hand (paste its link)
+echo   30   Daily summary to share (WhatsApp / Facebook) - sent to your Telegram
 echo    0   Exit
 echo.
 set "CH="
@@ -79,6 +80,7 @@ if "%CH%"=="26" goto presets
 if "%CH%"=="27" goto stores
 if "%CH%"=="28" goto findsales
 if "%CH%"=="29" goto sale
+if "%CH%"=="30" goto digest
 if "%CH%"=="0" exit /b 0
 goto menu
 
@@ -228,6 +230,10 @@ set "U="
 set /p "U=  Paste the sale page link (Enter = cancel): "
 if "%U%"=="" goto menu
 "%PY%" main.py stores sale-add "%U%"
+goto done
+
+:digest
+"%PY%" main.py digest --telegram
 goto done
 
 :health
