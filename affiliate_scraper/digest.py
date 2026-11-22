@@ -67,3 +67,22 @@ def build_digest(db: Database, site_cfg, now: Optional[datetime] = None, count: 
         lines.append(f"🌐 {site_cfg.base_url}")
     lines.append(SHARE_DISCLOSURE)
     return "\n".join(lines)
+
+
+EXAMPLE_NOTE = "⚠️ דוגמה בלבד - המוצרים והמחירים כאן לא אמיתיים. לא לשתף."
+
+
+def example_digest(site_cfg) -> str:
+    """What a summary looks like, with made-up items - clearly marked, never for sharing."""
+    base = site_cfg.base_url or "https://example.github.io/site/"
+    items = [("אוזניות אלחוטיות לדוגמה", "₪199.00", "חיסכון 33% · במקום ₪299.00", "חנות א"),
+             ("שואב אבק רובוטי לדוגמה", "₪899.00", "חיסכון 18% · במקום ₪1,099.00 · הנמוך ב-90 יום", "חנות ב"),
+             ("נעלי ריצה לדוגמה", "₪249.00", "חיסכון 29% · במקום ₪349.00", "חנות ג")]
+    nums = ["1️⃣", "2️⃣", "3️⃣"]
+    lines = [EXAMPLE_NOTE, "", "🔥 *3 העסקאות הכי טובות היום* (מחירים שנבדקו)", ""]
+    for i, (title, price, facts, store) in enumerate(items):
+        lines += [f"{nums[i]} {title}", f"💰 {price} · {facts} · {store}", f"👉 {base}deals/example-{i + 1}.html", ""]
+    if site_cfg.telegram_url:
+        lines.append(f"📢 כל העסקאות, ברגע שהן מופיעות: {site_cfg.telegram_url}")
+    lines += [f"🌐 {base}", SHARE_DISCLOSURE, "", EXAMPLE_NOTE]
+    return "\n".join(lines)

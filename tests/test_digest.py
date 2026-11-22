@@ -95,3 +95,18 @@ def test_manual_digest_says_so_in_telegram_when_empty(tmp_path, local_site, caps
     assert main(["digest", "--db", str(tmp_path / "a.db"), "--telegram"]) == 1
     [body] = [json.loads(p["body"]) for p in local_site.posts]
     assert body["chat_id"] == "42" and "אין כרגע עסקאות לשיתוף" in body["text"]
+
+
+def test_example_is_marked_and_sent_only_to_you(tmp_path, local_site, monkeypatch):
+    import affiliate_scraper.telegram as tgmod
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(tgmod, "API", local_site.base)
+    monkeypatch.setattr(tgmod, "MIN_INTERVAL", 0)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:SECRET")
+    monkeypatch.setenv("TELEGRAM_CHANNEL", "@deals_il")
+    monkeypatch.setenv("TELEGRAM_ADMIN_CHAT", "42")
+    local_site.post_reply = b'{"ok": true, "result": {"message_id": 1}}'
+    assert main(["digest", "--example", "--telegram"]) == 0
+    [body] = [json.loads(p["body"]) for p in local_site.posts]
+    assert body["chat_id"] == "42"                                  # never the public channel
+    assert body["text"].startswith("⚠️ דוגמה בלבד") and body["text"].rstrip().endswith("לא לשתף.")

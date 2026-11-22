@@ -1570,6 +1570,7 @@ def _digest_build(ap) -> None:
     ap.add_argument("--count", type=int, default=None, help="How many deals (default 5)")
     ap.add_argument("--hours", type=float, default=None, help="Deals published in the last N hours (default 48)")
     ap.add_argument("--telegram", action="store_true", help="also send it to TELEGRAM_ADMIN_CHAT")
+    ap.add_argument("--example", action="store_true", help="a clearly marked example with made-up items")
 
 
 def _digest_run(args) -> int:
@@ -1585,6 +1586,22 @@ def _digest_run(args) -> int:
         except (OSError, ValueError) as exc:
             _err(f"warning: cannot read {args.config}: {exc}")
     dcfg = cfg.get("digest") or {}
+    if args.example:
+        from .digest import example_digest
+        text = example_digest(SiteConfig.from_dict(cfg.get("site")))
+        print(text)
+        if args.telegram:
+            tg = TelegramPublisher()
+            if not tg.admin_chat:
+                _err("TELEGRAM_ADMIN_CHAT is not set - open a new CMD window after setx.")
+                return 1
+            try:
+                tg.notify_admin(text)
+                print("\nExample sent to your Telegram chat.")
+            except PublishError as exc:
+                _err(f"Notification problem: {exc}")
+                return 1
+        return 0
     count = args.count or int(dcfg.get("count", 5))
     if not 1 <= count <= 10:
         _err("error: --count must be 1-10")
