@@ -196,6 +196,7 @@
 | `Some tests failed` | מעתיקים את הטקסט מהחלון ושולחים ל-Claude |
 
 **מדריכים נוספים:**
+- [docs/PHONE_CONTROL.md](docs/PHONE_CONTROL.md): שליטה במערכת מהטלפון דרך Claude
 - [docs/AGENTS.md](docs/AGENTS.md): צוות הסוכנים ומנהל המשימות (`/manager`)
 - [INSTALL.md](INSTALL.md): התקנה וכל אפשרויות התפריט
 - [RUN_ON_WINDOWS.md](RUN_ON_WINDOWS.md): פקודות ופתרון תקלות
