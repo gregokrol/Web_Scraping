@@ -129,7 +129,8 @@ class TelegramPublisher:
     def configured(self) -> bool:
         return bool(self.token and self.channel)
 
-    def _api(self, method: str, payload: dict, retries: int = 2, files: Optional[dict] = None) -> dict:
+    def _api(self, method: str, payload: dict, retries: int = 2, files: Optional[dict] = None,
+             http_timeout: float = 20) -> dict:
         if not self.token:
             raise TelegramError("set TELEGRAM_BOT_TOKEN (from @BotFather)")
         for attempt in range(retries + 1):
@@ -145,7 +146,7 @@ class TelegramPublisher:
                             for k, v in payload.items()}
                     resp = self.session.post(url, data=form, files=files, timeout=60)
                 else:
-                    resp = self.session.post(url, json=payload, timeout=20)
+                    resp = self.session.post(url, json=payload, timeout=http_timeout)
                 data = resp.json()
             except (requests.RequestException, ValueError) as exc:
                 if attempt < retries:
@@ -216,6 +217,30 @@ class TelegramPublisher:
         if not self.admin_chat:
             raise TelegramError("set TELEGRAM_ADMIN_CHAT (your own chat id) to receive approval requests")
         return self._api("sendMessage", {"chat_id": self.admin_chat, "text": text[:MESSAGE_LIMIT]})
+
+    def get_updates(self, offset: Optional[int] = None, wait: int = 50) -> list:
+        """Long-poll for new messages to the bot (used by the Telegram manager listener)."""
+        payload = {"timeout": wait, "allowed_updates": ["message"]}
+        if offset is not None:
+            payload["offset"] = offset
+        return self._api("getUpdates", payload, retries=0, http_timeout=wait + 15) or []
+
+    def send_long(self, chat_id, text: str, limit: int = 3900) -> None:
+        """Send a long text as several messages, split at line breaks."""
+        chunk = ""
+        for line in (text or "").splitlines() or [""]:
+            while len(line) > limit:
+                if chunk:
+                    self._api("sendMessage", {"chat_id": chat_id, "text": chunk})
+                    chunk = ""
+                self._api("sendMessage", {"chat_id": chat_id, "text": line[:limit]})
+                line = line[limit:]
+            if len(chunk) + len(line) + 1 > limit:
+                self._api("sendMessage", {"chat_id": chat_id, "text": chunk})
+                chunk = ""
+            chunk = f"{chunk}\n{line}" if chunk else line
+        if chunk.strip():
+            self._api("sendMessage", {"chat_id": chat_id, "text": chunk})
 
     def delete_message(self, chat_id, message_id: int) -> None:
         self._api("deleteMessage", {"chat_id": chat_id, "message_id": int(message_id)}, retries=1)

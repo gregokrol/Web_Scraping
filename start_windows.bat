@@ -47,6 +47,8 @@ echo   27   Stores: show / turn the daily page scan off
 echo   28   Find the stores' SALE pages automatically
 echo   29   Add a store's sale page by hand (paste its link)
 echo   30   Daily summary to share (WhatsApp / Facebook) - sent to your Telegram
+echo   31   Telegram manager: start listening now (/manager in Telegram)
+echo   32   Telegram manager: start automatically with Windows
 echo    0   Exit
 echo.
 set "CH="
@@ -81,6 +83,8 @@ if "%CH%"=="27" goto stores
 if "%CH%"=="28" goto findsales
 if "%CH%"=="29" goto sale
 if "%CH%"=="30" goto digest
+if "%CH%"=="31" goto tglisten
+if "%CH%"=="32" goto tginstall
 if "%CH%"=="0" exit /b 0
 goto menu
 
@@ -234,6 +238,16 @@ goto done
 
 :digest
 "%PY%" main.py digest --telegram
+goto done
+
+:tglisten
+echo   Starting the Telegram manager in its own window (close that window to stop it)...
+start "Telegram manager" /min "%PY%" main.py telegram-listen
+goto done
+
+:tginstall
+"%PY%" main.py telegram-listen --install
+if not errorlevel 1 start "Telegram manager" /min "%PY%" main.py telegram-listen
 goto done
 
 :health

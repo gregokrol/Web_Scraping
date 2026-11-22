@@ -20,3 +20,4 @@ site/
 
 # Claude agents: drafts and reports stay local
 agents_output/
+run_telegram_manager.bat
