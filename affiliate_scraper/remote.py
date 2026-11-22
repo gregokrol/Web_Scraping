@@ -32,6 +32,10 @@ ALLOWED_TOOLS = ",".join([
     "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)",
 ])
 TASK_TIMEOUT = 60 * 60          # one hour
+# The manager plans and coordinates; Sonnet does that well and saves the account's quota. The agents keep
+# their own models (.claude/agents/*.md: opus for the QA gate, sonnet for the rest).
+DEFAULT_MANAGER_MODEL = "sonnet"
+_MODEL_OK = re.compile(r"^(sonnet|opus|haiku|claude-[a-z0-9.-]+)$")
 MAX_TASK_CHARS = 2000
 LOCK_PORT = 47823               # a second listener would make Telegram answer 409 Conflict
 
@@ -70,13 +74,18 @@ class ClaudeNotFound(RuntimeError):
     pass
 
 
-def run_claude(task: str, project_dir: Path, timeout: int = TASK_TIMEOUT, exe: Optional[str] = None) -> str:
+def run_claude(task: str, project_dir: Path, timeout: int = TASK_TIMEOUT, exe: Optional[str] = None,
+               model: Optional[str] = DEFAULT_MANAGER_MODEL) -> str:
     """Run Claude Code headless in the project with the manager instructions; returns its final answer."""
     exe = exe or shutil.which("claude")
     if not exe:
         raise ClaudeNotFound("Claude Code (the 'claude' command) is not installed on this computer")
     args = [exe, "-p", "--output-format", "text", "--permission-mode", "acceptEdits",
             "--allowedTools", ALLOWED_TOOLS]
+    if model:
+        if not _MODEL_OK.match(model):
+            raise ValueError(f"unknown model name: {model!r} (use sonnet, opus, haiku or a claude-... id)")
+        args += ["--model", model]
     # the task goes on stdin: a .cmd launcher on Windows would otherwise re-parse it with cmd.exe
     r = subprocess.run(args, input=manager_prompt(task), capture_output=True, text=True, encoding="utf-8",
                        errors="replace", cwd=str(project_dir), timeout=timeout,

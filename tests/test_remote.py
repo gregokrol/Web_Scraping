@@ -145,3 +145,24 @@ def test_listener_needs_the_bot_and_your_chat(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     assert main(["telegram-listen"]) == 2
     assert "TELEGRAM_ADMIN_CHAT" in capsys.readouterr().err
+
+
+@pytest.mark.skipif(os.name == "nt", reason="uses a POSIX shell script as a stand-in for claude")
+def test_manager_model_is_passed_and_checked(tmp_path):
+    fake = tmp_path / "claude"
+    fake.write_text(f"#!{sys.executable}\nimport sys\nprint('ARGS:', sys.argv[1:])\n", encoding="utf-8")
+    fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+    assert "'--model', 'sonnet'" in run_claude("x", tmp_path, exe=str(fake))          # the default
+    assert "'--model', 'opus'" in run_claude("x", tmp_path, exe=str(fake), model="opus")
+    assert "--model" not in run_claude("x", tmp_path, exe=str(fake), model=None)       # the account's default
+    with pytest.raises(ValueError):
+        run_claude("x", tmp_path, exe=str(fake), model="sonnet; rm -rf /")
+
+
+def test_agents_have_the_planned_models():
+    import re
+    root = Path(__file__).parent.parent / ".claude" / "agents"      # (no PyYAML on the user's computer)
+    models = {p.stem: re.search(r"^model:\s*(\S+)\s*$", p.read_text(encoding="utf-8").split("---\n")[1], re.M).group(1)
+              for p in root.glob("*.md")}
+    assert models == {"data-keeper": "sonnet", "web-scanner": "sonnet", "price-matcher": "sonnet",
+                      "instagram-marketer": "sonnet", "funnel-analyst": "sonnet", "qa-reviewer": "opus"}

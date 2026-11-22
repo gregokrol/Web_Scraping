@@ -1744,7 +1744,12 @@ def _listen_run(args) -> int:
         finally:
             db.close()
 
-    listener = Listener(tg, Path.cwd(), tg.admin_chat, status=status, digest=digest)
+    from functools import partial
+
+    from .remote import DEFAULT_MANAGER_MODEL, run_claude
+    model = (cfg.get("telegram_manager") or {}).get("model", DEFAULT_MANAGER_MODEL) or None
+    listener = Listener(tg, Path.cwd(), tg.admin_chat, runner=partial(run_claude, model=model),
+                        status=status, digest=digest)
     print("Telegram manager is listening. Write /help to your bot in Telegram. Ctrl+C stops it.")
     try:
         tg.notify_admin("🤖 מנהל הסוכנים מחובר ומקשיב. כתוב /help לרשימת הפקודות.")
