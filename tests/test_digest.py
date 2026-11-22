@@ -25,7 +25,7 @@ def published(tmp_path):
 def test_summary_has_only_verified_facts_and_site_links(tmp_path):
     db, oid, a = published(tmp_path)
     text = build_digest(db, CFG)
-    assert "העסקאות הכי טובות היום" in text and "Acme Kettle" in text
+    assert "העסקה הכי טובה היום" in text and "Acme Kettle" in text
     assert "₪90" in text or "90" in text
     assert "חיסכון 25%" in text and "במקום ₪120" in text                     # 120 -> 90, the real history
     assert f"https://user.github.io/mechiremet/deals/{a['id']}.html" in text   # the deal page, not the shop
@@ -73,7 +73,7 @@ def test_automation_run_sends_the_summary_once_a_day(tmp_path, local_site, monke
 
     def summaries():
         bodies = [json.loads(p["body"]) for p in local_site.posts if p["path"].endswith("sendMessage")]
-        return [b for b in bodies if b.get("chat_id") == "42" and "העסקאות הכי טובות" in b.get("text", "")]
+        return [b for b in bodies if b.get("chat_id") == "42" and "הכי טוב" in b.get("text", "")]
 
     assert main(["run"]) == 0
     [s] = summaries()

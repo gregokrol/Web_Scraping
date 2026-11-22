@@ -42,7 +42,8 @@ def build_digest(db: Database, site_cfg, now: Optional[datetime] = None, count: 
     if not deals:
         return None
     nums = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
-    lines = [f"🔥 *{len(deals)} העסקאות הכי טובות היום* (מחירים שנבדקו)", ""]
+    head = "העסקה הכי טובה היום" if len(deals) == 1 else f"{len(deals)} העסקאות הכי טובות היום"
+    lines = [f"🔥 *{head}* (מחירים שנבדקו)", ""]
     for i, d in enumerate(deals):
         title = (d["title"] or "").strip()
         title = title if len(title) <= 70 else title[:68].rstrip() + "…"
