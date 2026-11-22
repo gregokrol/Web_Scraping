@@ -1006,6 +1006,8 @@ SEARCH_PRESETS = {
     "fashion": ["נעלי ריצה", "סניקרס", "ג'ינס", "מעיל", "תיק גב"],
     "baby": ["עגלת תינוק", "כיסא בטיחות", "בקבוק האכלה", "מוניטור תינוק", "טיולון"],
     "sport": ["נעלי ספורט", "משקולות", "הליכון", "אופניים", "מזרן יוגה"],
+    "gaming": ["PlayStation 5", "Xbox Series", "Nintendo Switch", "אוזניות גיימינג", "מקלדת מכנית", "מסך גיימינג",
+               "כיסא גיימינג", "כרטיס מסך"],
 }
 
 
@@ -1325,11 +1327,14 @@ cli.register_subcommand("health", "Self-check: runs, store errors, published dea
 
 # ---------------------------------------------------------------- stores (sources.json)
 def _stores_build(ap) -> None:
-    ap.add_argument("action", choices=["list", "daily-off", "daily-on", "sale-add", "sale-remove", "find-sales", "update"])
+    ap.add_argument("action", choices=["list", "daily-off", "daily-on", "sale-add", "sale-remove", "find-sales", "update",
+                                       "disable", "enable", "permit", "unpermit"])
     ap.add_argument("domains", nargs="*", help="Store domains, or 'all'. sale-add: a store's sale page URL(s)")
     ap.add_argument("--sources", default=None, help="Default: sources_config from automation.json, else sources.json")
     ap.add_argument("--config", default="automation.json")
     ap.add_argument("--pack", default="stores_il_sales.json", help="update: the checked sale pages to add")
+    ap.add_argument("--i-have-written-permission", dest="written_permission", action="store_true",
+                    help="permit: you confirm the site gave you WRITTEN permission for automated collection")
     ap.add_argument("--again", action="store_true", help="find-sales: also stores that already have a sale page")
     ap.add_argument("--delay", type=float, default=3.0, help=argparse.SUPPRESS)
     ap.add_argument("--allow-private-hosts", action="store_true", help=argparse.SUPPRESS)
@@ -1357,7 +1362,8 @@ def _stores_run(args) -> int:
             if sales:
                 scan += f", sale: {sales}"
             search = "search: yes" if (st.get("search_url") or st.get("search_sitemap")) else "search: no"
-            print(f"  {st.get('domain', '?'):24} {scan:28} {search}")
+            off_all = "  [DISABLED]" if st.get("enabled") is False else ""
+            print(f"  {st.get('domain', '?'):24} {scan:28} {search}{off_all}")
         print("\nDaily scan = the store pages read in every run. Search = used by the automatic searches (menu 19).")
         return 0
     if args.action in ("sale-add", "sale-remove"):
@@ -1366,11 +1372,30 @@ def _stores_run(args) -> int:
         return _stores_find_sales(args, path, data)
     if args.action == "update":
         return _stores_update(args, path, data)
+    if args.action in ("permit", "unpermit"):
+        return _stores_permit(args, path, data)
     want = {d.lower() for d in args.domains}
     if not want:
         _err("error: name the store domains, or 'all'")
         return 2
     changed = 0
+    if args.action in ("disable", "enable"):
+        # a disabled store is not scanned at all (no daily pages, no searches) - its settings stay
+        for st in stores:
+            if "all" in want or str(st.get("domain", "")).lower() in want:
+                on = args.action == "enable"
+                if (st.get("enabled") is not False) != on:
+                    st["enabled"] = on
+                    print(f"{'enabled' if on else 'disabled'}: {st['domain']}")
+                    changed += 1
+        known = {str(st.get("domain", "")).lower() for st in stores}
+        for d in want - known - {"all"}:
+            _err(f"not in {path}: {d}")
+        if changed:
+            _save_sources(path, data)
+        else:
+            print("nothing changed")
+        return 0
     for st in stores:
         if "all" not in want and str(st.get("domain", "")).lower() not in want:
             continue
@@ -1473,6 +1498,41 @@ def _stores_find_sales(args, path: Path, data: dict) -> int:
     print(f"\n{added} sale page(s) added. They are scanned in every automatic run (menu 6 / the schedule).")
     if added == 0:
         print("A store not found here: open its sale page in the browser and use menu 29 to paste the link.")
+    return 0
+
+
+def _stores_permit(args, path: Path, data: dict) -> int:
+    """A site whose terms require written permission (policy.py, e.g. KSP) is scanned only after you
+    confirm that you have it. The confirmation is recorded with the date; the document stays with you."""
+    from .policy import DEFAULT_BLOCKED
+    doms = [d.lower().removeprefix("www.") for d in args.domains]
+    if not doms:
+        _err("error: name the site, e.g. ksp.co.il")
+        return 2
+    permitted = [str(d).lower() for d in data.get("permitted_domains") or []]
+    notes = data.setdefault("_permissions", {})
+    if args.action == "unpermit":
+        for d in doms:
+            if d in permitted:
+                permitted.remove(d)
+                notes.pop(d, None)
+                print(f"permission removed: {d} - it is blocked again")
+        data["permitted_domains"] = permitted
+        _save_sources(path, data)
+        return 0
+    if not args.written_permission:
+        _err("error: add --i-have-written-permission to confirm that the site gave you WRITTEN permission "
+             "(its terms require it). Without it the site stays blocked.")
+        return 2
+    for d in doms:
+        if d not in permitted:
+            permitted.append(d)
+        notes[d] = {"confirmed_by_owner": datetime.now(timezone.utc).date().isoformat(),
+                    "note": "the owner confirmed written permission; the document is kept by the owner",
+                    "terms": DEFAULT_BLOCKED.get(d, "")}
+        print(f"permitted: {d} (recorded {notes[d]['confirmed_by_owner']}). robots.txt and the delay still apply.")
+    data["permitted_domains"] = permitted
+    _save_sources(path, data)
     return 0
 
 

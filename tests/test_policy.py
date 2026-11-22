@@ -59,3 +59,20 @@ def test_cli_refuses_and_dry_run_shows_reason(tmp_path, capsys):
     assert rc == 1   # nothing fetched, even with --ignore-robots
     log = next(tmp_path.glob("*_errors.csv")).read_text(encoding="utf-8-sig")
     assert "blocked_by_terms" in log
+
+
+def test_permit_needs_the_written_permission_confirmation(tmp_path, monkeypatch, capsys):
+    import json
+
+    from affiliate_scraper.cli import main
+    from affiliate_scraper.policy import CrawlPolicy
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "sources.json").write_text(json.dumps({"stores": []}), encoding="utf-8")
+    assert main(["stores", "permit", "ksp.co.il"]) == 2                          # no confirmation -> refused
+    assert CrawlPolicy.load(tmp_path / "sources.json").blocked_reason("https://ksp.co.il/web/outlet")
+    assert main(["stores", "permit", "www.ksp.co.il", "--i-have-written-permission"]) == 0
+    data = json.loads((tmp_path / "sources.json").read_text(encoding="utf-8"))
+    assert data["permitted_domains"] == ["ksp.co.il"] and data["_permissions"]["ksp.co.il"]["confirmed_by_owner"]
+    assert CrawlPolicy.load(tmp_path / "sources.json").blocked_reason("https://ksp.co.il/web/outlet") is None
+    assert main(["stores", "unpermit", "ksp.co.il"]) == 0
+    assert CrawlPolicy.load(tmp_path / "sources.json").blocked_reason("https://ksp.co.il/web/outlet")

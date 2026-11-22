@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import re
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -45,6 +45,9 @@ class DealRules:
     # A high Deal Score alone (e.g. a gift card at face value) is not a deal.
     min_savings_pct: float = 5.0
     skip_vague_titles: bool = True
+    # products never published, whatever the price (owner's rule: no 18+, nothing illegal, no tobacco or drugs).
+    # Extra words from automation.json "deals": {"exclude_keywords": [...]} are added to these.
+    exclude_keywords: list = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, d: Optional[dict]) -> "DealRules":
@@ -90,6 +93,36 @@ def _comparison_for(db: Database, offer: dict) -> Optional[dict]:
     others = [r["price"] for r in stores if r["domain"] != offer.get("domain")]
     return {"n_compared": len(prices), "median_price": round(median, 2), "uncertain": False,
             "partial_reasons": "", "cheapest_other": min(others) if others else None}
+
+
+# whole words / phrases (Hebrew prefixes ה ו ב ל מ ש כ allowed), so "בירה" does not hit "מבירה" but "הבירה" does
+EXCLUDED_DEFAULT = (
+    # tobacco, vaping, hookah
+    "סיגריה", "סיגריות", "סיגריה אלקטרונית", "טבק", "וייפ", "וייפים", "ווייפ", "vape", "vapes", "e-cigarette",
+    "cigarette", "cigarettes", "tobacco", "נרגילה", "נרגילות", "hookah", "shisha", "iqos", "אייקוס",
+    # drugs and cannabis
+    "קנאביס", "מריחואנה", "cannabis", "marijuana", "thc", "cbd", "גראס", "grinder for weed",
+    # alcohol
+    "אלכוהול", "וודקה", "ויסקי", "וויסקי", "יין", "יינות", "בירה", "בירות", "ערק", "ליקר", "vodka", "whisky",
+    "whiskey", "wine", "beer", "liquor", "alcohol",
+    # adult
+    "18+", "ויברטור", "סקס", "אירוטי", "אירוטית", "צעצוע מין", "vibrator", "sex toy", "erotic", "adult toy",
+    # weapons that are not tools
+    "אקדח אוויר", "רובה אוויר", "airsoft gun", "taser", "טייזר", "אגרופן",
+)
+
+
+def _excluded_re(extra) -> re.Pattern:
+    words = sorted({w.strip().lower() for w in (*EXCLUDED_DEFAULT, *(extra or ())) if str(w).strip()},
+                   key=len, reverse=True)
+    alt = "|".join(re.escape(w) for w in words)
+    return re.compile(rf"(?<![^\W\d_])[הובלמשכ]?(?:{alt})(?![^\W\d_])", re.I | re.U)
+
+
+def excluded_reason(title: str, extra=None) -> Optional[str]:
+    """The forbidden word found in the title, or None."""
+    m = _excluded_re(extra).search((title or "").lower())
+    return m.group(0) if m else None
 
 
 _WORD = re.compile(r"[^\W_]{2,}", re.UNICODE)
@@ -151,6 +184,9 @@ def detect_deals(db: Database, rules: DealRules, now: Optional[datetime] = None)
         if rules.min_affiliate_score is not None and (o["affiliate_score"] or 0) < rules.min_affiliate_score:
             continue
         if rules.skip_vague_titles and is_vague_title(o["title"]):
+            continue
+        if excluded_reason(o["title"], rules.exclude_keywords) or excluded_reason(o.get("category") or "",
+                                                                                rules.exclude_keywords):
             continue
         comparison = _comparison_for(db, o)
         saving = savings_evidence(st, o["price"], comparison)

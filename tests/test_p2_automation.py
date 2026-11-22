@@ -490,3 +490,44 @@ def test_stores_update_adds_the_checked_sale_pages(tmp_path, capsys, monkeypatch
     assert main(["stores", "update", "--pack", "pack.json"]) == 0                       # again: nothing doubled
     assert len(json.loads((tmp_path / "sources.json").read_text(encoding="utf-8"))["stores"][0]["sale_urls"]) \
         == len(bug["sale_urls"])
+
+
+@pytest.mark.parametrize("title,hit", [
+    ("סיגריה אלקטרונית VOOPOO", True), ("מארז וייפ חד פעמי", True), ("IQOS ILUMA", True),
+    ("בקבוק וודקה 700 מ\"ל", True), ("הבירה הכי קרה", True), ("ויברטור נטען", True), ("CBD oil 10%", True),
+    ("מקרר בירות ומשקאות Midea", True),
+    ("אקדח דבק חם 20W", False), ("צינור מתרחב 15 מטר + אקדח 7 מצבים", False),   # tools, not weapons
+    ("כוס יין זכוכית", True), ("JBL אוזניות TUNE 520BT", False), ("מצלמת אבטחה 18MP", False),
+    ("PlayStation 5 Slim", False), ("מכבירה", False),
+])
+def test_forbidden_products_are_recognised(title, hit):
+    from affiliate_scraper.alerts import excluded_reason
+    assert bool(excluded_reason(title)) is hit, title
+
+
+def test_forbidden_product_never_becomes_a_deal(tmp_path):
+    db, oid = seed_db(tmp_path)                                     # a real 25% drop
+    db.conn.execute("UPDATE offers SET title=? WHERE id=?", ("סיגריה אלקטרונית Pro 2", oid))
+    db.conn.commit()
+    assert detect_deals(db, DealRules()) == []
+    db.conn.execute("UPDATE offers SET title=? WHERE id=?", ("Acme Kettle Pro 2", oid))
+    db.conn.commit()
+    assert detect_deals(db, DealRules.from_dict({"exclude_keywords": ["kettle"]})) == []   # the owner's own words
+    assert len(detect_deals(db, DealRules())) == 1
+
+
+def test_stores_disable_and_enable(tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    src = {"stores": [{"domain": "fox.co.il", "search_url": "https://fox.co.il/search?q={q}",
+                       "start_urls": ["https://fox.co.il/collections/sale"]},
+                      {"domain": "bug.co.il", "search_url": "https://www.bug.co.il/search?q={q}"}]}
+    (tmp_path / "sources.json").write_text(json.dumps(src), encoding="utf-8")
+    assert main(["stores", "disable", "fox.co.il"]) == 0
+    fox = json.loads((tmp_path / "sources.json").read_text(encoding="utf-8"))["stores"][0]
+    assert fox["enabled"] is False and fox["start_urls"]                      # settings kept
+    from affiliate_scraper.commands import automation_scrape_jobs, search_stores
+    assert automation_scrape_jobs({"sources_config": str(tmp_path / "sources.json")}) == []
+    assert [s.domain for s in search_stores({"sources_config": str(tmp_path / "sources.json")})] == ["bug.co.il"]
+    assert main(["stores", "list"]) == 0 and "[DISABLED]" in capsys.readouterr().out
+    assert main(["stores", "enable", "fox.co.il"]) == 0
+    assert json.loads((tmp_path / "sources.json").read_text(encoding="utf-8"))["stores"][0]["enabled"] is True
