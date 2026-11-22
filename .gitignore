@@ -17,3 +17,6 @@ run_automation.vbs
 logs/
 .app-window/
 site/
+
+# Claude agents: drafts and reports stay local
+agents_output/

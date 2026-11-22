@@ -196,6 +196,7 @@
 | `Some tests failed` | מעתיקים את הטקסט מהחלון ושולחים ל-Claude |
 
 **מדריכים נוספים:**
+- [docs/AGENTS.md](docs/AGENTS.md): צוות הסוכנים ומנהל המשימות (`/manager`)
 - [INSTALL.md](INSTALL.md): התקנה וכל אפשרויות התפריט
 - [RUN_ON_WINDOWS.md](RUN_ON_WINDOWS.md): פקודות ופתרון תקלות
 - [docs/UPGRADE_V3.md](docs/UPGRADE_V3.md): פירוט טכני של הפיצ'רים
