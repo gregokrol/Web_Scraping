@@ -62,9 +62,35 @@ def store_slug(domain: str) -> str:
     return re.sub(r"[^a-z0-9-]+", "-", (domain or "store").lower().removeprefix("www.")).strip("-")
 
 
-def collect_catalog(db: Database, now: Optional[datetime] = None, hours: float = 48) -> dict:
-    """{domain: {"name": store name, "cats": {slug: [product, ...]}}} - verified, in stock, fresh."""
+def store_settings(path: str = "sources.json") -> dict:
+    """{domain: {"name": your name for the store, "enabled": bool}} from sources.json (empty if there is none)."""
+    import json
+    from pathlib import Path
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {str(st.get("domain", "")).lower().removeprefix("www."): {"name": str(st.get("name") or "").strip(),
+                                                                     "enabled": st.get("enabled") is not False}
+            for st in data.get("stores", []) if st.get("domain")}
+
+
+def _setting_for(domain: str, settings: dict) -> Optional[dict]:
+    d = (domain or "").lower().removeprefix("www.")
+    for k in sorted(settings, key=len, reverse=True):
+        if d == k or d.endswith("." + k):
+            return settings[k]
+    return None
+
+
+def collect_catalog(db: Database, now: Optional[datetime] = None, hours: float = 48,
+                    settings: Optional[dict] = None) -> dict:
+    """{domain: {"name": store name, "cats": {slug: [product, ...]}}} - verified, in stock, fresh.
+
+    ``settings`` (default: sources.json in this folder): a store you disabled is left out, and the store's name
+    is YOUR name for it - the name a shop writes on its pages can be a whole sentence."""
     from .alerts import excluded_reason
+    settings = store_settings() if settings is None else settings
     now = now or datetime.now(timezone.utc)
     since = (now - timedelta(hours=hours)).replace(microsecond=0).isoformat()
     deal_for = {r["offer_id"]: r["id"] for r in db.query(
@@ -80,6 +106,9 @@ def collect_catalog(db: Database, now: Optional[datetime] = None, hours: float =
         r = dict(r)
         if not r["domain"] or excluded_reason(r["title"]) or excluded_reason(r.get("category") or ""):
             continue
+        st = _setting_for(r["domain"], settings)
+        if st is not None and not st["enabled"]:
+            continue
         cat = classify(r["title"], r.get("category") or "")
         if not cat:
             continue
@@ -87,7 +116,11 @@ def collect_catalog(db: Database, now: Optional[datetime] = None, hours: float =
         names[r["domain"]][r["store"] or r["domain"]] += 1
         out.setdefault(r["domain"], {"name": "", "cats": defaultdict(list)})["cats"][cat].append(r)
     for dom, entry in out.items():
-        entry["name"] = names[dom].most_common(1)[0][0]
+        st = _setting_for(dom, settings)
+        name = (st or {}).get("name") or names[dom].most_common(1)[0][0]
+        if len(name) > 30:                    # a shop's page title, not a name: fall back to the address
+            name = dom.removeprefix("www.")
+        entry["name"] = name
     return out
 
 

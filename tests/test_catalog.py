@@ -122,3 +122,28 @@ def test_channel_menu_refuses_buttons_to_missing_pages(tmp_path, monkeypatch, ca
     monkeypatch.setattr(requests, "get", lambda url, timeout=0: type("R", (), {"status_code": 404})())
     assert main(["channel-menu"]) == 1
     assert "not on the website yet" in capsys.readouterr().err
+
+
+def test_disabled_stores_are_left_out_and_your_store_names_are_used(tmp_path):
+    db = Database(tmp_path / "c.db")
+    add(db, "https://www.bug.example/a", "אוזניות JBL TUNE 520BT", 199, store="BUG מחשבים בע\"מ")
+    add(db, "https://www.sport.example/b", "שעון חכם Garmin Forerunner 55", 590, store="Sport")
+    add(db, "https://toys.example/c", "אוזניות Acme TWS-5", 99,
+        store="משחקים לילדים לגור, פליימוביל, מליסה וכל המותגים המובילים במקום אחד")
+    settings = {"bug.example": {"name": "באג", "enabled": True},
+                "sport.example": {"name": "מגה ספורט", "enabled": False}}
+    cat = collect_catalog(db, settings=settings)
+    assert set(cat) == {"bug.example", "toys.example"}                    # the disabled store is out
+    assert cat["bug.example"]["name"] == "באג"                          # your name, not the shop's title
+    assert cat["toys.example"]["name"] == "toys.example"                    # a whole sentence -> the address
+
+
+def test_store_settings_read_from_sources_json(tmp_path, monkeypatch):
+    from affiliate_scraper.catalog import store_settings
+    monkeypatch.chdir(tmp_path)
+    assert store_settings() == {}
+    (tmp_path / "sources.json").write_text(json.dumps({"stores": [
+        {"domain": "www.Bug.co.il", "name": "באג"}, {"domain": "fox.co.il", "name": "פוקס", "enabled": False}]}),
+        encoding="utf-8")
+    assert store_settings() == {"bug.co.il": {"name": "באג", "enabled": True},
+                                "fox.co.il": {"name": "פוקס", "enabled": False}}
