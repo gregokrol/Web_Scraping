@@ -632,7 +632,9 @@ def build_store_pages(db: Database, cfg: SiteConfig, out: Path, now: Optional[da
         body = (f'<p class="crumbs"><a href="../index.html">ראשי</a> › <a href="index.html">לפי חנות</a> › {e(name)}</p>'
                 f'<h1>{e(name)}</h1><p class="meta">בחרו קטגוריה</p><div class="tiles">{cat_tiles}</div>')
         (out / "stores" / f"{slug}.html").write_text(
-            _layout(cfg, f"{name} | {cfg.title}", f"{name}: קטגוריות ומוצרים במחירים שנבדקו.", body,
+            _layout(cfg, f"{name} | {cfg.title}",
+                    (f"{name}: קטגוריות ומוצרים, במחירים לפי ערוץ הטלגרם של החנות (לא נבדקו אצלנו)."
+                     if catalog[dom].get("claimed") else f"{name}: קטגוריות ומוצרים במחירים שנבדקו."), body,
                     f"stores/{slug}.html", depth=1), encoding="utf-8")
         pages.append(f"stores/{slug}.html")
         for c, cname, emoji, _w in CATEGORIES:
@@ -661,7 +663,9 @@ def build_store_pages(db: Database, cfg: SiteConfig, out: Path, now: Optional[da
                     + (f'<p class="meta">עוד קטגוריות ב{e(name)}:</p><div class="pills">{other}</div>' if other else "")
                     + '<p class="meta">המחירים נבדקו במועד המצוין ועשויים להשתנות. המחיר הקובע הוא באתר החנות.</p>')
             (out / "stores" / slug / f"{c}.html").write_text(
-                _layout(cfg, f"{cname} ב{name} | {cfg.title}", f"{cname} ב{name}: 5 הזולים ו-5 הפופולריים, במחירים שנבדקו.",
+                _layout(cfg, f"{cname} ב{name} | {cfg.title}",
+                        (f"{cname} ב{name}: מחירים לפי ערוץ הטלגרם של החנות מהשבוע האחרון, לא נבדקו אצלנו."
+                         if claimed else f"{cname} ב{name}: 5 הזולים ו-5 הפופולריים, במחירים שנבדקו."),
                         body, f"stores/{slug}/{c}.html", depth=2), encoding="utf-8")
             pages.append(f"stores/{slug}/{c}.html")
     return pages

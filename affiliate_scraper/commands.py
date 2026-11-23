@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import os
 import json
 import sys
 import threading
@@ -1776,7 +1777,20 @@ def _listen_install(args, remove: bool) -> int:
     folder.mkdir(parents=True, exist_ok=True)
     target.write_text(build_vbs(bat), encoding="utf-16")
     print(f"Installed: {target}\nThe Telegram manager starts hidden every time you log in to Windows.")
-    print("To start it now without logging out: double-click that file, or choose menu 31.")
+    from .remote import single_instance
+    probe = single_instance()
+    if probe is None:
+        print("It is already running now.")
+        return 0
+    probe.close()
+    if os.name == "nt":
+        import subprocess
+        # start it now too, hidden, detached from this window (wscript runs the same starter as at login)
+        subprocess.Popen(["wscript.exe", str(target)], creationflags=getattr(subprocess, "DETACHED_PROCESS", 0),
+                         close_fds=True)
+        print("Started now. In Telegram you should get: 'מנהל הסוכנים מחובר ומקשיב'.")
+    else:
+        print("To start it now: py main.py telegram-listen")
     return 0
 
 

@@ -166,6 +166,11 @@ def test_channel_store_on_the_website_is_marked_as_the_stores_price(tmp_path):
     cat = (out / "stores" / "tg-kspcoil" / "gaming.html").read_text(encoding="utf-8")
     assert "KSP" in cat and "לא נבדק אצלנו בדף המוצר" in cat and "ההנחות הגדולות (לפי החנות)" in cat
     assert "עסקה שנבדקה" not in cat
+    # the description in Google / link previews must not say "checked" either
+    import re
+    for f in (out / "stores" / "tg-kspcoil.html", out / "stores" / "tg-kspcoil" / "gaming.html"):
+        desc = re.search(r'<meta name="description" content="([^"]*)"', f.read_text(encoding="utf-8")).group(1)
+        assert "לא נבדקו אצלנו" in desc and "במחירים שנבדקו" not in desc, desc
 
 
 def test_publish_claim_posts_the_stores_price_as_such(tmp_path):
