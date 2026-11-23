@@ -321,3 +321,23 @@ def test_disclosure_does_not_claim_links_that_do_not_exist_yet():
     from affiliate_scraper.content import DISCLOSURE
     from affiliate_scraper.site import DISCLOSURE as SITE
     assert "ייתכן" in DISCLOSURE["he"] and "ייתכן" in SITE and "כולל קישורי שותפים" not in DISCLOSURE["he"] + SITE
+
+
+def test_every_project_skill_and_agent_loads():
+    """Claude Code reads the YAML header of each skill/agent - a broken one is silently skipped."""
+    import re
+    root = Path(__file__).parent.parent / ".claude"
+    files = list((root / "skills").glob("*/SKILL.md")) + list((root / "agents").glob("*.md"))
+    assert len(files) >= 21
+    for f in files:
+        text = f.read_text(encoding="utf-8")
+        m = re.match(r"---\n(.*?)\n---\n", text, re.S)
+        assert m, f
+        head = m.group(1)
+        assert re.search(r"^name:\s*\S", head, re.M) and re.search(r"^description:\s*\S", head, re.M), f
+        for line in head.splitlines():                     # an unquoted ": " inside a value breaks the YAML
+            key, _, value = line.partition(": ")
+            if key in ("name", "description") and not value.startswith('"'):
+                assert ": " not in value, (f, line)
+    for s in ("social", "copywriting", "video"):            # the owner's rules come first in the borrowed skills
+        assert "כללי הבעלים קודמים" in (root / "skills" / s / "SKILL.md").read_text(encoding="utf-8")
