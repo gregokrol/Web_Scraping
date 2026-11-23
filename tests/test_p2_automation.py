@@ -531,3 +531,57 @@ def test_stores_disable_and_enable(tmp_path, capsys, monkeypatch):
     assert main(["stores", "list"]) == 0 and "[DISABLED]" in capsys.readouterr().out
     assert main(["stores", "enable", "fox.co.il"]) == 0
     assert json.loads((tmp_path / "sources.json").read_text(encoding="utf-8"))["stores"][0]["enabled"] is True
+
+
+def _pending(db, url, domain, saving, decided_hours_ago=None, auto=0, status="pending"):
+    p = validate_product(Product(url=url, name=f"Acme Item {url[-2:]}", price=100.0, currency="ILS",
+                                 availability="InStock", source="json-ld", source_type="json-ld"))
+    db.save_products([p])
+    oid = db.offer_id(p.url)
+    db.conn.execute("UPDATE offers SET domain=? WHERE id=?", (domain, oid))
+    decided = ((datetime.now(timezone.utc) - timedelta(hours=decided_hours_ago)).isoformat()
+               if decided_hours_ago is not None else None)
+    cur = db.conn.execute("INSERT INTO deal_alerts(offer_id, kind, fingerprint, price, currency, title, status, "
+                          "savings_pct, auto_approved, decided_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                          (oid, "price_drop", url, 100.0, "ILS", "x", status, saving, auto, decided))
+    db.conn.commit()
+    return cur.lastrowid
+
+
+def test_smart_approval_big_savings_two_per_store_a_day(tmp_path):
+    from affiliate_scraper.alerts import smart_approve
+    db = Database(tmp_path / "s.db")
+    a1 = _pending(db, "https://a.example/01", "a.example", 30)
+    a2 = _pending(db, "https://a.example/02", "a.example", 20)
+    a3 = _pending(db, "https://a.example/03", "a.example", 18)          # third of the same store -> waits
+    a4 = _pending(db, "https://a.example/04", "a.example", 9)           # small saving -> waits
+    b1 = _pending(db, "https://b.example/01", "b.example", 16)
+    _pending(db, "https://b.example/02", "b.example", 40, decided_hours_ago=5, auto=1, status="published")
+    b2 = _pending(db, "https://b.example/03", "b.example", 25)          # b already had 1 automatic today
+    b3 = _pending(db, "https://b.example/04", "b.example", None)        # old deal without a saving -> waits
+    chosen = smart_approve(db, 15, 2)
+    assert chosen == [a1, b2, a2]                                       # biggest first, 2 per store a day
+    status = {r["id"]: r["status"] for r in db.query("SELECT id, status FROM deal_alerts")}
+    assert [status[i] for i in (a3, a4, b1, b3)] == ["pending"] * 4
+    assert smart_approve(db, 15, 2) == []                               # the limits hold on the next run
+
+
+def test_new_deal_stores_its_verified_saving(tmp_path):
+    db, oid = seed_db(tmp_path)                                         # 120 -> 90 = 25%
+    [a] = detect_deals(db, DealRules())
+    assert db.query("SELECT savings_pct FROM deal_alerts WHERE id=?", (a["id"],))[0]["savings_pct"] == 25.0
+
+
+def test_approval_command_smart_mode(tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "automation.json").write_text("{}", encoding="utf-8")
+    assert main(["approval", "smart"]) == 0
+    cfg = json.loads((tmp_path / "automation.json").read_text(encoding="utf-8"))
+    assert cfg["require_approval"] is True and cfg["auto_publish"] == {"enabled": True, "min_savings_pct": 15,
+                                                                        "per_store_per_day": 2}
+    assert "SMART" in capsys.readouterr().out
+    assert main(["approval", "smart", "--min-savings", "20", "--per-store", "1"]) == 0
+    cfg = json.loads((tmp_path / "automation.json").read_text(encoding="utf-8"))
+    assert cfg["auto_publish"]["min_savings_pct"] == 20 and cfg["auto_publish"]["per_store_per_day"] == 1
+    assert main(["approval", "manual"]) == 0
+    assert json.loads((tmp_path / "automation.json").read_text(encoding="utf-8"))["auto_publish"]["enabled"] is False

@@ -200,10 +200,11 @@ def detect_deals(db: Database, rules: DealRules, now: Optional[datetime] = None)
         fp = f"{o['id']}:{kind}:{o['price']:.2f}:{o['currency']}"
         with db.tx() as c:
             cur = c.execute("INSERT OR IGNORE INTO deal_alerts(offer_id, kind, fingerprint, price, currency, deal_score, "
-                            "affiliate_score, title, content_json, status, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                            "affiliate_score, title, content_json, status, created_at, savings_pct) "
+                            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                             (o["id"], kind, fp, o["price"], o["currency"], o["deal_score"], o["affiliate_score"],
                              o["title"], json.dumps(content, ensure_ascii=False), "pending",
-                             now.replace(microsecond=0).isoformat()))
+                             now.replace(microsecond=0).isoformat(), saving["pct"]))
             if cur.rowcount:
                 created.append({"id": cur.lastrowid, "offer_id": o["id"], "kind": kind, "title": o["title"],
                                 "price": o["price"], "currency": o["currency"], "deal_score": o["deal_score"],
@@ -288,6 +289,34 @@ def publish_approved(db: Database, url, session=None, auto_approve: bool = False
                 c.execute("UPDATE deal_alerts SET status='failed', error=? WHERE id=?", (str(exc)[:300], r["id"]))
             failed += 1
     return {"published": sent, "failed": failed, "ids": published_ids}
+
+
+def smart_approve(db: Database, min_savings_pct: float = 15.0, per_store_per_day: int = 2,
+                  now: Optional[datetime] = None) -> list[int]:
+    """'smart' approval: a pending deal with a verified saving of at least ``min_savings_pct`` is approved
+    automatically - the biggest savings first, at most ``per_store_per_day`` automatic ones per store in 24 hours.
+    Everything else stays pending for the owner (approval buttons in Telegram). Returns the approved ids."""
+    now = now or datetime.now(timezone.utc)
+    since = (now - timedelta(hours=24)).replace(microsecond=0).isoformat()
+    used: dict[str, int] = {}
+    for r in db.query("SELECT o.domain, COUNT(*) n FROM deal_alerts a JOIN offers o ON o.id=a.offer_id "
+                      "WHERE a.auto_approved=1 AND a.decided_at >= ? GROUP BY o.domain", (since,)):
+        used[r["domain"]] = r["n"]
+    rows = db.query("SELECT a.id, o.domain, a.savings_pct FROM deal_alerts a JOIN offers o ON o.id=a.offer_id "
+                    "WHERE a.status='pending' AND a.savings_pct >= ? ORDER BY a.savings_pct DESC, a.id",
+                    (min_savings_pct,))
+    chosen = []
+    for r in rows:
+        if used.get(r["domain"], 0) >= per_store_per_day:
+            continue
+        used[r["domain"]] = used.get(r["domain"], 0) + 1
+        chosen.append(r["id"])
+    if chosen:
+        stamp = now.replace(microsecond=0).isoformat()
+        with db.tx() as c:
+            c.executemany("UPDATE deal_alerts SET status='approved', decided_at=?, auto_approved=1 WHERE id=? "
+                          "AND status='pending'", [(stamp, i) for i in chosen])
+    return chosen
 
 
 def notify_pending(db: Database, url, session=None) -> int:

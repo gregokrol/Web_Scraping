@@ -765,10 +765,19 @@ def _run_run(args) -> int:
                 _err(f"Notification problem: {exc}")
 
     auto = cfg.get("require_approval", True) is False
+    smart_cfg = cfg.get("auto_publish") or {}
+    smart_ids: list[int] = []
     if auto:
         # automatic mode (testing): everything is approved; you remove what you don't want afterwards
         from .alerts import decide
         decide(db, [r["id"] for r in db.query("SELECT id FROM deal_alerts WHERE status='pending'")], True)
+    elif smart_cfg.get("enabled"):
+        # smart mode: only a big verified saving goes out by itself, a few per store a day; the rest wait for you
+        from .alerts import smart_approve
+        smart_ids = smart_approve(db, float(smart_cfg.get("min_savings_pct", 15)),
+                                  int(smart_cfg.get("per_store_per_day", 2)))
+        if smart_ids:
+            _err(f"Smart approval: {len(smart_ids)} deal(s) with a big verified saving approved automatically.")
     if notify_targets:
         n = notify_pending(db, notify_all)
         failed = db.query("SELECT id, command, errors, errors_json FROM crawl_runs WHERE started_at >= ? "
@@ -792,8 +801,13 @@ def _run_run(args) -> int:
     if publish_target:
         res = publish_approved(db, publish_target, auto_approve=auto,
                                page_url_for=(lambda aid: page_url(site_cfg, aid)) if site_on else None)
-        if res["ids"] and auto and tg and tg.admin_chat:
-            lines = [f"✅ פורסמו {len(res['ids'])} עסקאות אוטומטית:"]
+        auto_ids = res["ids"] if auto else [i for i in res["ids"] if i in smart_ids]
+        if auto_ids and tg and tg.admin_chat:
+            res = {**res, "ids": auto_ids}
+            head = (f"✅ פורסמו {len(auto_ids)} עסקאות אוטומטית" + (
+                f" (חיסכון מאומת של {smart_cfg.get('min_savings_pct', 15):g}% ומעלה, עד "
+                f"{smart_cfg.get('per_store_per_day', 2)} לחנות ביום):" if not auto else ":"))
+            lines = [head]
             for aid in res["ids"][:20]:
                 t = db.query("SELECT title, price, currency FROM deal_alerts WHERE id=?", (aid,))[0]
                 lines.append(f"#{aid} {t['title'][:55]} - {t['price']} {t['currency']}")
@@ -1250,8 +1264,11 @@ cli.register_subcommand("site", "Build / preview / publish the website made from
 
 # ===================================================================== automatic / manual approval + withdraw
 def _approval_build(ap) -> None:
-    ap.add_argument("mode", choices=["auto", "manual", "status"],
-                    help="auto = every deal is published, you remove what you don't want; manual = you approve first")
+    ap.add_argument("mode", choices=["auto", "manual", "smart", "status"],
+                    help="auto = every deal is published; manual = you approve every deal; smart = deals with a "
+                         "big verified saving are published automatically (a few per store a day), the rest wait for you")
+    ap.add_argument("--min-savings", type=float, default=None, help="smart: the saving that is published by itself (%%)")
+    ap.add_argument("--per-store", type=int, default=None, help="smart: automatic deals per store per day")
     ap.add_argument("--config", default="automation.json")
 
 
@@ -1262,12 +1279,26 @@ def _approval_run(args) -> int:
     except (OSError, ValueError) as exc:
         _err(f"error: {exc}")
         return 2
+    ap_cfg = dict(cfg.get("auto_publish") or {})
     if args.mode != "status":
-        cfg["require_approval"] = args.mode == "manual"
+        cfg["require_approval"] = args.mode != "auto"
+        ap_cfg["enabled"] = args.mode == "smart"
+        if args.min_savings is not None:
+            ap_cfg["min_savings_pct"] = args.min_savings
+        if args.per_store is not None:
+            ap_cfg["per_store_per_day"] = args.per_store
+        ap_cfg.setdefault("min_savings_pct", 15)
+        ap_cfg.setdefault("per_store_per_day", 2)
+        cfg["auto_publish"] = ap_cfg
         path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
-    manual = cfg.get("require_approval", True) is not False
-    print("approval: MANUAL - deals wait for you (menu 8)" if manual else
-          "approval: AUTOMATIC - deals are published right away; remove one with menu 24 / py main.py withdraw <id>")
+    if cfg.get("require_approval", True) is False:
+        print("approval: AUTOMATIC - every deal is published right away; remove one with menu 24 / py main.py withdraw <id>")
+    elif ap_cfg.get("enabled"):
+        print(f"approval: SMART - a verified saving of {ap_cfg.get('min_savings_pct', 15):g}% or more is published by itself "
+              f"(at most {ap_cfg.get('per_store_per_day', 2)} per store a day); every other deal waits for your "
+              "✅ in Telegram")
+    else:
+        print("approval: MANUAL - every deal waits for your ✅ in Telegram (or menu 8)")
     return 0
 
 

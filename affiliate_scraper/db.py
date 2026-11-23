@@ -119,7 +119,9 @@ CREATE TABLE IF NOT EXISTS deal_alerts (
     title TEXT, content_json TEXT,
     status TEXT NOT NULL DEFAULT 'pending',   -- pending | approved | rejected | published | failed
     created_at TEXT, decided_at TEXT, published_at TEXT, notified_at TEXT, error TEXT,
-    published_ref TEXT                  -- where it was posted (e.g. Telegram chat + message id), for withdrawing
+    published_ref TEXT,                 -- where it was posted (e.g. Telegram chat + message id), for withdrawing
+    savings_pct REAL,                   -- the verified saving when detected (decides automatic publishing)
+    auto_approved INTEGER DEFAULT 0     -- approved by the 'smart' mode, not by the owner
 );
 CREATE INDEX IF NOT EXISTS ix_alerts_offer ON deal_alerts(offer_id, created_at);
 """
@@ -187,8 +189,9 @@ class Database:
             if col not in cols:
                 self.conn.execute(f"ALTER TABLE offers ADD COLUMN {col} {typ}")
         cols = {r[1] for r in self.conn.execute("PRAGMA table_info(deal_alerts)")}
-        if "published_ref" not in cols:
-            self.conn.execute("ALTER TABLE deal_alerts ADD COLUMN published_ref TEXT")
+        for col, typ in (("published_ref", "TEXT"), ("savings_pct", "REAL"), ("auto_approved", "INTEGER DEFAULT 0")):
+            if col not in cols:
+                self.conn.execute(f"ALTER TABLE deal_alerts ADD COLUMN {col} {typ}")
 
     def close(self) -> None:
         self.conn.close()

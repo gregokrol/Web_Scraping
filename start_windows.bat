@@ -198,8 +198,13 @@ goto done
 
 :approvalmode
 "%PY%" main.py approval status
-choice /C 12 /M "  1 = automatic (publish everything, remove later), 2 = manual (approve first)"
-if errorlevel 2 (
+echo   1 = automatic: publish everything, remove later
+echo   2 = manual: you approve every deal (buttons in Telegram)
+echo   3 = smart: a big verified saving is published by itself (2 per store a day), the rest wait for you
+choice /C 123 /M "  Choose"
+if errorlevel 3 (
+  "%PY%" main.py approval smart
+) else if errorlevel 2 (
   "%PY%" main.py approval manual
 ) else (
   "%PY%" main.py approval auto
