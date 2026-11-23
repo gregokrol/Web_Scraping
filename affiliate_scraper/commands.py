@@ -728,6 +728,9 @@ def _run_run(args) -> int:
     db = Database(cfg.get("db", DEFAULT_DB))
     if len(jobs) > 1:
         compare_across_stores(db, cfg, since=_seconds_floor(started))
+    if _channels_names(cfg):
+        _err("\n=== stores' Telegram channels")
+        fetch_channels(cfg, db, float(cfg.get("delay", 3)))
     rules = DealRules.from_dict(cfg.get("deals"))
     rules.language = cfg.get("content", {}).get("language", rules.language)
     rules.disclosure = cfg.get("content", {}).get("disclosure") or rules.disclosure
@@ -812,6 +815,18 @@ def _run_run(args) -> int:
                     tg.notify_admin(text)
                     mark_sent(db, key="digest_sent_at")
                     _err("Daily summary to share sent to your Telegram chat.")
+                except PublishError as exc:
+                    _err(f"Notification problem: {exc}")
+    # leads from the stores' channels: once a day to your private chat, for your own check
+    if _channels_names(cfg) and tg and tg.admin_chat:
+        from .channels import leads_text
+        from .health import due, mark_sent
+        if due(db, key="leads_sent_at"):
+            text = leads_text(db)
+            if text:
+                try:
+                    tg.send_long(tg.admin_chat, text)
+                    mark_sent(db, key="leads_sent_at")
                 except PublishError as exc:
                     _err(f"Notification problem: {exc}")
     # daily self-check: one report a day to your private chat (twice-daily runs still send one)
@@ -1829,3 +1844,98 @@ def _listen_run(args) -> int:
 
 cli.register_subcommand("telegram-listen", "Run the agent manager from Telegram: /manager <task> to your bot",
                         _listen_build, _listen_run)
+
+
+# ---------------------------------------------------------------- stores' Telegram channels (leads)
+def _channels_build(ap) -> None:
+    ap.add_argument("action", choices=["list", "add", "remove", "fetch", "leads"])
+    ap.add_argument("names", nargs="*", help="Channel names, e.g. KSPcoil payngoil (or t.me/KSPcoil)")
+    ap.add_argument("--config", default="automation.json")
+    ap.add_argument("--telegram", action="store_true", help="leads: also send them to TELEGRAM_ADMIN_CHAT")
+    ap.add_argument("--delay", type=float, default=3.0, help=argparse.SUPPRESS)
+
+
+def _channels_names(cfg: dict) -> list[str]:
+    return [str(c) for c in cfg.get("telegram_channels", []) if str(c).strip()]
+
+
+def fetch_channels(cfg: dict, db: Database, delay: float = 3.0) -> int:
+    """Read every configured channel's public page and store its product claims. Returns new claims."""
+    from .alerts import DealRules
+    from .channels import fetch_channel, save_claims
+    from .fetcher import PoliteFetcher
+    names = _channels_names(cfg)
+    if not names:
+        return 0
+    fetcher = PoliteFetcher(min_delay=delay, use_cache=False)
+    rules = DealRules.from_dict(cfg.get("deals"))
+    new = 0
+    for name in names:
+        try:
+            posts = fetch_channel(fetcher, name)
+        except ValueError as exc:
+            _err(f"channel {name}: {exc}")
+            continue
+        n = save_claims(db, posts, rules.exclude_keywords)
+        new += n
+        _err(f"channel {name}: {len(posts)} product(s) in the recent posts, {n} new")
+    return new
+
+
+def _channels_run(args) -> int:
+    from .channels import channel_page, leads_text
+    path = Path(args.config)
+    cfg = load_automation(str(path)) if path.exists() else {}
+    names = _channels_names(cfg)
+    if args.action in ("add", "remove"):
+        if not path.exists():
+            _err(f"error: {path} not found")
+            return 2
+        for raw in args.names:
+            try:
+                name = channel_page(raw).rsplit("/", 1)[-1]
+            except ValueError as exc:
+                _err(f"skipped: {exc}")
+                continue
+            if args.action == "add" and name not in names:
+                names.append(name)
+                print(f"added: {name}")
+            elif args.action == "remove" and name in names:
+                names.remove(name)
+                print(f"removed: {name}")
+        cfg["telegram_channels"] = names
+        path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+        return 0
+    if args.action == "list":
+        for n in names:
+            print(f"  https://t.me/{n}")
+        if not names:
+            print("(no channels yet - e.g. py main.py channels add KSPcoil payngoil)")
+        return 0
+    db = Database(cfg.get("db", DEFAULT_DB))
+    try:
+        if args.action == "fetch":
+            fetch_channels(cfg, db, args.delay)
+            return 0
+        text = leads_text(db)
+        if not text:
+            print("No new products from the channels in the last 48 hours.")
+            return 1
+        print(text)
+        if args.telegram:
+            from .telegram import TelegramPublisher
+            from .webhook import PublishError
+            tg = TelegramPublisher()
+            if tg.admin_chat:
+                try:
+                    tg.send_long(tg.admin_chat, text)
+                    print("\nSent to your Telegram chat.")
+                except PublishError as exc:
+                    _err(f"Notification problem: {exc}")
+        return 0
+    finally:
+        db.close()
+
+
+cli.register_subcommand("channels", "Stores' public Telegram channels as leads (store-stated prices, not verified)",
+                        _channels_build, _channels_run)
