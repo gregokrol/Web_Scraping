@@ -104,8 +104,10 @@ def run_claude(task: str, project_dir: Path, timeout: int = TASK_TIMEOUT, exe: O
             raise ValueError(f"unknown model name: {model!r} (use sonnet, opus, haiku or a claude-... id)")
         args += ["--model", model]
     # the task goes on stdin: a .cmd launcher on Windows would otherwise re-parse it with cmd.exe
+    from .telegram import AGENT_RUN_ENV
+    env = {**os.environ, AGENT_RUN_ENV: "1"}       # every command Claude runs inherits it: no public actions
     r = subprocess.run(args, input=manager_prompt(task), capture_output=True, text=True, encoding="utf-8",
-                       errors="replace", cwd=str(project_dir), timeout=timeout,
+                       errors="replace", cwd=str(project_dir), timeout=timeout, env=env,
                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     out = (r.stdout or "").strip()
     if r.returncode != 0 and not out:

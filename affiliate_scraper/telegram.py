@@ -42,6 +42,16 @@ MESSAGE_LIMIT = 4096
 MIN_INTERVAL = 3.1   # Telegram allows ~20 posts/minute per channel; stay well below
 
 
+# set for Claude Code started by the Telegram manager (remote.run_claude): public actions are refused
+AGENT_RUN_ENV = "MECHIR_AGENT_RUN"
+CHANNEL_WRITES = {"sendMessage", "sendPhoto", "sendMediaGroup", "pinChatMessage", "editMessageText",
+                  "editMessageCaption", "editMessageReplyMarkup", "deleteMessage"}
+
+
+def agent_run() -> bool:
+    return os.environ.get(AGENT_RUN_ENV) == "1"
+
+
 class TelegramError(PublishError):
     pass
 
@@ -133,6 +143,11 @@ class TelegramPublisher:
              http_timeout: float = 20) -> dict:
         if not self.token:
             raise TelegramError("set TELEGRAM_BOT_TOKEN (from @BotFather)")
+        if agent_run() and method in CHANNEL_WRITES and self.channel and \
+                str(payload.get("chat_id", "")).lower() == str(self.channel).lower():
+            # the agent manager prepares, the owner publishes: no post, pin, edit or delete in the public channel
+            raise TelegramError("publishing to the channel is blocked while the agent manager runs - "
+                                "the owner publishes (approval buttons / py main.py publish)")
         for attempt in range(retries + 1):
             wait = self._last + self.min_interval - time.monotonic()
             if wait > 0:

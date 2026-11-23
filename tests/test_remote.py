@@ -247,3 +247,32 @@ def test_task_command_and_still_working_messages(tmp_path):
     n = len(tg.sent)
     time.sleep(0.2)
     assert len(tg.sent) == n                                          # no heartbeat after the summary
+
+
+def test_agent_run_cannot_publish_to_the_channel_or_the_site(monkeypatch, tmp_path):
+    from affiliate_scraper.site import SiteConfig, publish_site
+    from affiliate_scraper.telegram import TelegramError, TelegramPublisher
+    tg = TelegramPublisher(token="123:x", channel="@deals_il", admin_chat="42", env={})
+    calls = []
+    monkeypatch.setattr(tg, "session", type("S", (), {"post": lambda self, url, **kw: calls.append(url) or
+                                                      type("R", (), {"json": lambda s: {"ok": True, "result": {}}})()})())
+    monkeypatch.setenv("MECHIR_AGENT_RUN", "1")
+    for method in ("sendMessage", "sendPhoto", "pinChatMessage", "deleteMessage"):
+        with pytest.raises(TelegramError, match="blocked while the agent manager runs"):
+            tg._api(method, {"chat_id": "@deals_il", "text": "x"})
+    tg._api("sendMessage", {"chat_id": "42", "text": "to the owner is fine"})
+    assert len(calls) == 1                                           # only the private message went out
+    with pytest.raises(RuntimeError, match="blocked while the agent manager runs"):
+        publish_site(SiteConfig(out_dir=str(tmp_path), publish_branch="gh-pages"))
+    monkeypatch.delenv("MECHIR_AGENT_RUN")
+    tg._api("sendMessage", {"chat_id": "@deals_il", "text": "the owner's own publish works"})
+    assert len(calls) == 2
+
+
+@pytest.mark.skipif(os.name == "nt", reason="uses a POSIX shell script as a stand-in for claude")
+def test_claude_runs_with_the_lock(tmp_path):
+    fake = tmp_path / "claude"
+    fake.write_text(f"#!{sys.executable}\nimport os\nprint('LOCK=' + os.environ.get('MECHIR_AGENT_RUN', ''))\n",
+                    encoding="utf-8")
+    fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+    assert "LOCK=1" in run_claude("x", tmp_path, exe=str(fake))

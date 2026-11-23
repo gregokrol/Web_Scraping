@@ -909,6 +909,9 @@ def publish_to_branch(cfg: SiteConfig, run=subprocess.run) -> str:
 
 def publish_site(cfg: SiteConfig, run=subprocess.run) -> str:
     """Publish the built site: into a branch of this repository (publish_branch) or a separate clone (publish_dir)."""
+    from .telegram import agent_run
+    if agent_run():
+        raise RuntimeError("publishing the website is blocked while the agent manager runs - the owner publishes")
     if cfg.publish_branch:
         return publish_to_branch(cfg, run)
     target = Path(cfg.publish_dir)
