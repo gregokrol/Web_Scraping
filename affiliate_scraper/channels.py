@@ -44,6 +44,58 @@ CREATE TABLE IF NOT EXISTS channel_claims (
     UNIQUE(channel, post_id)
 );
 """
+# added later (ensure_schema migrates an existing table): the same product in a later post, and price drops
+_LATER_COLUMNS = (("item_key", "TEXT"), ("prev_price", "REAL"), ("prev_posted_at", "TEXT"),
+                  ("drop_notified", "INTEGER DEFAULT 0"))
+
+# your names for the stores behind the channels (shown on the website and in the channel menu)
+CHANNEL_STORES = {"kspcoil": "KSP", "payngoil": "מחסני חשמל", "traklin": "טרקלין", "il_home_center": "הום סנטר",
+                  "almsales": "א.ל.מ"}
+DROP_MIN_PCT = 1.0          # a later post at least 1% cheaper than the earlier one is a drop
+CLAIM_DAYS = 7              # a channel price is shown for a week after the post
+
+
+def store_name(channel: str) -> str:
+    return CHANNEL_STORES.get((channel or "").lower(), channel)
+
+
+def item_key(title: str) -> str:
+    """The same product in different posts: its model words (letters+digits, e.g. "forerunner|265"),
+    else its main words."""
+    toks = _tokens(title)
+    models = sorted(t for t in toks if re.search(r"\d", t) and re.search(r"[a-z]", t, re.I))
+    latin = sorted(t for t in toks if re.fullmatch(r"[a-z][a-z0-9.-]*", t))
+    if models:
+        return "|".join(sorted(set(models) | set(latin)))[:200]
+    return "|".join(sorted(toks)[:8])[:200]
+
+
+def _ident(title: str) -> tuple[set, set]:
+    """(brand/model words, numbers) - what identifies a product across posts, without the Hebrew wording."""
+    toks = _tokens(title)
+    latin = {t for t in toks if re.search(r"[a-z]", t, re.I)}
+    nums = {t for t in toks if re.search(r"\d", t)}
+    return latin | nums, nums
+
+
+def same_product(a: str, b: str) -> bool:
+    """Two posts name the same product: the same numbers/models, and the brand/model words of one are all in
+    the other ("Acme Runner 265" = "Acme Runner 265 GPS"; not = "Acme Runner 165")."""
+    (ia, na), (ib, nb) = _ident(a), _ident(b)
+    if len(ia) < 2 or len(ib) < 2 or na != nb:
+        return False
+    return ia <= ib or ib <= ia
+
+
+def ensure_schema(db: Database) -> None:
+    db.conn.executescript(SCHEMA)
+    cols = {r[1] for r in db.conn.execute("PRAGMA table_info(channel_claims)")}
+    for col, typ in _LATER_COLUMNS:
+        if col not in cols:
+            db.conn.execute(f"ALTER TABLE channel_claims ADD COLUMN {col} {typ}")
+    for r in db.conn.execute("SELECT id, title FROM channel_claims WHERE item_key IS NULL").fetchall():
+        db.conn.execute("UPDATE channel_claims SET item_key=? WHERE id=?", (item_key(r[1]), r[0]))
+    db.conn.commit()
 
 
 def channel_page(name: str) -> str:
@@ -169,21 +221,77 @@ def fetch_channel(fetcher, name: str) -> list[dict]:
 
 
 def save_claims(db: Database, posts: list[dict], exclude_keywords=None) -> int:
-    """Store the posts that name a product and a price. Returns how many were new."""
+    """Store the posts that name a product and a price. Returns how many were new.
+
+    When the same product (item_key) was posted before by the same channel at a higher price, the new row
+    remembers that price (prev_price): a price drop, which is told to the owner once (new_drops)."""
     from .alerts import excluded_reason
-    db.conn.executescript(SCHEMA)
+    ensure_schema(db)
     now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     new = 0
     with db.tx() as c:
-        for p in posts:
+        for p in sorted(posts, key=lambda p: p.get("posted_at") or ""):
             if not p.get("price") or not p.get("title") or excluded_reason(p["title"], exclude_keywords):
                 continue
+            key = item_key(p["title"])
+            earlier = c.execute("SELECT price, posted_at, title FROM channel_claims WHERE channel=? AND post_id<>? "
+                                "AND posted_at < ? ORDER BY posted_at DESC LIMIT 300",
+                                (p["channel"], p["post_id"], p.get("posted_at") or now)).fetchall()
+            prev = next(((r[0], r[1]) for r in earlier if same_product(r[2], p["title"])), None)
+            prev_price = prev_at = None
+            if prev and prev[0] and p["price"] < prev[0] * (1 - DROP_MIN_PCT / 100):
+                prev_price, prev_at = prev[0], prev[1]
             cur = c.execute("INSERT OR IGNORE INTO channel_claims(channel, post_id, post_url, posted_at, title, price, "
-                            "was_price, link, fetched_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                            "was_price, link, fetched_at, item_key, prev_price, prev_posted_at) "
+                            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                             (p["channel"], p["post_id"], p["post_url"], p["posted_at"], p["title"], p["price"],
-                             p.get("was_price"), p.get("link"), now))
+                             p.get("was_price"), p.get("link"), now, key, prev_price, prev_at))
             new += cur.rowcount
     return new
+
+
+def new_drops(db: Database) -> list[dict]:
+    """Price drops (a later post cheaper than the earlier one) not told to the owner yet."""
+    ensure_schema(db)
+    return [dict(r) for r in db.query("SELECT * FROM channel_claims WHERE prev_price IS NOT NULL AND "
+                                      "COALESCE(drop_notified, 0)=0 ORDER BY posted_at")]
+
+
+def mark_drops_told(db: Database, ids: list[int]) -> None:
+    with db.tx() as c:
+        c.executemany("UPDATE channel_claims SET drop_notified=1 WHERE id=?", [(i,) for i in ids])
+
+
+def _date(ts: str) -> str:
+    dt = _parse_iso(ts or "")
+    return dt.astimezone(timezone(timedelta(hours=2))).strftime("%d.%m.%Y") if dt else ""
+
+
+def drop_text(db: Database, r: dict) -> str:
+    store = store_name(r["channel"])
+    pct = round((r["prev_price"] - r["price"]) / r["prev_price"] * 100)
+    lines = [f"📉 המחיר ירד שוב (לפי ערוץ {store}): {r['title'][:90]}",
+             f"₪{r['price']:,.2f} עכשיו, לעומת ₪{r['prev_price']:,.2f} בפוסט מ-{_date(r['prev_posted_at'])} (ירידה של {pct}%)"]
+    for m in verified_matches(db, r["title"]):
+        lines.append(f"נבדק אצלנו: {m['store'] or m['domain']} ₪{m['price']:,.2f}")
+    lines += [r["link"] or r["post_url"], "",
+              f"לפרסום בערוץ (אחרי שבדקת): py main.py channels post {r['id']} --publish"]
+    return "\n".join(lines)
+
+
+def post_text(db: Database, r: dict, disclosure: str) -> str:
+    """The public post for a channel price - stated as the store's price, never as a verified one."""
+    store = store_name(r["channel"])
+    lines = [f"🔥 {r['title'][:120]}",
+             f"• ₪{r['price']:,.2f} לפי ערוץ {store} ({_date(r['posted_at'])}). לא נבדק אצלנו בדף המוצר."]
+    if r.get("prev_price"):
+        lines.append(f"• בפוסט הקודם של {store} ({_date(r['prev_posted_at'])}): ₪{r['prev_price']:,.2f}")
+    elif r.get("was_price"):
+        lines.append(f"• במקום ₪{r['was_price']:,.2f}, לפי {store}")
+    for m in verified_matches(db, r["title"]):
+        lines.append(f"• נבדק אצלנו: {m['store'] or m['domain']} ₪{m['price']:,.2f}")
+    lines += ["", disclosure]
+    return "\n".join(lines)
 
 
 _TOK = re.compile(r"[a-z0-9]+(?:[.-][a-z0-9]+)*|[֐-׿]{2,}", re.I)
@@ -225,11 +333,21 @@ def verified_matches(db: Database, title: str, limit: int = 2, days: int = 3) ->
     return out
 
 
+def recent_claims(db: Database, days: float = CLAIM_DAYS) -> list[dict]:
+    """The latest post of each product per channel from the last ``days`` - for the website store pages."""
+    ensure_schema(db)
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    latest: dict = {}
+    for r in db.query("SELECT * FROM channel_claims WHERE posted_at >= ? ORDER BY posted_at", (since,)):
+        latest[(r["channel"], r["item_key"] or r["title"])] = dict(r)
+    return list(latest.values())
+
+
 def leads_text(db: Database, hours: float = 48, limit: int = 8, niche_only: bool = True) -> Optional[str]:
     """Plain text for the owner's private chat, or None when there is nothing new.
     ``niche_only``: only products in the niche categories (catalog.CATEGORIES: gaming, computers, mobile and
     headphones, appliances, home) - a baby sheet or winter socks are not leads for this channel."""
-    db.conn.executescript(SCHEMA)
+    ensure_schema(db)
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
     rows = [dict(r) for r in db.query("SELECT * FROM channel_claims ORDER BY posted_at DESC LIMIT 200")]
     rows = [r for r in rows if (_parse_iso(r["posted_at"] or r["fetched_at"]) or since) >= since]

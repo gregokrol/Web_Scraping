@@ -570,8 +570,26 @@ def _refuse_project_folder(folder: Path, what: str) -> None:
                            "for the website")
 
 
+def _claimed_row(p: dict) -> str:
+    """A price from a store's own Telegram channel: said so, with the date, and our checked price if we have one."""
+    href = _safe_url(p["url"])
+    ref = (f'<span class="was">{e(_money(p["prev_price"], p["currency"]))}</span> <small>בפוסט הקודם</small>'
+           if p.get("prev_price") else
+           (f'<span class="was">{e(_money(p["was_price"], p["currency"]))}</span> <small>לפי החנות</small>'
+            if p.get("was_price") else ""))
+    match = "".join(f'<span class="meta">נבדק אצלנו: {e(m["store"] or m["domain"])} {e(_money(m["price"], p["currency"]))}</span>'
+                    for m in p.get("matches") or [])
+    return (f'<a class="prow" href="{e(href)}" target="_blank" rel="sponsored nofollow noopener"><span class="pimg">📢</span>'
+            f'<span class="pb"><span class="t">{e(p["title"])}</span>'
+            f'<span class="price">{e(_money(p["price"], p["currency"]))}</span>{ref}'
+            f'<span class="meta">לפי ערוץ {e(p["store"])}, {e(_when(p["posted_at"]).split(" ")[0])}. לא נבדק אצלנו בדף המוצר.</span>'
+            f'{match}</span></a>')
+
+
 def _product_row(p: dict, root: str, cfg: SiteConfig) -> str:
     """One product in a store/category list. Our deal page when there is one, else the store's page."""
+    if p.get("claimed"):
+        return _claimed_row(p)
     if p.get("deal_id"):
         href, attrs = f"{root}{deal_path(p['deal_id'])}", ""
     else:
@@ -589,14 +607,16 @@ def _product_row(p: dict, root: str, cfg: SiteConfig) -> str:
 
 def build_store_pages(db: Database, cfg: SiteConfig, out: Path, now: Optional[datetime] = None) -> list[str]:
     """stores/index.html, stores/<store>.html (its categories), stores/<store>/<category>.html (top 5 lists)."""
-    from .catalog import CAT_BY_SLUG, CATEGORIES, TOP_N, cheapest, collect_catalog, most_popular, store_slug
+    from .catalog import (CAT_BY_SLUG, CATEGORIES, TOP_N, biggest_stated_discount, cheapest, collect_catalog,
+                          most_popular, store_slug)
     catalog = collect_catalog(db, now)
     (out / "stores").mkdir(parents=True, exist_ok=True)
     pages = ["stores/index.html"]
     order = sorted(catalog, key=lambda d: catalog[d]["name"])
     tiles = "".join(
         f'<a class="tile" href="{store_slug(d)}.html"><b>{e(catalog[d]["name"])}</b>'
-        f'<small>{sum(len(v) for v in catalog[d]["cats"].values())} מוצרים שנבדקו</small></a>' for d in order)
+        f'<small>{sum(len(v) for v in catalog[d]["cats"].values())} '
+        f'{"מוצרים לפי ערוץ החנות" if catalog[d].get("claimed") else "מוצרים שנבדקו"}</small></a>' for d in order)
     body = ('<p class="crumbs"><a href="../index.html">ראשי</a> › לפי חנות</p><h1>בחרו חנות</h1>'
             '<p class="meta">רק מחירים שנבדקו ב-48 השעות האחרונות, של מוצרים במלאי.</p>'
             f'<div class="tiles">{tiles or "<p class=empty>עוד אין מוצרים שנבדקו. הם יופיעו אחרי הסריקה הבאה.</p>"}</div>')
@@ -619,16 +639,25 @@ def build_store_pages(db: Database, cfg: SiteConfig, out: Path, now: Optional[da
             if not cats.get(c):
                 continue
             low = "".join(_product_row(p, "../../", cfg) for p in cheapest(cats[c]))
-            pop_items = most_popular(cats[c])
-            pop = ("".join(_product_row(p, "../../", cfg) for p in pop_items) if pop_items else
-                   '<p class="meta">החנות לא מציגה מספיק ביקורות בקטגוריה הזאת, ולכן אין כאן דירוג פופולריות.</p>')
+            claimed = catalog[dom].get("claimed")
+            if claimed:
+                pop_items = biggest_stated_discount(cats[c])
+                pop_title = f"📉 {TOP_N} ההנחות הגדולות (לפי החנות)"
+                pop_empty = '<p class="meta">אין בפוסטים מהשבוע האחרון מחיר קודם להשוואה.</p>'
+            else:
+                pop_items = most_popular(cats[c])
+                pop_title = f"⭐ {TOP_N} הפופולריים (לפי ביקורות בחנות)"
+                pop_empty = '<p class="meta">החנות לא מציגה מספיק ביקורות בקטגוריה הזאת, ולכן אין כאן דירוג פופולריות.</p>'
+            pop = "".join(_product_row(p, "../../", cfg) for p in pop_items) if pop_items else pop_empty
+            note = (f'<p class="warn">📢 המחירים כאן הם מה ש{e(name)} פרסמה בערוץ הטלגרם שלה בשבוע האחרון. '
+                    'הם לא נבדקו אצלנו בדף המוצר. בדקו את המחיר באתר החנות לפני רכישה.</p>' if claimed else "")
             other = "".join(f'<a class="pill" href="{oc}.html">{oe} {e(on)}</a>'
                             for oc, on, oe, _ in CATEGORIES if oc != c and cats.get(oc))
             body = (f'<p class="crumbs"><a href="../../index.html">ראשי</a> › <a href="../index.html">לפי חנות</a> › '
                     f'<a href="../{slug}.html">{e(name)}</a> › {e(cname)}</p>'
-                    f'<h1>{emoji} {e(cname)} ב{e(name)}</h1>'
+                    f'<h1>{emoji} {e(cname)} ב{e(name)}</h1>{note}'
                     f'<div class="panel"><h2>💰 {TOP_N} הזולים</h2>{low}</div>'
-                    f'<div class="panel"><h2>⭐ {TOP_N} הפופולריים (לפי ביקורות בחנות)</h2>{pop}</div>'
+                    f'<div class="panel"><h2>{pop_title}</h2>{pop}</div>'
                     + (f'<p class="meta">עוד קטגוריות ב{e(name)}:</p><div class="pills">{other}</div>' if other else "")
                     + '<p class="meta">המחירים נבדקו במועד המצוין ועשויים להשתנות. המחיר הקובע הוא באתר החנות.</p>')
             (out / "stores" / slug / f"{c}.html").write_text(

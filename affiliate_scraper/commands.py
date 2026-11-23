@@ -728,9 +728,12 @@ def _run_run(args) -> int:
     db = Database(cfg.get("db", DEFAULT_DB))
     if len(jobs) > 1:
         compare_across_stores(db, cfg, since=_seconds_floor(started))
+    channel_drops = []
     if _channels_names(cfg):
         _err("\n=== stores' Telegram channels")
         fetch_channels(cfg, db, float(cfg.get("delay", 3)))
+        from .channels import new_drops
+        channel_drops = new_drops(db)
     rules = DealRules.from_dict(cfg.get("deals"))
     rules.language = cfg.get("content", {}).get("language", rules.language)
     rules.disclosure = cfg.get("content", {}).get("disclosure") or rules.disclosure
@@ -817,6 +820,19 @@ def _run_run(args) -> int:
                     _err("Daily summary to share sent to your Telegram chat.")
                 except PublishError as exc:
                     _err(f"Notification problem: {exc}")
+    # a product posted again cheaper in a store's channel: told to you right away, once
+    if channel_drops and tg and tg.admin_chat:
+        from .channels import drop_text, mark_drops_told
+        told = []
+        for r in channel_drops[:10]:
+            try:
+                tg.send_buttons(tg.admin_chat, drop_text(db, r),
+                                [("✅ פרסם בערוץ", f"cpost:{r['id']}"), ("✖️ דלג", f"cskip:{r['id']}")])
+                told.append(r["id"])
+            except PublishError as exc:
+                _err(f"Notification problem: {exc}")
+                break
+        mark_drops_told(db, told)
     # leads from the stores' channels: once a day to your private chat, for your own check
     if _channels_names(cfg) and tg and tg.admin_chat:
         from .channels import leads_text
@@ -1823,8 +1839,57 @@ def _listen_run(args) -> int:
 
     from .remote import DEFAULT_MANAGER_MODEL, run_claude
     model = (cfg.get("telegram_manager") or {}).get("model", DEFAULT_MANAGER_MODEL) or None
+    def with_db(fn):
+        def run(ident: int) -> str:
+            db = Database(db_path)
+            try:
+                return fn(db, ident)
+            finally:
+                db.close()
+        return run
+
+    def deal_publish(db: Database, alert_id: int) -> str:
+        """Approve one deal and publish the approved deals now: website first (the post links to it), then the channel."""
+        from .alerts import decide, publish_approved
+        from .site import SiteConfig, build_site, page_url, publish_site
+        row = db.query("SELECT status, title FROM deal_alerts WHERE id=?", (alert_id,))
+        if not row:
+            return f"לא נמצאה עסקה #{alert_id}."
+        if row[0]["status"] == "published":
+            return f"עסקה #{alert_id} כבר פורסמה."
+        decide(db, [alert_id], True)
+        site = cfg.get("site") or {}
+        site_cfg = SiteConfig.from_dict(site)
+        if site.get("enabled"):
+            try:
+                build_site(db, site_cfg)
+                if site_cfg.publish_dir or site_cfg.publish_branch:
+                    publish_site(site_cfg)
+            except RuntimeError as exc:
+                log_note = f" (האתר לא עודכן: {exc})"
+            else:
+                log_note = ""
+        else:
+            log_note = ""
+        res = publish_approved(db, tg.send_event,
+                               page_url_for=(lambda aid: page_url(site_cfg, aid)) if site.get("enabled") else None)
+        if alert_id in res["ids"]:
+            return f"✅ עסקה #{alert_id} פורסמה בערוץ: {row[0]['title'][:70]}{log_note}"
+        return f"❌ עסקה #{alert_id} אושרה אבל לא פורסמה ({res}). היא תפורסם בריצה הבאה.{log_note}"
+
+    def deal_reject(db: Database, alert_id: int) -> str:
+        from .alerts import decide
+        decide(db, [alert_id], False)
+        return f"✖️ עסקה #{alert_id} נדחתה ולא תפורסם."
+
+    actions = {
+        "cpost": with_db(lambda db, i: publish_claim(db, i, tg, publish=True)),
+        "cskip": lambda i: "✖️ דילגתי. לא פורסם.",
+        "dpub": with_db(deal_publish),
+        "drej": with_db(deal_reject),
+    }
     listener = Listener(tg, Path.cwd(), tg.admin_chat, runner=partial(run_claude, model=model),
-                        status=status, digest=digest)
+                        status=status, digest=digest, actions=actions)
     print("Telegram manager is listening. Write /help to your bot in Telegram. Ctrl+C stops it.")
     try:
         tg.notify_admin("🤖 מנהל הסוכנים מחובר ומקשיב. כתוב /help לרשימת הפקודות.")
@@ -1848,8 +1913,9 @@ cli.register_subcommand("telegram-listen", "Run the agent manager from Telegram:
 
 # ---------------------------------------------------------------- stores' Telegram channels (leads)
 def _channels_build(ap) -> None:
-    ap.add_argument("action", choices=["list", "add", "remove", "fetch", "leads"])
-    ap.add_argument("names", nargs="*", help="Channel names, e.g. KSPcoil payngoil (or t.me/KSPcoil)")
+    ap.add_argument("action", choices=["list", "add", "remove", "fetch", "leads", "drops", "post"])
+    ap.add_argument("names", nargs="*", help="Channel names, e.g. KSPcoil payngoil (or t.me/KSPcoil); post: the id")
+    ap.add_argument("--publish", action="store_true", help="post: in the PUBLIC channel (default: a preview to you)")
     ap.add_argument("--config", default="automation.json")
     ap.add_argument("--telegram", action="store_true", help="leads: also send them to TELEGRAM_ADMIN_CHAT")
     ap.add_argument("--delay", type=float, default=3.0, help=argparse.SUPPRESS)
@@ -1880,6 +1946,42 @@ def fetch_channels(cfg: dict, db: Database, delay: float = 3.0) -> int:
         new += n
         _err(f"channel {name}: {len(posts)} product(s) in the recent posts, {n} new")
     return new
+
+
+def publish_claim(db: Database, claim_id: int, tg, publish: bool) -> str:
+    """Post a channel price: to the public channel (publish) or as a preview to you. Returns what happened."""
+    from .channels import ensure_schema, post_text
+    from .content import DISCLOSURE
+    ensure_schema(db)
+    rows = db.query("SELECT * FROM channel_claims WHERE id=?", (claim_id,))
+    if not rows:
+        raise ValueError(f"no channel product with id {claim_id}")
+    r = dict(rows[0])
+    target = tg.channel if publish else tg.admin_chat
+    if not target:
+        raise ValueError("set " + ("TELEGRAM_CHANNEL" if publish else "TELEGRAM_ADMIN_CHAT"))
+    link = r["link"] or r["post_url"]
+    tg.send_menu(target, post_text(db, r, DISCLOSURE["he"]),
+                 [("לפרטים ורכישה ›", link)] if link.startswith("https://") else [])
+    return f"✅ פורסם בערוץ: {r['title'][:80]}" if publish else "תצוגה מקדימה נשלחה אליך."
+
+
+def _channels_post(args, db: Database) -> int:
+    """A channel price as a post: preview to you, or --publish to the public channel (your decision)."""
+    from .telegram import TelegramPublisher
+    from .webhook import PublishError
+    if len(args.names) != 1 or not args.names[0].isdigit():
+        _err("error: give the id from the drop message, e.g. py main.py channels post 12")
+        return 2
+    try:
+        print(publish_claim(db, int(args.names[0]), TelegramPublisher(), args.publish))
+    except ValueError as exc:
+        _err(f"error: {exc}")
+        return 2
+    except PublishError as exc:
+        _err(f"Telegram problem: {exc}")
+        return 1
+    return 0
 
 
 def _channels_run(args) -> int:
@@ -1917,6 +2019,16 @@ def _channels_run(args) -> int:
         if args.action == "fetch":
             fetch_channels(cfg, db, args.delay)
             return 0
+        if args.action == "drops":
+            from .channels import drop_text, new_drops
+            drops = new_drops(db)
+            for r in drops:
+                print(drop_text(db, r) + "\n")
+            if not drops:
+                print("No new price drops in the stores' channels.")
+            return 0
+        if args.action == "post":
+            return _channels_post(args, db)
         text = leads_text(db)
         if not text:
             print("No new products from the channels in the last 48 hours.")

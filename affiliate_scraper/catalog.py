@@ -115,13 +115,42 @@ def collect_catalog(db: Database, now: Optional[datetime] = None, hours: float =
         r["deal_id"] = deal_for.get(r["id"])
         names[r["domain"]][r["store"] or r["domain"]] += 1
         out.setdefault(r["domain"], {"name": "", "cats": defaultdict(list)})["cats"][cat].append(r)
+    _add_channel_stores(db, out, excluded_reason)
     for dom, entry in out.items():
+        if entry.get("claimed"):
+            continue
         st = _setting_for(dom, settings)
         name = (st or {}).get("name") or names[dom].most_common(1)[0][0]
         if len(name) > 30:                    # a shop's page title, not a name: fall back to the address
             name = dom.removeprefix("www.")
         entry["name"] = name
     return out
+
+
+def _add_channel_stores(db: Database, out: dict, excluded_reason) -> None:
+    """Stores read from their Telegram channel (KSP, מחסני חשמל...): their STATED prices from the last week.
+    Kept apart ("tg-<channel>") and marked claimed - never mixed with checked prices."""
+    from .channels import recent_claims, store_name, verified_matches
+    for r in recent_claims(db):
+        cat = classify(r["title"])
+        if not cat or excluded_reason(r["title"]):
+            continue
+        key = f"tg-{r['channel'].lower()}"
+        entry = out.setdefault(key, {"name": store_name(r["channel"]), "cats": defaultdict(list), "claimed": True,
+                                     "channel": r["channel"]})
+        entry["cats"][cat].append({
+            "title": r["title"], "price": r["price"], "currency": r.get("currency") or "ILS", "claimed": True,
+            "was_price": r.get("was_price"), "prev_price": r.get("prev_price"), "posted_at": r["posted_at"],
+            "url": r["link"] or r["post_url"], "affiliate_url": "", "image": "", "store": entry["name"],
+            "matches": verified_matches(db, r["title"], limit=1), "deal_id": None})
+
+
+def biggest_stated_discount(products: list[dict], n: int = TOP_N) -> list[dict]:
+    """Channel stores: the biggest discount THE STORE states ("במקום" or its own earlier post)."""
+    def pct(p):
+        ref = p.get("prev_price") or p.get("was_price")
+        return (ref - p["price"]) / ref if ref else 0
+    return [p for p in sorted(products, key=lambda p: -pct(p)) if pct(p) > 0][:n]
 
 
 def cheapest(products: list[dict], n: int = TOP_N) -> list[dict]:

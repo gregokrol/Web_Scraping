@@ -112,3 +112,81 @@ def test_brand_title_beats_a_slogan_and_leads_stay_in_the_niche(tmp_path):
     text = leads_text(db)
     assert "TWS-5" in text and "גרבי" not in text
     assert "גרבי" in leads_text(db, niche_only=False)
+
+
+def test_a_later_cheaper_post_is_a_drop_told_once(tmp_path):
+    from affiliate_scraper.channels import mark_drops_told, new_drops
+    db = Database(tmp_path / "c.db")
+    first = "<html><body>" + post(10, ["שעון חכם Acme Runner 265", "ב-₪1,490", "במקום", "₪1,829"],
+                                  when="2099-01-01T10:00:00+00:00") + "</body></html>"
+    later = "<html><body>" + post(20, ["שעון ריצה חכם Acme Runner 265 GPS", "ב-₪1,290", "במקום", "₪1,829"],
+                                  when="2099-01-05T10:00:00+00:00") + "</body></html>"
+    save_claims(db, parse_channel_html(first, "ShopIL"))
+    assert new_drops(db) == []
+    save_claims(db, parse_channel_html(later, "ShopIL"))
+    [d] = new_drops(db)
+    assert (d["price"], d["prev_price"]) == (1290.0, 1490.0)          # the same product (model "265"), cheaper
+    from affiliate_scraper.channels import drop_text
+    text = drop_text(db, d)
+    assert "ירד שוב" in text and "₪1,290.00" in text and "₪1,490.00" in text
+    mark_drops_told(db, [d["id"]])
+    assert new_drops(db) == []                                        # told once
+
+
+def test_old_table_on_the_owners_computer_is_migrated(tmp_path):
+    import sqlite3
+    path = tmp_path / "old.db"
+    con = sqlite3.connect(path)
+    con.execute("CREATE TABLE channel_claims (id INTEGER PRIMARY KEY, channel TEXT NOT NULL, post_id TEXT NOT NULL, "
+                "post_url TEXT, posted_at TEXT, title TEXT, price REAL, was_price REAL, currency TEXT DEFAULT 'ILS', "
+                "link TEXT, fetched_at TEXT, UNIQUE(channel, post_id))")
+    con.execute("INSERT INTO channel_claims(channel, post_id, title, price) VALUES ('ShopIL','1','מקלדת Acme K8',249)")
+    con.commit()
+    con.close()
+    from affiliate_scraper.channels import ensure_schema
+    db = Database(path)
+    ensure_schema(db)
+    [row] = db.query("SELECT item_key, drop_notified FROM channel_claims")
+    assert row["item_key"] and row["drop_notified"] == 0
+
+
+def test_channel_store_on_the_website_is_marked_as_the_stores_price(tmp_path):
+    from pathlib import Path
+
+    from affiliate_scraper.site import SiteConfig, build_site
+    db = Database(tmp_path / "c.db")
+    now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
+    page = "<html><body>" + post(1, ["מקלדת מכנית גיימינג Acme K8", "ב-₪249", "במקום", "₪299"], when=now) + \
+        "</body></html>"
+    save_claims(db, parse_channel_html(page, "KSPcoil"))
+    cfg = SiteConfig(base_url="https://u.github.io/s/", out_dir=str(tmp_path / "site"))
+    build_site(db, cfg)
+    out = Path(cfg.out_dir)
+    assert "מוצרים לפי ערוץ החנות" in (out / "stores" / "index.html").read_text(encoding="utf-8")
+    cat = (out / "stores" / "tg-kspcoil" / "gaming.html").read_text(encoding="utf-8")
+    assert "KSP" in cat and "לא נבדק אצלנו בדף המוצר" in cat and "ההנחות הגדולות (לפי החנות)" in cat
+    assert "עסקה שנבדקה" not in cat
+
+
+def test_publish_claim_posts_the_stores_price_as_such(tmp_path):
+    from affiliate_scraper.commands import publish_claim
+    db = Database(tmp_path / "c.db")
+    save_claims(db, parse_channel_html(PAGE, "KSPcoil"))
+    sent = []
+    tg = SimpleNamespace(channel="@deals", admin_chat="42",
+                         send_menu=lambda chat, text, buttons: sent.append((chat, text, buttons)))
+    cid = db.query("SELECT id FROM channel_claims WHERE post_id='1'")[0]["id"]
+    assert publish_claim(db, cid, tg, publish=False) == "תצוגה מקדימה נשלחה אליך."
+    assert publish_claim(db, cid, tg, publish=True).startswith("✅ פורסם בערוץ")
+    (c1, preview, _), (c2, public, buttons) = sent
+    assert c1 == "42" and c2 == "@deals"
+    assert "לפי ערוץ KSP" in public and "לא נבדק אצלנו" in public and "גילוי נאות" in public
+    assert buttons == [("לפרטים ורכישה ›", "https://shop.example/link/wh500")]
+
+
+def test_same_product_across_posts():
+    from affiliate_scraper.channels import same_product
+    assert same_product("שעון חכם Garmin Forerunner 265", "שעון ריצה Garmin Forerunner 265 Music GPS")
+    assert not same_product("שעון חכם Garmin Forerunner 265", "שעון חכם Garmin Forerunner 165")
+    assert not same_product("אוזניות Philips TAH60", "אוזניות Philips TAK4200")
+    assert not same_product("מכונת קפה", "מכונת קפה")                   # no brand/model words: never guessed

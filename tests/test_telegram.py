@@ -121,8 +121,11 @@ def test_pending_notification_goes_to_admin_chat():
     bot = Bot()
     pub(bot).send_event("deals.pending_approval", {"count": 1, "alerts": [
         {"id": 7, "title": "Kettle", "price": 90, "currency": "ILS", "deal_score": 80}]})
-    method, body, _ = bot.calls[0]
-    assert method == "sendMessage" and body["chat_id"] == "42" and "#7" in body["text"]
+    (m1, intro, _), (m2, deal, _) = bot.calls[:2]
+    assert m1 == m2 == "sendMessage" and intro["chat_id"] == deal["chat_id"] == "42"
+    assert "#7" in deal["text"]                                    # one message per deal, with buttons
+    buttons = [b["callback_data"] for b in deal["reply_markup"]["inline_keyboard"][0]]
+    assert buttons == ["dpub:7", "drej:7"]
     with pytest.raises(TelegramError):
         TelegramPublisher(token="t", channel="@c", session=Bot(), min_interval=0).notify_admin("x")
 
@@ -173,7 +176,8 @@ def test_automation_run_posts_to_telegram_channel(tmp_path, local_site, monkeypa
 
     assert main(["run"]) == 0
     sent = [(p["path"].rsplit("/", 1)[-1], json.loads(p["body"])) for p in local_site.posts]
-    assert [m for m, b in sent] == ["sendMessage"] and sent[0][1]["chat_id"] == "42"   # approval request only
+    assert [m for m, b in sent] == ["sendMessage", "sendMessage"] and {b["chat_id"] for m, b in sent} == {"42"}
+    assert sent[1][1]["reply_markup"]["inline_keyboard"][0][0]["callback_data"].startswith("dpub:")  # approve button
 
     db = Database(tmp_path / "t.db")
     [alert] = list_alerts(db, "pending")

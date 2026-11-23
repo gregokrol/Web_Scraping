@@ -166,3 +166,51 @@ def test_agents_have_the_planned_models():
               for p in root.glob("*.md")}
     assert models == {"data-keeper": "sonnet", "web-scanner": "sonnet", "price-matcher": "sonnet",
                       "instagram-marketer": "sonnet", "funnel-analyst": "sonnet", "qa-reviewer": "opus"}
+
+
+class ButtonTG(FakeTG):
+    def __init__(self):
+        super().__init__()
+        self.answered, self.cleared = [], []
+
+    def answer_button(self, cid, text=""):
+        self.answered.append((cid, text))
+
+    def clear_buttons(self, chat_id, message_id):
+        self.cleared.append(message_id)
+
+
+def press(data, from_id=42, chat_id=42, chat_type="private"):
+    return {"update_id": 9, "callback_query": {"id": "cb1", "data": data, "from": {"id": from_id},
+                                               "message": {"message_id": 77, "chat": {"id": chat_id, "type": chat_type}}}}
+
+
+def test_button_press_runs_the_action_once(tmp_path):
+    done = []
+    tg = ButtonTG()
+    lst = Listener(tg, tmp_path, "42", out_dir=tmp_path / "o",
+                   actions={"cpost": lambda i: done.append(i) or f"✅ פורסם {i}"})
+    lst.handle(press("cpost:12"))
+    assert done == [12] and tg.cleared == [77] and any("✅ פורסם 12" in t for _, t in tg.sent)
+
+
+def test_button_press_from_anyone_else_does_nothing(tmp_path):
+    done = []
+    tg = ButtonTG()
+    lst = Listener(tg, tmp_path, "42", out_dir=tmp_path / "o", actions={"cpost": lambda i: done.append(i) or "x"})
+    lst.handle(press("cpost:12", from_id=99))                        # someone else's press
+    lst.handle(press("cpost:12", chat_id=-1005, chat_type="channel"))  # a press in the channel
+    lst.handle(press("rm:12"))                                       # unknown action
+    lst.handle(press("cpost:12; drop table"))                        # not an id
+    assert done == [] and tg.cleared == [] and tg.sent == []
+
+
+def test_failed_action_is_told_not_crashing(tmp_path):
+    tg = ButtonTG()
+
+    def boom(i):
+        raise RuntimeError("Telegram is down")
+
+    lst = Listener(tg, tmp_path, "42", out_dir=tmp_path / "o", actions={"dpub": boom})
+    lst.handle(press("dpub:3"))
+    assert any("נכשל" in t and "Telegram is down" in t for _, t in tg.sent)

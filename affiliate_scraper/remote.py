@@ -102,7 +102,10 @@ class Listener:
     def __init__(self, tg, project_dir: Path, admin_chat: str,
                  runner: Callable[[str, Path], str] = run_claude,
                  status: Optional[Callable[[], str]] = None, digest: Optional[Callable[[], str]] = None,
-                 out_dir: Optional[Path] = None):
+                 out_dir: Optional[Path] = None, actions: Optional[dict[str, Callable[[int], str]]] = None):
+        """``actions``: button handlers by prefix, e.g. {"cpost": publish a channel price, "dpub": approve and
+        publish a deal} - each gets the id and returns the text to show you."""
+        self.actions = actions or {}
         self.tg, self.project_dir, self.admin_chat = tg, Path(project_dir), str(admin_chat).strip()
         self.runner, self.status, self.digest = runner, status, digest
         self.out_dir = Path(out_dir or self.project_dir / "agents_output" / "telegram")
@@ -119,7 +122,34 @@ class Listener:
         except Exception as exc:  # noqa: BLE001 - a failed reply must not stop the listener
             log.warning("could not reply on Telegram: %s", exc)
 
+    def handle_button(self, cq: dict) -> None:
+        """A press on a button in YOUR private chat. Anyone else's press is refused (and does nothing)."""
+        msg = cq.get("message") or {}
+        mine = (str((cq.get("from") or {}).get("id")) == self.admin_chat and self.authorized(msg))
+        data = str(cq.get("data") or "")
+        prefix, _, ident = data.partition(":")
+        if not mine or prefix not in self.actions or not ident.isdigit():
+            try:
+                self.tg.answer_button(cq.get("id", ""), "לא מורשה" if not mine else "פעולה לא מוכרת")
+            except Exception:  # noqa: BLE001
+                pass
+            log.info("ignored a button press: %s from %s", data, (cq.get("from") or {}).get("id"))
+            return
+        try:
+            self.tg.answer_button(cq["id"], "מבצע...")
+            self.tg.clear_buttons(self.admin_chat, msg["message_id"])     # one decision per message
+        except Exception as exc:  # noqa: BLE001
+            log.warning("button acknowledgement failed: %s", exc)
+        try:
+            result = self.actions[prefix](int(ident))
+        except Exception as exc:  # noqa: BLE001 - tell, do not crash the listener
+            result = f"❌ נכשל: {str(exc)[:300]}"
+        self.reply(result)
+
     def handle(self, update: dict) -> None:
+        if update.get("callback_query"):
+            self.handle_button(update["callback_query"])
+            return
         msg = update.get("message") or {}
         if not msg or not self.authorized(msg):
             if msg:

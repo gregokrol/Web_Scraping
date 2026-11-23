@@ -220,7 +220,7 @@ class TelegramPublisher:
 
     def get_updates(self, offset: Optional[int] = None, wait: int = 50) -> list:
         """Long-poll for new messages to the bot (used by the Telegram manager listener)."""
-        payload = {"timeout": wait, "allowed_updates": ["message"]}
+        payload = {"timeout": wait, "allowed_updates": ["message", "callback_query"]}
         if offset is not None:
             payload["offset"] = offset
         return self._api("getUpdates", payload, retries=0, http_timeout=wait + 15) or []
@@ -253,6 +253,21 @@ class TelegramPublisher:
                                          "disable_notification": True})
         return msg
 
+    def send_buttons(self, chat_id, text: str, buttons: list[tuple[str, str]]) -> dict:
+        """A message with action buttons (callback_data, handled by the listener: py main.py telegram-listen)."""
+        row = [{"text": t, "callback_data": d[:64]} for t, d in buttons]
+        return self._api("sendMessage", {"chat_id": chat_id, "text": text[:MESSAGE_LIMIT],
+                                         "reply_markup": {"inline_keyboard": [row]},
+                                         "link_preview_options": {"is_disabled": True}})
+
+    def answer_button(self, callback_id: str, text: str = "") -> None:
+        self._api("answerCallbackQuery", {"callback_query_id": callback_id, "text": text[:190]}, retries=0)
+
+    def clear_buttons(self, chat_id, message_id: int) -> None:
+        """Remove the buttons from a message, so a decision cannot be made twice."""
+        self._api("editMessageReplyMarkup", {"chat_id": chat_id, "message_id": message_id,
+                                             "reply_markup": {"inline_keyboard": []}}, retries=0)
+
     def delete_message(self, chat_id, message_id: int) -> None:
         self._api("deleteMessage", {"chat_id": chat_id, "message_id": int(message_id)}, retries=1)
 
@@ -265,11 +280,15 @@ class TelegramPublisher:
                                      "message_id": msg["message_id"]}}
             return None
         elif event == "deals.pending_approval":
-            lines = [f"{data['count']} עסקאות ממתינות לאישור:"]
-            for a in data["alerts"][:20]:
-                lines.append(f"#{a['id']} {a['title'][:60]} - {a['price']} {a['currency']} (Deal {a['deal_score']})")
-            lines.append("אישור: py main.py approve <id>  או ב-Dashboard")
-            self.notify_admin("\n".join(lines))
+            # one message per deal, with buttons: the listener on your computer publishes it when you press
+            self.notify_admin(f"{data['count']} עסקאות ממתינות לאישור. לכל אחת: ✅ מפרסם בערוץ, ✖️ דוחה.\n"
+                              "(הכפתורים עובדים כשמנהל הטלגרם פועל במחשב: תפריט 31/32)")
+            for a in data["alerts"][:10]:
+                self.send_buttons(self.admin_chat,
+                                  f"#{a['id']} {a['title'][:80]}\n{a['price']} {a['currency']}\n{a.get('url') or ''}",
+                                  [("✅ פרסם בערוץ", f"dpub:{a['id']}"), ("✖️ דחה", f"drej:{a['id']}")])
+            if data["count"] > 10:
+                self.notify_admin(f"ועוד {data['count'] - 10}: py main.py alerts --status pending")
         elif event == "crawl.errors" and self.admin_chat:
             self.notify_admin(f"⚠️ {len(data.get('runs', []))} ריצות עם שגיאות. פרטים: py main.py db errors")
 
