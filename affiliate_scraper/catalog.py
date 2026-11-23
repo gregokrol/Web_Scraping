@@ -172,3 +172,43 @@ def most_popular(products: list[dict], n: int = TOP_N) -> list[dict]:
         return []
     reviewed.sort(key=lambda p: (-(p["review_count"] or 0), -(p.get("rating") or 0), p["price"]))
     return reviewed[:n]
+
+
+def search_items(db: Database, now: Optional[datetime] = None, hours: float = 48,
+                 settings: Optional[dict] = None) -> list[dict]:
+    """Everything a visitor can search on the website: checked products (fresh, in stock, allowed, from
+    enabled stores - any category) and the stores' channel prices (marked claimed). One entry per product+store."""
+    from .alerts import excluded_reason
+    from .channels import recent_claims, store_name
+    now = now or datetime.now(timezone.utc)
+    settings = store_settings() if settings is None else settings
+    since = (now - timedelta(hours=hours)).replace(microsecond=0).isoformat()
+    deal_for = {r["offer_id"]: r["id"] for r in db.query(
+        "SELECT offer_id, MAX(id) id FROM deal_alerts WHERE status IN ('approved','publishing','published') "
+        "GROUP BY offer_id")}
+    items, seen = [], set()
+    for r in db.query("SELECT id, title, price, currency, store, domain, url, affiliate_url, image, last_fetched_at, "
+                      "category FROM offers WHERE price_verified=1 AND price IS NOT NULL AND price > 0 AND last_seen >= ? "
+                      "AND availability IN ('InStock','LimitedAvailability','OnlineOnly','InStoreOnly') ORDER BY price",
+                      (since,)):
+        r = dict(r)
+        st = _setting_for(r["domain"], settings)
+        if not r["title"] or excluded_reason(r["title"]) or (st is not None and not st["enabled"]):
+            continue
+        store = (st or {}).get("name") or r["store"] or r["domain"]
+        if len(store) > 30:
+            store = r["domain"]
+        key = ((r["title"] or "").strip().lower(), r["domain"])
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append({"title": r["title"], "price": r["price"], "currency": r["currency"], "store": store,
+                      "url": r["affiliate_url"] or r["url"], "image": r["image"] or "", "deal_id": deal_for.get(r["id"]),
+                      "checked": r["last_fetched_at"] or "", "claimed": False, "cat": classify(r["title"], r["category"] or "")})
+    for r in recent_claims(db):
+        if excluded_reason(r["title"]):
+            continue
+        items.append({"title": r["title"], "price": r["price"], "currency": r.get("currency") or "ILS",
+                      "store": store_name(r["channel"]), "url": r["link"] or r["post_url"], "image": "", "deal_id": None,
+                      "checked": r["posted_at"] or "", "claimed": True, "cat": classify(r["title"])})
+    return items

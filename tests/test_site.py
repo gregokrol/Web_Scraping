@@ -169,7 +169,7 @@ def test_site_command_build(tmp_path, capsys):
     (tmp_path / "automation.json").write_text(json.dumps({"db": str(tmp_path / "a.db"),
                                                           "site": {"out_dir": str(tmp_path / "web")}}), encoding="utf-8")
     assert main(["site", "build"]) == 0
-    assert "Built 4 page(s), 1 deal(s)" in capsys.readouterr().out      # + stores/index.html
+    assert "Built 5 page(s), 1 deal(s)" in capsys.readouterr().out      # + stores/index.html, search.html
 
 
 def test_listing_shows_each_product_once_with_its_best_offer():

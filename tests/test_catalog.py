@@ -147,3 +147,42 @@ def test_store_settings_read_from_sources_json(tmp_path, monkeypatch):
         encoding="utf-8")
     assert store_settings() == {"bug.co.il": {"name": "באג", "enabled": True},
                                 "fox.co.il": {"name": "פוקס", "enabled": False}}
+
+
+def test_search_page_and_index(tmp_path):
+    db = Database(tmp_path / "c.db")
+    add(db, "https://bug.example/a", "אוזניות JBL TUNE 520BT", 199)
+    add(db, "https://bug.example/b", "קרם לחות לפנים", 49)                 # any category is searchable
+    add(db, "https://bug.example/c", "מארז וייפ Acme", 99)                 # a forbidden product never is
+    cfg = SiteConfig(base_url="https://u.github.io/s/", out_dir=str(tmp_path / "site"))
+    build_site(db, cfg)
+    out = Path(cfg.out_dir)
+    index = json.loads((out / "search.json").read_text(encoding="utf-8"))
+    titles = {i["t"] for i in index}
+    assert titles == {"אוזניות JBL TUNE 520BT", "קרם לחות לפנים"}
+    jbl = next(i for i in index if "JBL" in i["t"])
+    assert jbl["p"] == 199.0 and jbl["h"] == "https://bug.example/a" and jbl["c"] == 0
+    page = (out / "search.html").read_text(encoding="utf-8")
+    assert 'id="sq"' in page and "search.json" in page and "textContent" in page   # built with DOM, not innerHTML
+    home = (out / "index.html").read_text(encoding="utf-8")
+    assert 'action="search.html"' in home                                   # the search box on every page
+    deep = (out / "stores" / "bug-example" / "mobile.html").read_text(encoding="utf-8")
+    assert 'action="../../search.html"' in deep
+
+
+def test_your_store_names_also_on_the_deal_cards(tmp_path, monkeypatch):
+    from affiliate_scraper.alerts import DealRules, decide, detect_deals
+    from affiliate_scraper.site import collect_deals
+
+    from .test_p2_automation import seed_db
+    monkeypatch.chdir(tmp_path)
+    db, oid = seed_db(tmp_path)
+    db.conn.execute("UPDATE offers SET store=? WHERE id=?",
+                    ("משחקים לילדים וצעצועים זה אמיגו. לגו, פליימוביל, מליסה וכל המותגים", oid))
+    db.conn.commit()
+    [a] = detect_deals(db, DealRules())
+    decide(db, [a["id"]], True)
+    dom = db.query("SELECT domain FROM offers WHERE id=?", (oid,))[0]["domain"]
+    (tmp_path / "sources.json").write_text(json.dumps({"stores": [{"domain": dom, "name": "אמיגו"}]}), encoding="utf-8")
+    [d] = collect_deals(db, SiteConfig(out_dir=str(tmp_path / "s")))
+    assert d["store"] == "אמיגו"

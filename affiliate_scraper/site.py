@@ -167,7 +167,10 @@ radial-gradient(700px 420px at 0% 10%,rgba(34,211,238,.16),transparent 60%),var(
 a{color:var(--cyan)}img{max-width:100%}
 .wrap{max-width:1160px;margin:0 auto;padding:0 16px}
 header{position:sticky;top:0;z-index:20;background:rgba(6,11,24,.78);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
-.top{display:flex;align-items:center;justify-content:space-between;gap:12px;height:68px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:68px;flex-wrap:wrap}
+.hsearch{flex:1 1 220px;max-width:340px}.hsearch input{width:100%;box-sizing:border-box;padding:10px 14px;border-radius:12px;
+border:1px solid var(--line);background:rgba(255,255,255,.06);color:var(--text);font:inherit;font-size:15px}
+.hsearch input:focus{outline:2px solid var(--yellow);outline-offset:1px}
 .brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--text);font-weight:800;font-size:21px}
 .brand img{width:46px;height:46px;border-radius:50%;box-shadow:0 0 18px rgba(34,211,238,.55)}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;font:inherit;font-weight:700;text-decoration:none;
@@ -233,9 +236,11 @@ padding:4px 12px;font-weight:700;font-size:14px}
 .tile{display:flex;flex-direction:column;gap:4px;padding:16px;border-radius:16px;background:var(--card);border:1px solid var(--line);
 color:var(--text);text-decoration:none}.tile:hover{border-color:var(--yellow)}.tile small{color:var(--muted)}
 .prow{display:flex;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line);color:var(--text);text-decoration:none}
-.prow:last-child{border-bottom:0}.pimg{flex:0 0 64px;height:64px;border-radius:12px;background:#fff;overflow:hidden;display:flex;
-align-items:center;justify-content:center}.pimg img{max-width:100%;max-height:100%;object-fit:contain}
+.prow:last-child{border-bottom:0}.pimg{flex:0 0 120px;height:120px;border-radius:14px;background:#fff;overflow:hidden;display:flex;
+align-items:center;justify-content:center;font-size:44px}.pimg img{max-width:100%;max-height:100%;object-fit:contain}
 .pb{display:flex;flex-direction:column;gap:2px;min-width:0}.pb .t{font-weight:600;overflow:hidden;text-overflow:ellipsis}
+@media (max-width:640px){.pimg{flex-basis:96px;height:96px}}
+.results-count{color:var(--muted);margin:6px 0 12px}
 .pills{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 16px}.pill{padding:6px 12px;border-radius:999px;border:1px solid var(--line);
 color:var(--text);text-decoration:none;background:var(--card)}.crumbs{color:var(--muted);font-size:14px}.crumbs a{color:var(--muted)}
 .panel{background:linear-gradient(180deg,var(--card2),var(--card));border:1px solid var(--line);border-radius:20px;padding:18px;margin:14px 0}
@@ -272,7 +277,7 @@ footer a{color:var(--muted)}
 .nav{display:flex;gap:6px;margin-inline-start:auto;margin-inline-end:10px}
 .nav a{color:var(--muted);text-decoration:none;font-weight:600;padding:8px 10px;border-radius:10px;white-space:nowrap}
 .nav a:hover{color:var(--text);background:rgba(255,255,255,.06)}
-@media (max-width:640px){.nav a:nth-child(3){display:none}.nav a{padding:8px 6px}.brand span{display:none}.top .btn-tg{padding:10px 12px;font-size:14px}}
+@media (max-width:640px){.hsearch{order:3;flex-basis:100%;max-width:none;margin:0 0 10px}.nav a:nth-child(3){display:none}.nav a{padding:8px 6px}.brand span{display:none}.top .btn-tg{padding:10px 12px;font-size:14px}}
 .back{display:inline-flex;align-items:center;gap:6px;color:var(--text);text-decoration:none;font-weight:700;border:1px solid var(--line);
 background:rgba(255,255,255,.04);border-radius:12px;padding:8px 14px}
 .back:hover{border-color:var(--cyan)}
@@ -281,7 +286,7 @@ background:rgba(255,255,255,.04);border-radius:12px;padding:8px 14px}
 border-radius:14px;padding:0 14px}
 .searchbox:focus-within{border-color:var(--cyan);box-shadow:var(--glow)}
 .searchbox input{flex:1;background:transparent;border:0;outline:0;color:var(--text);font:inherit;font-size:16px;padding:13px 0}
-#sort{background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:14px;padding:0 14px;font:inherit;min-height:48px}
+#sort,#ssort{background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:14px;padding:0 14px;font:inherit;min-height:48px}
 .chips{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}
 .chipf{background:rgba(255,255,255,.04);border:1px solid var(--line);color:var(--text);border-radius:99px;padding:7px 14px;font:inherit;
 font-weight:600;cursor:pointer}
@@ -333,6 +338,7 @@ def _layout(cfg: SiteConfig, title: str, description: str, body: str, path: str,
 <header><div class="wrap top">
 <a class="brand" href="{root}index.html"><img src="{root}logo.png" alt="">{e(cfg.title)}</a>
 <nav class="nav"><a href="{root}index.html#deals">🔥 עסקאות</a><a href="{root}stores/index.html">🏬 לפי חנות</a><a href="{root}how-we-check.html">איך אנחנו בודקים</a></nav>
+<form class="hsearch" action="{root}search.html" role="search"><input type="search" name="q" placeholder="🔍 חיפוש מוצר" aria-label="חיפוש מוצר" enterkeyhint="search"></form>
 {tg}
 </div></header>
 <main class="wrap">
@@ -393,7 +399,7 @@ KIND_LABEL = {"price_drop": "📉 ירידת מחיר", "price_change": "📉 י
 
 def _card(d: dict, cfg: SiteConfig, depth: int = 0) -> str:
     root = "../" * depth
-    img = f'<img src="{e(_safe_url(d["image"]))}" alt="{e(d["title"])}" loading="lazy">' if d.get("image") else ""
+    img = f'<img src="{e(_safe_url(d["image"]))}" alt="{e(d["title"])}" loading="lazy" referrerpolicy="no-referrer">' if d.get("image") else ""
     label = "העסקה הסתיימה" if d["ended"] else ("🏆 הנמוך ב-90 יום" if d["lowest90"] else KIND_LABEL.get(d["kind"], ""))
     ribbon = f'<span class="ribbon{" low" if d["lowest90"] and not d["ended"] else ""}">{e(label)}</span>' if label else ""
     save = (f'<span class="save"><bdi dir="ltr">-{d["savings_pct"]}%</bdi><small>חיסכון</small></span>'
@@ -425,8 +431,14 @@ def collect_deals(db: Database, cfg: SiteConfig, now: Optional[datetime] = None)
         f"FROM deal_alerts a JOIN offers o ON o.id=a.offer_id WHERE a.status IN ({','.join('?' * len(PUBLIC_STATUSES))}) "
         "ORDER BY a.id DESC", PUBLIC_STATUSES)
     out = []
+    from .catalog import _setting_for, store_settings
+    settings = store_settings()
     for r in rows:
         d = dict(r)
+        # your name for the store (sources.json); a shop's page title can be a whole sentence
+        st = _setting_for(d.get("domain") or "", settings)
+        name = (st or {}).get("name") or d.get("store") or d.get("domain") or ""
+        d["store"] = name if len(name) <= 30 else (d.get("domain") or name[:30])
         checked = _parse_iso(d["last_fetched_at"] or "")
         d["checked_at"] = d["last_fetched_at"] or d["created_at"]
         d["ago"] = _ago(d["checked_at"], now)
@@ -506,7 +518,7 @@ def _deal_page(db: Database, d: dict, cfg: SiteConfig) -> str:
                 f'המחיר האחרון שנבדק: {e(_money(d["current_price"], d["currency"]))}.</p>')
     elif d["stale"]:
         warn = '<p class="warn">⚠️ המחיר נבדק לפני יותר מ-48 שעות ועשוי להשתנות. בדקו את המחיר המעודכן באתר החנות.</p>'
-    img = f'<img src="{e(_safe_url(d["image"]))}" alt="{e(d["title"])}">' if d.get("image") else ""
+    img = f'<img src="{e(_safe_url(d["image"]))}" alt="{e(d["title"])}" referrerpolicy="no-referrer">' if d.get("image") else ""
     label = "העסקה הסתיימה" if d["ended"] else ("🏆 הנמוך ב-90 יום" if d["lowest90"] else KIND_LABEL.get(d["kind"], ""))
     chip = f'<span class="chip">חיסכון {d["savings_pct"]}%</span>' if d["savings_pct"] and not d["ended"] else ""
     was = (f'<p class="meta">מחיר קודם שנבדק באותה חנות: <span class="was">{e(_money(d["prev_price"], d["currency"]))}</span></p>'
@@ -605,7 +617,10 @@ def _product_row(p: dict, root: str, cfg: SiteConfig) -> str:
         href, attrs = f"{root}{deal_path(p['deal_id'])}", ""
     else:
         href, attrs = _safe_url(p.get("affiliate_url") or p["url"]), ' target="_blank" rel="sponsored nofollow noopener"'
-    img = f'<img src="{e(_safe_url(p["image"]))}" alt="" loading="lazy">' if p.get("image") else ""
+    from .catalog import CAT_BY_SLUG, classify
+    icon = CAT_BY_SLUG.get(classify(p.get("title") or ""), ("", "", "🛒"))[2]
+    img = (f'<img src="{e(_safe_url(p["image"]))}" alt="" loading="lazy" referrerpolicy="no-referrer" '
+           f'onerror="this.replaceWith(document.createTextNode(\'{icon}\'))">' if p.get("image") else icon)
     stars = (f' · ⭐ {p["rating"]:.1f} ({int(p["review_count"])} ביקורות)'
              if p.get("rating") and p.get("review_count") else "")
     deal = '<span class="chip">עסקה שנבדקה</span>' if p.get("deal_id") else ""
@@ -685,6 +700,73 @@ def build_store_pages(db: Database, cfg: SiteConfig, out: Path, now: Optional[da
     return pages
 
 
+SEARCH_JS = """<script>
+(function(){
+  var box=document.getElementById("sq"), sort=document.getElementById("ssort"), list=document.getElementById("results"),
+      count=document.getElementById("rcount"), data=[];
+  function norm(t){return (t||"").toLowerCase().replace(/[\\u0591-\\u05c7]/g,"").replace(/[-_,./()"']/g," ").trim();}
+  function money(v){return "\u20aa"+Number(v).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});}
+  function el(tag,cls,text){var x=document.createElement(tag); if(cls)x.className=cls; if(text!=null)x.textContent=text; return x;}
+  function row(it){
+    var a=el("a","prow"); a.href=it.h;
+    if(!it.r){a.target="_blank"; a.rel="sponsored nofollow noopener";}
+    var im=el("span","pimg");
+    if(it.i){var img=el("img"); img.referrerPolicy="no-referrer"; img.src=it.i; img.alt=""; img.loading="lazy";
+      img.onerror=function(){im.textContent="\\ud83d\\uded2";}; im.appendChild(img);} else im.textContent=it.c?"📢":"\\ud83d\\uded2";
+    var b=el("span","pb"); b.appendChild(el("span","t",it.t)); b.appendChild(el("span","price",money(it.p)));
+    if(it.d) b.appendChild(el("span","chip","\u05e2\u05e1\u05e7\u05d4 \u05e9\u05e0\u05d1\u05d3\u05e7\u05d4"));
+    b.appendChild(el("span","meta",it.s+(it.c?" \u00b7 \u05dc\u05e4\u05d9 \u05e2\u05e8\u05d5\u05e5 \u05d4\u05d7\u05e0\u05d5\u05ea, \u05dc\u05d0 \u05e0\u05d1\u05d3\u05e7 \u05d0\u05e6\u05dc\u05e0\u05d5":" \u00b7 \u05e0\u05d1\u05d3\u05e7 "+it.w)));
+    a.appendChild(im); a.appendChild(b); return a;
+  }
+  function run(){
+    var words=norm(box.value).split(/\\s+/).filter(function(w){return w.length>0;});
+    list.innerHTML="";
+    if(!words.length){count.textContent="\u05d4\u05e7\u05dc\u05d9\u05d3\u05d5 \u05e9\u05dd \u05e9\u05dc \u05de\u05d5\u05e6\u05e8, \u05de\u05d5\u05ea\u05d2 \u05d0\u05d5 \u05d3\u05d2\u05dd"; return;}
+    var hits=data.filter(function(it){var hay=norm(it.t+" "+it.s); return words.every(function(w){return hay.indexOf(w)>=0;});});
+    if(sort.value==="price") hits.sort(function(a,b){return a.p-b.p;});
+    else hits.sort(function(a,b){return (b.d?1:0)-(a.d?1:0)||(a.c?1:0)-(b.c?1:0)||a.p-b.p;});
+    count.textContent=hits.length? hits.length+" \u05ea\u05d5\u05e6\u05d0\u05d5\u05ea"+(hits.length>60?" (\u05de\u05d5\u05e6\u05d2\u05d5\u05ea 60 \u05d4\u05e8\u05d0\u05e9\u05d5\u05e0\u05d5\u05ea)":"") : "\u05dc\u05d0 \u05e0\u05de\u05e6\u05d0 \u05de\u05d5\u05e6\u05e8. \u05e0\u05e1\u05d5 \u05de\u05d9\u05dc\u05d4 \u05d0\u05d7\u05e8\u05ea \u05d0\u05d5 \u05e9\u05dd \u05de\u05d5\u05ea\u05d2.";
+    hits.slice(0,60).forEach(function(it){list.appendChild(row(it));});
+  }
+  var q=new URLSearchParams(location.search).get("q")||""; box.value=q;
+  fetch("search.json").then(function(r){return r.json();}).then(function(d){data=d; run();})
+    .catch(function(){count.textContent="\u05d4\u05d7\u05d9\u05e4\u05d5\u05e9 \u05dc\u05d0 \u05d6\u05de\u05d9\u05df \u05db\u05e8\u05d2\u05e2.";});
+  box.addEventListener("input",run); sort.addEventListener("change",run);
+  document.querySelectorAll(".hsearch input").forEach(function(i){i.value=q;});
+})();
+</script>"""
+
+
+def build_search(db: Database, cfg: SiteConfig, out: Path, now: Optional[datetime] = None) -> int:
+    """search.html + search.json: every checked product (and the stores' channel prices, marked), searched in the
+    visitor's browser - a static site needs no server for it. Returns how many products are searchable."""
+    from .catalog import search_items
+    items = []
+    for it in search_items(db, now):
+        if it["deal_id"]:
+            href, ours = deal_path(it["deal_id"]), True
+        else:
+            href, ours = _safe_url(it["url"]), False
+            if not href.startswith("https://"):
+                continue
+        items.append({"t": it["title"][:160], "p": round(float(it["price"]), 2), "s": it["store"], "h": href,
+                      "i": _safe_url(it["image"]) if it["image"] else "", "c": 1 if it["claimed"] else 0,
+                      "d": 1 if it["deal_id"] else 0, "r": 1 if ours else 0, "w": _when(it["checked"]).split(" ")[0]})
+    (out / "search.json").write_text(json.dumps(items, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    body = ('<p class="crumbs"><a href="index.html">ראשי</a> › חיפוש</p><h1>🔍 חיפוש מוצר</h1>'
+            '<div class="toolbar"><label class="searchbox">🔎<input id="sq" type="search" '
+            'placeholder="למשל: PS5, אוזניות JBL, מחשב נייד" aria-label="חיפוש מוצר" autofocus></label> '
+            '<select id="ssort" aria-label="מיון">'
+            '<option value="best">עסקאות שנבדקו קודם</option><option value="price">הזול ביותר קודם</option></select></div>'
+            '<p class="results-count" id="rcount"></p><div class="panel" id="results"></div>'
+            f'<p class="meta">חיפוש ב-{len(items)} מוצרים: מחירים שנבדקו ב-48 השעות האחרונות, ומחירים מערוצי החנויות '
+            '(מסומנים "לפי ערוץ החנות"). המחיר הקובע הוא באתר החנות.</p>')
+    (out / "search.html").write_text(_layout(cfg, f"חיפוש מוצר | {cfg.title}",
+                                             "חיפוש מוצר בין כל המחירים שנבדקו בחנויות בישראל.", body, "search.html",
+                                             tail=SEARCH_JS), encoding="utf-8")
+    return len(items)
+
+
 def build_site(db: Database, cfg: SiteConfig, now: Optional[datetime] = None) -> dict:
     """Write the whole site into cfg.out_dir. Returns {"pages": n, "deals": n, "out_dir": path}."""
     out = Path(cfg.out_dir)
@@ -752,7 +834,8 @@ def build_site(db: Database, cfg: SiteConfig, now: Optional[datetime] = None) ->
     (out / "how-we-check.html").write_text(_layout(cfg, f"איך אנחנו בודקים מחירים | {cfg.title}",
                                                    "השיטה: מחיר מאומת, היסטוריית מחיר, השוואה בין חנויות ואישור ידני.",
                                                    HOW_WE_CHECK, "how-we-check.html"), encoding="utf-8")
-    pages = ["index.html", "how-we-check.html", *[deal_path(d["id"]) for d in deals],
+    build_search(db, cfg, out, now)
+    pages = ["index.html", "how-we-check.html", "search.html", *[deal_path(d["id"]) for d in deals],
              *build_store_pages(db, cfg, out, now)]
     if cfg.base_url:
         urls = "".join(f"<url><loc>{e(cfg.base_url + p)}</loc></url>" for p in pages)
