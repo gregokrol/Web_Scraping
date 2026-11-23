@@ -276,3 +276,32 @@ def test_claude_runs_with_the_lock(tmp_path):
                     encoding="utf-8")
     fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
     assert "LOCK=1" in run_claude("x", tmp_path, exe=str(fake))
+
+
+def test_progress_reports_and_task_shows_them(tmp_path, monkeypatch, capsys):
+    from affiliate_scraper.commands import progress_line, read_progress
+    monkeypatch.chdir(tmp_path)
+    assert main(["progress", "plan", "3 משימות: web-scanner, QA", "--no-telegram"]) == 0
+    assert main(["progress", "qa-fail", "web-scanner סבב 1: 2 הערות", "--no-telegram"]) == 0
+    entries = read_progress()
+    assert [e["kind"] for e in entries] == ["plan", "qa-fail"]
+    assert progress_line(entries[1]) == "🔍 QA: FAIL: web-scanner סבב 1: 2 הערות"
+    gate = threading.Event()
+    tg = FakeTG()
+    lst = Listener(tg, tmp_path, "42", runner=lambda t, d: gate.wait(5) and "ok", out_dir=tmp_path / "o")
+    lst.progress = lambda: [progress_line(p) for p in read_progress(since=lst.started_at)]
+    lst.handle(msg("/manager משימה"))
+    import time
+    time.sleep(0.1)
+    assert main(["progress", "start", "price-matcher: בדיקת השוואות", "--no-telegram"]) == 0
+    lst.handle(msg("/task"))
+    shown = tg.sent[-1][1]
+    assert "▶️ התחיל: price-matcher" in shown and "QA: FAIL" not in shown   # only the current task's stages
+    gate.set()
+    lst.busy.join(5)
+
+
+def test_progress_kind_is_checked(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit):
+        main(["progress", "deleted-everything", "x"])

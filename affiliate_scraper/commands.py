@@ -1935,6 +1935,7 @@ def _listen_run(args) -> int:
     }
     listener = Listener(tg, Path.cwd(), tg.admin_chat, runner=partial(run_claude, model=model),
                         status=status, digest=digest, actions=actions)
+    listener.progress = lambda: [progress_line(p) for p in read_progress(since=listener.started_at, limit=8)]
     print("Telegram manager is listening. Write /help to your bot in Telegram. Ctrl+C stops it.")
     try:
         tg.notify_admin("🤖 מנהל הסוכנים מחובר ומקשיב. כתוב /help לרשימת הפקודות.")
@@ -2168,3 +2169,61 @@ def _menu_run(args) -> int:
 
 cli.register_subcommand("channel-menu", "A pinned channel post with a button per store (store -> category -> top 5)",
                         _menu_build, _menu_run)
+
+
+# ---------------------------------------------------------------- progress of the agent manager
+PROGRESS_FILE = Path("agents_output") / "progress.jsonl"
+PROGRESS_KINDS = {"plan": "📋 התוכנית", "start": "▶️ התחיל", "done": "✔️ סיים", "qa-pass": "🔍 QA: PASS",
+                  "qa-fail": "🔍 QA: FAIL", "fix": "🔁 תיקון", "blocked": "⚠️ נתקע", "final": "🏁 הסתיים"}
+
+
+def _progress_build(ap) -> None:
+    ap.add_argument("kind", choices=sorted(PROGRESS_KINDS), help="the stage")
+    ap.add_argument("message", nargs="+", help="short text, e.g. 'web-scanner: בדיקת דפי מבצעים'")
+    ap.add_argument("--no-telegram", action="store_true", help="only write it down, do not message the owner")
+
+
+def read_progress(since: Optional[str] = None, limit: int = 10) -> list[dict]:
+    try:
+        lines = PROGRESS_FILE.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    out = []
+    for ln in lines:
+        try:
+            entry = json.loads(ln)
+        except ValueError:
+            continue
+        if not since or entry.get("at", "") >= since:
+            out.append(entry)
+    return out[-limit:]
+
+
+def progress_line(entry: dict) -> str:
+    return f"{PROGRESS_KINDS.get(entry.get('kind'), entry.get('kind'))}: {entry.get('message', '')}"
+
+
+def _progress_run(args) -> int:
+    """The agent manager reports each stage: written to agents_output/progress.jsonl and sent to the owner's
+    private chat (allowed also while public actions are locked)."""
+    entry = {"at": datetime.now(timezone.utc).isoformat(timespec="microseconds"), "kind": args.kind,
+             "message": " ".join(args.message)[:300]}
+    PROGRESS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with PROGRESS_FILE.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    text = progress_line(entry)
+    print(text)
+    if not args.no_telegram:
+        from .telegram import TelegramPublisher
+        from .webhook import PublishError
+        tg = TelegramPublisher()
+        if tg.token and tg.admin_chat:
+            try:
+                tg.notify_admin(text)
+            except PublishError as exc:
+                _err(f"(not sent to Telegram: {exc})")
+    return 0
+
+
+cli.register_subcommand("progress", "The agent manager reports a stage (plan, start, done, qa-pass, qa-fail, fix, "
+                        "blocked, final) - to agents_output/progress.jsonl and your Telegram", _progress_build, _progress_run)

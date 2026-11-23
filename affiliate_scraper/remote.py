@@ -19,7 +19,7 @@ import socket
 import subprocess
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -131,6 +131,9 @@ class Listener:
         self.busy: Optional[threading.Thread] = None
         self.current = ""
         self.started: Optional[float] = None
+        self.started_at = ""                  # ISO time of the current task, to read only its progress
+        # callable() -> ["📋 התוכנית: ...", ...] - the reported stages of the current task (agents_output/progress.jsonl)
+        self.progress: Optional[Callable[[], list[str]]] = None
         self.heartbeat = HEARTBEAT
 
     def authorized(self, msg: dict) -> bool:
@@ -182,7 +185,13 @@ class Listener:
         elif cmd == "task":
             if self.busy and self.busy.is_alive():
                 mins = (time.monotonic() - (self.started or time.monotonic())) / 60
-                self.reply(f"⏳ המנהל עובד כבר {mins:.0f} דקות (עד {TASK_TIMEOUT // 60}) על:\n{self.current[:300]}")
+                stages = self.progress() if self.progress else []
+                text = f"⏳ המנהל עובד כבר {mins:.0f} דקות (עד {TASK_TIMEOUT // 60}) על:\n{self.current[:300]}"
+                if stages:
+                    text += "\n\nהשלבים עד עכשיו:\n" + "\n".join(stages)
+                else:
+                    text += "\n\nעוד לא דווח שלב (התוכנית מגיעה בדקות הראשונות)."
+                self.reply(text)
             else:
                 self.reply("המנהל פנוי. אין משימה פעילה.")
         elif cmd == "status":
@@ -207,6 +216,7 @@ class Listener:
     def _work(self, task: str) -> None:
         self.reply(f"✅ קיבלתי. המנהל מתחיל לעבוד על:\n{task[:300]}\n\nזה יכול לקחת כמה דקות. הסיכום יגיע לכאן.")
         started = self.started = time.monotonic()
+        self.started_at = datetime.now(timezone.utc).isoformat(timespec="microseconds")
         done = threading.Event()
 
         def beat():                                   # "still working" while the task runs

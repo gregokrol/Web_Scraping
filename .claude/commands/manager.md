@@ -33,6 +33,23 @@ argument-hint: "<המשימה, בעברית>"
   סוכן שצריך פרטים קורא את הקובץ ב-`agents_output/` בעצמו.
 - **QA בסבב חוזר** בודק רק את מה שהשתנה ואת ההערות הקודמות.
 
+## דיווח התקדמות (חובה, בכל מעבר שלב)
+הבעלים עוקב מהטלפון. בכל מעבר שלב מריצים **פקודה אחת קצרה**. היא נרשמת ב-`agents_output/progress.jsonl`
+ונשלחת לטלגרם שלו בפרטי (`/task` מציג אותה):
+```
+py main.py progress plan "3 משימות: web-scanner, price-matcher, QA"
+py main.py progress start "web-scanner: בדיקת דפי מבצעים"
+py main.py progress done "web-scanner: 4 דפים נבדקו"
+py main.py progress qa-fail "web-scanner סבב 1: 2 הערות (חמורה: robots)"
+py main.py progress fix "web-scanner סבב 2: מתקן 2 הערות"
+py main.py progress qa-pass "web-scanner סבב 2"
+py main.py progress blocked "price-matcher: 3 סבבים בלי PASS, מעביר לבעלים"
+py main.py progress final "2 תוצרים עברו QA, 1 נתקע"
+```
+- הודעה קצרה (עד שורה). **אין** בה מפתחות או פרטים אישיים.
+- **בערך 5 עד 12 דיווחים למשימה.** לא על כל קובץ.
+- `blocked` מדווחים מיד כשסוכן נתקע, ולא רק בסוף.
+
 ## שלב 0: הכנה
 1. קרא את `docs/agents/RULES.md` ואת `STATUS.md`.
 2. אם המשימה לא ברורה **עד כדי כך שאי אפשר להתחיל**, שאל את המשתמש שאלה אחת ממוקדת. אחרת, בחר ברירת מחדל סבירה וכתוב אותה בתוכנית.
