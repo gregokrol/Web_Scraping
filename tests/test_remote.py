@@ -227,3 +227,23 @@ def test_claude_found_outside_path(tmp_path, monkeypatch):
     exe.parent.mkdir(parents=True)
     exe.write_bytes(b"")
     assert find_claude() == str(exe)
+
+
+def test_task_command_and_still_working_messages(tmp_path):
+    gate = threading.Event()
+    tg = FakeTG()
+    lst = Listener(tg, tmp_path, "42", runner=lambda task, d: gate.wait(5) and "סיכום", out_dir=tmp_path / "o")
+    lst.heartbeat = 0.05
+    lst.handle(msg("/task"))
+    assert "פנוי" in tg.sent[-1][1]
+    lst.handle(msg("/manager משימה ארוכה"))
+    import time
+    time.sleep(0.2)
+    lst.handle(msg("/task"))
+    assert any("עובד כבר" in t and "משימה ארוכה" in t for _, t in tg.sent)
+    assert any("עדיין עובד" in t for _, t in tg.sent)                 # the heartbeat
+    gate.set()
+    lst.busy.join(5)
+    n = len(tg.sent)
+    time.sleep(0.2)
+    assert len(tg.sent) == n                                          # no heartbeat after the summary

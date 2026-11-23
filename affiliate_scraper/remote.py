@@ -32,6 +32,7 @@ ALLOWED_TOOLS = ",".join([
     "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)",
 ])
 TASK_TIMEOUT = 60 * 60          # one hour
+HEARTBEAT = 10 * 60             # "still working" every 10 minutes, so a long task does not look stuck
 # The manager plans and coordinates; Sonnet does that well and saves the account's quota. The agents keep
 # their own models (.claude/agents/*.md: opus for the QA gate, sonnet for the rest).
 DEFAULT_MANAGER_MODEL = "sonnet"
@@ -42,6 +43,7 @@ LOCK_PORT = 47823               # a second listener would make Telegram answer 4
 HELP = ("🤖 מנהל הסוכנים - פקודות:\n"
         "/manager <משימה> - המנהל מפרק את המשימה, מחלק לסוכנים, מעביר QA ומחזיר סיכום\n"
         "   (אפשר גם: מנהל: <משימה>)\n"
+        "/task - מה המנהל עושה עכשיו, וכמה זמן\n"
         "/status - דוח בדיקה עכשיו\n"
         "/digest - הסיכום לשיתוף עכשיו\n"
         "/help - ההודעה הזאת\n\n"
@@ -57,7 +59,7 @@ def parse_command(text: str) -> tuple[str, str]:
     if m:
         return "manager", m.group(1).strip()
     word = t.split()[0].split("@")[0].lower() if t else ""
-    if word in ("/status", "/digest", "/help", "/start"):
+    if word in ("/status", "/digest", "/help", "/start", "/task"):
         return ("help" if word == "/start" else word[1:]), ""
     return "unknown", t
 
@@ -126,6 +128,8 @@ class Listener:
         self.out_dir = Path(out_dir or self.project_dir / "agents_output" / "telegram")
         self.busy: Optional[threading.Thread] = None
         self.current = ""
+        self.started: Optional[float] = None
+        self.heartbeat = HEARTBEAT
 
     def authorized(self, msg: dict) -> bool:
         chat = msg.get("chat") or {}
@@ -173,6 +177,12 @@ class Listener:
         cmd, arg = parse_command(msg.get("text") or "")
         if cmd == "help":
             self.reply(HELP)
+        elif cmd == "task":
+            if self.busy and self.busy.is_alive():
+                mins = (time.monotonic() - (self.started or time.monotonic())) / 60
+                self.reply(f"⏳ המנהל עובד כבר {mins:.0f} דקות (עד {TASK_TIMEOUT // 60}) על:\n{self.current[:300]}")
+            else:
+                self.reply("המנהל פנוי. אין משימה פעילה.")
         elif cmd == "status":
             self.reply(self.status() if self.status else "הדוח לא זמין.")
         elif cmd == "digest":
@@ -194,7 +204,14 @@ class Listener:
 
     def _work(self, task: str) -> None:
         self.reply(f"✅ קיבלתי. המנהל מתחיל לעבוד על:\n{task[:300]}\n\nזה יכול לקחת כמה דקות. הסיכום יגיע לכאן.")
-        started = time.monotonic()
+        started = self.started = time.monotonic()
+        done = threading.Event()
+
+        def beat():                                   # "still working" while the task runs
+            while not done.wait(self.heartbeat):
+                self.reply(f"⏳ המנהל עדיין עובד ({(time.monotonic() - started) / 60:.0f} דקות). "
+                           "הסיכום יגיע לכאן. /task מראה מה הוא עושה.")
+        threading.Thread(target=beat, daemon=True).start()
         try:
             answer = self.runner(task, self.project_dir)
         except ClaudeNotFound:
@@ -204,6 +221,7 @@ class Listener:
             answer = f"❌ המשימה נעצרה אחרי {TASK_TIMEOUT // 60} דקות בלי סיום. כדאי לחלק אותה למשימות קטנות יותר."
         except Exception as exc:  # noqa: BLE001
             answer = f"❌ המנהל נכשל: {str(exc)[:500]}"
+        done.set()
         minutes = (time.monotonic() - started) / 60
         try:
             self.out_dir.mkdir(parents=True, exist_ok=True)
