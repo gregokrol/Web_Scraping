@@ -19,7 +19,7 @@ import html
 from typing import Optional
 
 DISCLOSURE = {
-    "he": "גילוי נאות: הפוסט כולל קישורי שותפים. רכישה דרכם עשויה לזכות אותנו בעמלה, ללא עלות נוספת עבורך. "
+    "he": "גילוי נאות: ייתכן שחלק מהקישורים הם קישורי שותפים. רכישה דרכם עשויה לזכות אותנו בעמלה, ללא עלות נוספת עבורך. "
           "המחירים נכונים למועד הבדיקה ועשויים להשתנות.",
     "en": "Disclosure: this post contains affiliate links. We may earn a commission at no extra cost to you. "
           "Prices were correct when checked and may change.",

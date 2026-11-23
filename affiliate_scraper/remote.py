@@ -67,8 +67,11 @@ def parse_command(text: str) -> tuple[str, str]:
 def manager_prompt(task: str) -> str:
     return ("You were started from the owner's private Telegram chat. Read .claude/commands/manager.md and "
             "docs/agents/RULES.md first, then act as the manager described there for the task below. "
-            "Never commit, push or publish anything. Your final message is sent back to Telegram: write it "
-            "in Hebrew, in the summary format of manager.md, under 3500 characters, plain text (no tables).\n\n"
+            "Never commit, push or publish anything. This run has no human watching it live: start every agent "
+            "in the FOREGROUND (run_in_background: false) and wait for it, never end your turn while an agent "
+            "runs, and do not write interim status messages - report stages with 'py main.py progress' instead. "
+            "Write exactly ONE final message, which is sent back to Telegram: in Hebrew, in the summary format of "
+            "manager.md (it starts with '## סיכום'), under 3500 characters, plain text (no tables).\n\n"
             f"The task:\n{task}")
 
 
@@ -110,6 +113,9 @@ def run_claude(task: str, project_dir: Path, timeout: int = TASK_TIMEOUT, exe: O
                        errors="replace", cwd=str(project_dir), timeout=timeout, env=env,
                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     out = (r.stdout or "").strip()
+    heads = [m.start() for m in re.finditer(r"(?m)^## סיכום", out)]
+    if heads:                         # only the final summary, not waiting notes printed before it
+        out = out[heads[-1]:]
     if r.returncode != 0 and not out:
         raise RuntimeError(f"claude exited with {r.returncode}: {(r.stderr or '').strip()[:500]}")
     return out or "(Claude returned no text)"

@@ -305,3 +305,19 @@ def test_progress_kind_is_checked(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     with pytest.raises(SystemExit):
         main(["progress", "deleted-everything", "x"])
+
+
+@pytest.mark.skipif(os.name == "nt", reason="uses a POSIX shell script as a stand-in for claude")
+def test_only_the_final_summary_is_returned(tmp_path):
+    fake = tmp_path / "claude"
+    fake.write_text(f"#!{sys.executable}\nprint('ה-QA עדיין רץ.')\nprint('זו הודעת סיום של המתנה ישנה.')\n"
+                    "print('## סיכום: המשימה')\nprint('מה נעשה: הכול')\n", encoding="utf-8")
+    fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+    out = run_claude("x", tmp_path, exe=str(fake))
+    assert out.startswith("## סיכום: המשימה") and "המתנה ישנה" not in out
+
+
+def test_disclosure_does_not_claim_links_that_do_not_exist_yet():
+    from affiliate_scraper.content import DISCLOSURE
+    from affiliate_scraper.site import DISCLOSURE as SITE
+    assert "ייתכן" in DISCLOSURE["he"] and "ייתכן" in SITE and "כולל קישורי שותפים" not in DISCLOSURE["he"] + SITE
