@@ -5,7 +5,8 @@ Price-tracking and deals system for Israeli stores (Python). Read `STATUS.md` fo
 ## Rules (always)
 Follow `docs/agents/RULES.md`: respect robots.txt and terms, never bypass blocks or CAPTCHA, no secrets in files,
 no success claims without running `py -m pytest -q`, no destructive git, no public posting without the owner.
-Answer the owner in Hebrew, in plain text (no `<div>` wrappers).
+**Always write to the owner in Hebrew** - every reply, every summary, every question, also after a tool error
+or a long technical step (code, commands and file names stay as they are). Plain text, no `<div>` wrappers.
 
 ## The agent manager
 When the owner hands over a task for the team - the message starts with `/manager`, `מנהל:` or `מנהל`, or asks
