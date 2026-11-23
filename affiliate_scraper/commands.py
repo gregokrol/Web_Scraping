@@ -2227,3 +2227,73 @@ def _progress_run(args) -> int:
 
 cli.register_subcommand("progress", "The agent manager reports a stage (plan, start, done, qa-pass, qa-fail, fix, "
                         "blocked, final) - to agents_output/progress.jsonl and your Telegram", _progress_build, _progress_run)
+
+
+# ---------------------------------------------------------------- Instagram carousel images
+def _carousel_build(ap) -> None:
+    ap.add_argument("--ids", type=int, nargs="*", default=None, help="these published deals (default: today's best)")
+    ap.add_argument("--count", type=int, default=5, help="how many deals (1-8, default 5)")
+    ap.add_argument("--hours", type=float, default=48, help="deals published in the last N hours (default 48)")
+    ap.add_argument("--no-product-images", action="store_true",
+                    help="the category icon instead of the store's product photo (if you are unsure about image rights)")
+    ap.add_argument("--telegram", action="store_true", help="send the slides and the caption to your private chat")
+    ap.add_argument("--config", default="automation.json")
+
+
+def _carousel_run(args) -> int:
+    from .carousel import caption_text, render, slides_html
+    from .digest import pick_deals
+    from .site import SiteConfig, collect_deals
+    if not 1 <= args.count <= 8:
+        _err("error: --count must be 1-8 (an Instagram carousel has up to 10 slides, 2 are the cover and the end)")
+        return 2
+    cfg = load_automation(args.config) if Path(args.config).exists() else {}
+    site_cfg = SiteConfig.from_dict(cfg.get("site"))
+    db = Database(cfg.get("db", DEFAULT_DB))
+    try:
+        if args.ids:
+            by_id = {d["id"]: d for d in collect_deals(db, site_cfg)}
+            deals = [by_id[i] for i in args.ids if i in by_id and not by_id[i]["ended"]]
+            missing = [i for i in args.ids if i not in by_id or by_id[i]["ended"]]
+            if missing:
+                _err(f"skipped (not published, or the price went back up): {', '.join(map(str, missing))}")
+        else:
+            deals = pick_deals(db, site_cfg, count=args.count, hours=args.hours)
+    finally:
+        db.close()
+    if not deals:
+        _err("No deals for a carousel right now: only published, active deals with a proven saving "
+             f"from the last {args.hours:g} hours. (py main.py digest shows the same list.)")
+        return 1
+    stamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+    out = Path(cfg.get("out_dir", "output")) / "carousel" / stamp
+    pages = slides_html(deals, site_cfg.telegram_url, product_images=not args.no_product_images)
+    try:
+        files = render(pages, out)
+    except RuntimeError as exc:
+        _err(f"error: {exc}")
+        return 2
+    caption = caption_text(deals, site_cfg.telegram_url)
+    (out / "caption.txt").write_text(caption + "\n", encoding="utf-8")
+    print(f"{len(files)} slides (1080x1350) and caption.txt in {out}")
+    if not args.no_product_images:
+        print("Note: product photos belong to the stores. If unsure, run again with --no-product-images.")
+    if args.telegram:
+        from .telegram import TelegramPublisher
+        from .webhook import PublishError
+        tg = TelegramPublisher()
+        if not tg.admin_chat:
+            _err("TELEGRAM_ADMIN_CHAT is not set - the files are only saved here.")
+            return 0
+        try:
+            tg.send_album(tg.admin_chat, files)
+            tg.notify_admin("📸 קרוסלה לאינסטגרם (טיוטה, לא פורסם):\n\n" + caption)
+            print("Sent to your Telegram chat.")
+        except PublishError as exc:
+            _err(f"Telegram problem: {exc}")
+            return 1
+    return 0
+
+
+cli.register_subcommand("carousel", "Instagram carousel images (1080x1350) from verified deals - drafts for you",
+                        _carousel_build, _carousel_run)

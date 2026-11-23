@@ -268,6 +268,14 @@ class TelegramPublisher:
                                          "disable_notification": True})
         return msg
 
+    def send_album(self, chat_id, paths: list, caption: str = "") -> None:
+        """Up to 10 images as one album (e.g. carousel slides), uploaded from local files."""
+        paths = [Path(p) for p in paths][:10]
+        media = [{"type": "photo", "media": f"attach://f{i}", **({"caption": caption[:1000]} if i == 0 and caption else {})}
+                 for i in range(len(paths))]
+        files = {f"f{i}": (p.name, p.read_bytes(), "image/png") for i, p in enumerate(paths)}
+        self._api("sendMediaGroup", {"chat_id": chat_id, "media": media}, files=files)
+
     def send_buttons(self, chat_id, text: str, buttons: list[tuple[str, str]]) -> dict:
         """A message with action buttons (callback_data, handled by the listener: py main.py telegram-listen)."""
         row = [{"text": t, "callback_data": d[:64]} for t, d in buttons]
