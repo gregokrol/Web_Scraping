@@ -60,6 +60,7 @@
 | `teach` | מורה פרטי: שיעורים קצרים, תרגול, דפי סיכום. זוכר איפה עצרתם |
 | `trend-research` | מה אנשים בישראל מחפשים ואומרים על נושא בחודש האחרון. רק חיפוש רגיל, בלי עוגיות ובלי התחברות |
 | `youtube-research` | ניתוח סרטון יוטיוב מתמליל שאתה מדביק ("הצגת תמליל" ביוטיוב) |
+| `video-ad` | הפקת ריל או פרסומת בקוד (HyperFrames + GSAP): בריף, נכסים אמיתיים, סצנה לכל קובץ, בדיקה ורינדור, וסאונד. מפרט ראשון: `docs/agents/VIDEO_SPEC_MECHIR_EMET.md` |
 | `social`, `copywriting`, `copy-editing`, `content-strategy`, `video`, `community-marketing`, `referrals`, `launch`, `customer-research`, `marketing-ideas` | מתוך `coreyhaines31/marketingskills` (רישיון MIT). **הכללים שלך קודמים להם** |
 
 **הכללים לשיווק:** `docs/agents/MARKETING.md`, שיווק שמושך בלי לחץ. אנשים ירצו להירשם בגלל הערך, לא בגלל לחץ.

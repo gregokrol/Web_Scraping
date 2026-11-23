@@ -2297,3 +2297,78 @@ def _carousel_run(args) -> int:
 
 cli.register_subcommand("carousel", "Instagram carousel images (1080x1350) from verified deals - drafts for you",
                         _carousel_build, _carousel_run)
+
+
+# ---------------------------------------------------------------- real screens of the website (video assets)
+SCREEN_PAGES = {"home": "index.html", "stores": "stores/index.html", "search": "search.html?q=PS5"}
+
+
+def _screens_build(ap) -> None:
+    ap.add_argument("--size", default="1080x1920", help="WIDTHxHEIGHT of the screenshots (1080x1920 = phone / Reel)")
+    ap.add_argument("--pages", nargs="*", default=None,
+                    help="site paths (default: home, stores, search, the newest deal page and one category page)")
+    ap.add_argument("--config", default="automation.json")
+
+
+def _screens_run(args) -> int:
+    """Screenshots of the REAL website (the built site folder) for videos and posts - no invented interface."""
+    import re
+    import threading
+    from functools import partial
+    from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+    from .site import SiteConfig
+    m = re.fullmatch(r"(\d{3,4})x(\d{3,4})", args.size)
+    if not m:
+        _err("error: --size must look like 1080x1920")
+        return 2
+    w, h = int(m.group(1)), int(m.group(2))
+    cfg = load_automation(args.config) if Path(args.config).exists() else {}
+    site_dir = Path(SiteConfig.from_dict(cfg.get("site")).out_dir)
+    if not (site_dir / "index.html").exists():
+        _err(f"error: no built website in {site_dir} - run 'py main.py site build' first")
+        return 2
+    pages = args.pages
+    if not pages:
+        pages = list(SCREEN_PAGES.values())
+        deals = sorted((site_dir / "deals").glob("*.html"), key=lambda p: p.stat().st_mtime, reverse=True)
+        cats = sorted((site_dir / "stores").glob("*/*.html"))
+        pages += [f"deals/{deals[0].name}"] if deals else []
+        pages += [f"stores/{cats[0].parent.name}/{cats[0].name}"] if cats else []
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        _err("error: Playwright is not installed: py -m pip install playwright && py -m playwright install chromium")
+        return 2
+    out = Path(cfg.get("out_dir", "output")) / "screens" / datetime.now().strftime("%Y-%m-%d_%H%M")
+    out.mkdir(parents=True, exist_ok=True)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), partial(SimpleHTTPRequestHandler, directory=str(site_dir)))
+    server.RequestHandlerClass.log_message = lambda *a: None
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_port}/"
+    exe = os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE") or None
+    saved = []
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(executable_path=exe, headless=True, args=["--no-sandbox"] if exe else [])
+            page = browser.new_page(viewport={"width": w, "height": h}, device_scale_factor=1)
+            for path in pages:
+                page.goto(base + path.lstrip("/"), wait_until="domcontentloaded")
+                try:
+                    page.wait_for_load_state("networkidle", timeout=8000)
+                except Exception:  # noqa: BLE001 - render what loaded
+                    pass
+                name = re.sub(r"[^a-z0-9]+", "-", path.lower()).strip("-") or "home"
+                target = out / f"{name}.png"
+                page.screenshot(path=str(target))
+                saved.append(target)
+            browser.close()
+    finally:
+        server.shutdown()
+    for f in saved:
+        print(f)
+    print(f"\n{len(saved)} real screenshots ({w}x{h}) in {out}")
+    return 0
+
+
+cli.register_subcommand("screens", "Real screenshots of your website for videos and posts (default 1080x1920)",
+                        _screens_build, _screens_run)

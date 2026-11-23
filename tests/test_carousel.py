@@ -46,3 +46,22 @@ def test_carousel_command_needs_real_deals(tmp_path, monkeypatch, capsys):
     (tmp_path / "automation.json").write_text(json.dumps({"db": str(tmp_path / "x.db")}), encoding="utf-8")
     assert main(["carousel"]) == 1 and "No deals for a carousel" in capsys.readouterr().err
     assert main(["carousel", "--count", "9"]) == 2
+
+
+def test_screens_of_the_real_site(tmp_path, monkeypatch, capsys):
+    pytest.importorskip("playwright")
+    if not os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE"):
+        pytest.skip("needs the local Chromium")
+    from PIL import Image
+
+    from affiliate_scraper.db import Database
+    from affiliate_scraper.site import SiteConfig, build_site
+    monkeypatch.chdir(tmp_path)
+    build_site(Database(tmp_path / "s.db"), SiteConfig(base_url="https://u.github.io/s/", out_dir=str(tmp_path / "site")))
+    (tmp_path / "automation.json").write_text(json.dumps({"site": {"out_dir": str(tmp_path / "site")}, "out_dir": "out"}),
+                                              encoding="utf-8")
+    assert main(["screens", "--size", "1080x1920", "--pages", "index.html", "search.html?q=PS5"]) == 0
+    shots = sorted((tmp_path / "out" / "screens").glob("*/*.png"))
+    assert [s.name for s in shots] == ["index-html.png", "search-html-q-ps5.png"]
+    assert Image.open(shots[0]).size == (1080, 1920)
+    assert main(["screens", "--size", "big"]) == 2
