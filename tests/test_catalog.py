@@ -25,7 +25,10 @@ def test_classify_into_the_niche():
     assert classify("אוזניות JBL TUNE 520BT") == "mobile"
     assert classify("שואב אבק רובוטי Roborock Q7") == "appliances"
     assert classify("מקדחה רוטטת Makita 18V") == "home"
-    assert classify("רובוט דינוזאור לילדים") is None                     # a toy is not an appliance
+    assert classify("רובוט דינוזאור לילדים") == "kids"                   # a toy robot is not an appliance
+    assert classify("שואב אבק רובוטי Roborock") == "appliances"
+    assert classify("כיסא בטיחות לתינוק Recaro") == "baby" and classify("כיסא משרדי ארגונומי") == "home"
+    assert classify("נעלי ריצה Nike Pegasus 41") == "sport" and classify("חולצת טי שירט כותנה") == "fashion"
     assert classify("קרם לחות") is None
 
 

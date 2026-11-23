@@ -352,8 +352,8 @@ def leads_text(db: Database, hours: float = 48, limit: int = 8, niche_only: bool
     rows = [dict(r) for r in db.query("SELECT * FROM channel_claims ORDER BY posted_at DESC LIMIT 200")]
     rows = [r for r in rows if (_parse_iso(r["posted_at"] or r["fetched_at"]) or since) >= since]
     if niche_only:
-        from .catalog import classify
-        rows = [r for r in rows if classify(r["title"])]
+        from .catalog import NICHE, classify
+        rows = [r for r in rows if classify(r["title"]) in NICHE]
     if not rows:
         return None
     # biggest stated discount first - the store's own figure, shown as such
