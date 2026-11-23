@@ -171,6 +171,9 @@ def test_channel_store_on_the_website_is_marked_as_the_stores_price(tmp_path):
     for f in (out / "stores" / "tg-kspcoil.html", out / "stores" / "tg-kspcoil" / "gaming.html"):
         desc = re.search(r'<meta name="description" content="([^"]*)"', f.read_text(encoding="utf-8")).group(1)
         assert "לא נבדקו אצלנו" in desc and "במחירים שנבדקו" not in desc, desc
+        page = f.read_text(encoding="utf-8")
+        assert "נבדקו במועד המצוין" not in page                  # the footer line does not contradict it
+    assert "גיימינג ב-KSP" in cat and "בKSP" not in cat            # a hyphen before a Latin name
 
 
 def test_publish_claim_posts_the_stores_price_as_such(tmp_path):
@@ -195,3 +198,8 @@ def test_same_product_across_posts():
     assert not same_product("שעון חכם Garmin Forerunner 265", "שעון חכם Garmin Forerunner 165")
     assert not same_product("אוזניות Philips TAH60", "אוזניות Philips TAK4200")
     assert not same_product("מכונת קפה", "מכונת קפה")                   # no brand/model words: never guessed
+
+
+def test_hebrew_prefix_before_a_name():
+    from affiliate_scraper.site import heb
+    assert heb("ב", "KSP") == "ב-KSP" and heb("ב", "באג") == "בבאג" and heb("ש", "iDigital") == "ש-iDigital"

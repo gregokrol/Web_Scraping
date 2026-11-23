@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import html
 import json
+import re
 import logging
 import shutil
 import subprocess
@@ -294,7 +295,7 @@ font-weight:600;cursor:pointer}
 
 def _layout(cfg: SiteConfig, title: str, description: str, body: str, path: str, depth: int = 0,
             og_image: str = "", json_ld: Optional[dict] = None, body_class: str = "", tail: str = "",
-            absolute: bool = False) -> str:
+            absolute: bool = False, disclosure: str = "") -> str:
     # absolute: for 404.html, which GitHub Pages serves at ANY missing address (also deep ones like
     # stores/x/y.html) - relative links to style.css / logo.png would break there
     root = (cfg.base_url or "/") if absolute else "../" * depth
@@ -338,7 +339,7 @@ def _layout(cfg: SiteConfig, title: str, description: str, body: str, path: str,
 {body}
 </main>
 <footer><div class="wrap">
-<p>{e(DISCLOSURE)}</p>
+<p>{e(disclosure or DISCLOSURE)}</p>
 <p><a href="{root}how-we-check.html">איך אנחנו בודקים מחירים</a> · <a href="{root}feed.xml">RSS</a>{tg_footer}</p>
 </div></footer>
 {AGO_JS}
@@ -586,6 +587,16 @@ def _claimed_row(p: dict) -> str:
             f'{match}</span></a>')
 
 
+def heb(prefix: str, name: str) -> str:
+    """A Hebrew prefix letter before a name: "בבאג", but "ב-KSP" (a hyphen before Latin letters or digits)."""
+    name = (name or "").strip()
+    return f"{prefix}-{name}" if re.match(r"[A-Za-z0-9]", name) else f"{prefix}{name}"
+
+
+CLAIMED_DISCLOSURE = ("גילוי נאות: האתר כולל קישורי שותפים. רכישה דרכם עשויה לזכות אותנו בעמלה, ללא עלות נוספת עבורך. "
+                      "המחירים בעמוד הזה הם לפי ערוץ הטלגרם של החנות ולא נבדקו אצלנו - המחיר הקובע הוא המחיר באתר החנות.")
+
+
 def _product_row(p: dict, root: str, cfg: SiteConfig) -> str:
     """One product in a store/category list. Our deal page when there is one, else the store's page."""
     if p.get("claimed"):
@@ -635,7 +646,8 @@ def build_store_pages(db: Database, cfg: SiteConfig, out: Path, now: Optional[da
             _layout(cfg, f"{name} | {cfg.title}",
                     (f"{name}: קטגוריות ומוצרים, במחירים לפי ערוץ הטלגרם של החנות (לא נבדקו אצלנו)."
                      if catalog[dom].get("claimed") else f"{name}: קטגוריות ומוצרים במחירים שנבדקו."), body,
-                    f"stores/{slug}.html", depth=1), encoding="utf-8")
+                    f"stores/{slug}.html", depth=1,
+                    disclosure=CLAIMED_DISCLOSURE if catalog[dom].get("claimed") else ""), encoding="utf-8")
         pages.append(f"stores/{slug}.html")
         for c, cname, emoji, _w in CATEGORIES:
             if not cats.get(c):
@@ -651,22 +663,24 @@ def build_store_pages(db: Database, cfg: SiteConfig, out: Path, now: Optional[da
                 pop_title = f"⭐ {TOP_N} הפופולריים (לפי ביקורות בחנות)"
                 pop_empty = '<p class="meta">החנות לא מציגה מספיק ביקורות בקטגוריה הזאת, ולכן אין כאן דירוג פופולריות.</p>'
             pop = "".join(_product_row(p, "../../", cfg) for p in pop_items) if pop_items else pop_empty
-            note = (f'<p class="warn">📢 המחירים כאן הם מה ש{e(name)} פרסמה בערוץ הטלגרם שלה בשבוע האחרון. '
+            note = (f'<p class="warn">📢 המחירים כאן הם מה {e(heb("ש", name))} פרסמה בערוץ הטלגרם שלה בשבוע האחרון. '
                     'הם לא נבדקו אצלנו בדף המוצר. בדקו את המחיר באתר החנות לפני רכישה.</p>' if claimed else "")
             other = "".join(f'<a class="pill" href="{oc}.html">{oe} {e(on)}</a>'
                             for oc, on, oe, _ in CATEGORIES if oc != c and cats.get(oc))
             body = (f'<p class="crumbs"><a href="../../index.html">ראשי</a> › <a href="../index.html">לפי חנות</a> › '
                     f'<a href="../{slug}.html">{e(name)}</a> › {e(cname)}</p>'
-                    f'<h1>{emoji} {e(cname)} ב{e(name)}</h1>{note}'
+                    f'<h1>{emoji} {e(cname)} {e(heb("ב", name))}</h1>{note}'
                     f'<div class="panel"><h2>💰 {TOP_N} הזולים</h2>{low}</div>'
                     f'<div class="panel"><h2>{pop_title}</h2>{pop}</div>'
-                    + (f'<p class="meta">עוד קטגוריות ב{e(name)}:</p><div class="pills">{other}</div>' if other else "")
-                    + '<p class="meta">המחירים נבדקו במועד המצוין ועשויים להשתנות. המחיר הקובע הוא באתר החנות.</p>')
+                    + (f'<p class="meta">עוד קטגוריות {e(heb("ב", name))}:</p><div class="pills">{other}</div>' if other else "")
+                    + ('<p class="meta">המחירים לפי ערוץ החנות ולא נבדקו אצלנו. המחיר הקובע הוא באתר החנות.</p>' if claimed else
+                       '<p class="meta">המחירים נבדקו במועד המצוין ועשויים להשתנות. המחיר הקובע הוא באתר החנות.</p>'))
             (out / "stores" / slug / f"{c}.html").write_text(
-                _layout(cfg, f"{cname} ב{name} | {cfg.title}",
-                        (f"{cname} ב{name}: מחירים לפי ערוץ הטלגרם של החנות מהשבוע האחרון, לא נבדקו אצלנו."
-                         if claimed else f"{cname} ב{name}: 5 הזולים ו-5 הפופולריים, במחירים שנבדקו."),
-                        body, f"stores/{slug}/{c}.html", depth=2), encoding="utf-8")
+                _layout(cfg, f"{cname} {heb('ב', name)} | {cfg.title}",
+                        (f"{cname} {heb('ב', name)}: מחירים לפי ערוץ הטלגרם של החנות מהשבוע האחרון, לא נבדקו אצלנו."
+                         if claimed else f"{cname} {heb('ב', name)}: 5 הזולים ו-5 הפופולריים, במחירים שנבדקו."),
+                        body, f"stores/{slug}/{c}.html", depth=2,
+                        disclosure=CLAIMED_DISCLOSURE if claimed else ""), encoding="utf-8")
             pages.append(f"stores/{slug}/{c}.html")
     return pages
 
