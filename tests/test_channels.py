@@ -97,3 +97,18 @@ def test_single_line_only_price_but_not_ranges_or_discounts():
         [{"title": "מפזר חום קרמי", "price": 149.9, "was_price": None}]
     assert parse_post("טלוויזיה חדשה במחיר מפתיע החל מ-359.90₪!") == []
     assert parse_post("עד 500 ₪ הנחה בקניית סמארטפונים נבחרים") == []
+
+
+def test_brand_title_beats_a_slogan_and_leads_stay_in_the_niche(tmp_path):
+    items = parse_post("פאוץ קומפקטי למברגה מבית Acme\nכל מי שעובד עם מברגה יודע כמה זה קריטי\n"
+                       "לרכישה ב-₪49\nבמקום\n₪85")
+    assert items == [{"title": "פאוץ קומפקטי למברגה מבית Acme", "price": 49.0, "was_price": 85.0}]
+    db = Database(tmp_path / "c.db")
+    page = "<html><body>" + "".join([
+        post(1, ["גרבי חורף פליז Acme", "ב-₪25", "במקום", "₪39"]),             # not in the niche
+        post(2, ["אוזניות אלחוטיות Acme TWS-5", "ב-₪154", "במקום", "₪219"]),
+    ]) + "</body></html>"
+    save_claims(db, parse_channel_html(page, "ShopIL"))
+    text = leads_text(db)
+    assert "TWS-5" in text and "גרבי" not in text
+    assert "גרבי" in leads_text(db, niche_only=False)

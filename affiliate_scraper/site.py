@@ -228,6 +228,15 @@ padding:4px 12px;font-weight:700;font-size:14px}
 .bigprice{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:6px 0 4px}
 .bigprice .price{font-size:46px}
 .chip{background:linear-gradient(135deg,var(--yellow),var(--yellow2));color:#1a1300;font-weight:800;border-radius:12px;padding:6px 12px;font-size:18px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin:12px 0 20px}
+.tile{display:flex;flex-direction:column;gap:4px;padding:16px;border-radius:16px;background:var(--card);border:1px solid var(--line);
+color:var(--text);text-decoration:none}.tile:hover{border-color:var(--yellow)}.tile small{color:var(--muted)}
+.prow{display:flex;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line);color:var(--text);text-decoration:none}
+.prow:last-child{border-bottom:0}.pimg{flex:0 0 64px;height:64px;border-radius:12px;background:#fff;overflow:hidden;display:flex;
+align-items:center;justify-content:center}.pimg img{max-width:100%;max-height:100%;object-fit:contain}
+.pb{display:flex;flex-direction:column;gap:2px;min-width:0}.pb .t{font-weight:600;overflow:hidden;text-overflow:ellipsis}
+.pills{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 16px}.pill{padding:6px 12px;border-radius:999px;border:1px solid var(--line);
+color:var(--text);text-decoration:none;background:var(--card)}.crumbs{color:var(--muted);font-size:14px}.crumbs a{color:var(--muted)}
 .panel{background:linear-gradient(180deg,var(--card2),var(--card));border:1px solid var(--line);border-radius:20px;padding:18px;margin:14px 0}
 .panel h2{margin:0 0 10px;font-size:20px}
 ul.checks{list-style:none;padding:0;margin:0}
@@ -260,9 +269,9 @@ footer{color:var(--muted);font-size:13px;border-top:1px solid var(--line);margin
 footer a{color:var(--muted)}
 .ico{width:18px;height:18px;flex:none}
 .nav{display:flex;gap:6px;margin-inline-start:auto;margin-inline-end:10px}
-.nav a{color:var(--muted);text-decoration:none;font-weight:600;padding:8px 10px;border-radius:10px}
+.nav a{color:var(--muted);text-decoration:none;font-weight:600;padding:8px 10px;border-radius:10px;white-space:nowrap}
 .nav a:hover{color:var(--text);background:rgba(255,255,255,.06)}
-@media (max-width:640px){.nav a:nth-child(2){display:none}.brand span{display:none}.top .btn-tg{padding:10px 12px;font-size:14px}}
+@media (max-width:640px){.nav a:nth-child(3){display:none}.nav a{padding:8px 6px}.brand span{display:none}.top .btn-tg{padding:10px 12px;font-size:14px}}
 .back{display:inline-flex;align-items:center;gap:6px;color:var(--text);text-decoration:none;font-weight:700;border:1px solid var(--line);
 background:rgba(255,255,255,.04);border-radius:12px;padding:8px 14px}
 .back:hover{border-color:var(--cyan)}
@@ -319,7 +328,7 @@ def _layout(cfg: SiteConfig, title: str, description: str, body: str, path: str,
 <body class="{e(body_class)}">
 <header><div class="wrap top">
 <a class="brand" href="{root}index.html"><img src="{root}logo.png" alt="">{e(cfg.title)}</a>
-<nav class="nav"><a href="{root}index.html#deals">🔥 עסקאות</a><a href="{root}how-we-check.html">איך אנחנו בודקים</a></nav>
+<nav class="nav"><a href="{root}index.html#deals">🔥 עסקאות</a><a href="{root}stores/index.html">🏬 לפי חנות</a><a href="{root}how-we-check.html">איך אנחנו בודקים</a></nav>
 {tg}
 </div></header>
 <main class="wrap">
@@ -558,6 +567,74 @@ def _refuse_project_folder(folder: Path, what: str) -> None:
                            "for the website")
 
 
+def _product_row(p: dict, root: str, cfg: SiteConfig) -> str:
+    """One product in a store/category list. Our deal page when there is one, else the store's page."""
+    if p.get("deal_id"):
+        href, attrs = f"{root}{deal_path(p['deal_id'])}", ""
+    else:
+        href, attrs = _safe_url(p.get("affiliate_url") or p["url"]), ' target="_blank" rel="sponsored nofollow noopener"'
+    img = f'<img src="{e(_safe_url(p["image"]))}" alt="" loading="lazy">' if p.get("image") else ""
+    stars = (f' · ⭐ {p["rating"]:.1f} ({int(p["review_count"])} ביקורות)'
+             if p.get("rating") and p.get("review_count") else "")
+    deal = '<span class="chip">עסקה שנבדקה</span>' if p.get("deal_id") else ""
+    return (f'<a class="prow" href="{e(href)}"{attrs}><span class="pimg">{img}</span><span class="pb">'
+            f'<span class="t">{e(p["title"])}</span>'
+            f'<span class="price">{e(_money(p["price"], p["currency"]))}</span>{deal}'
+            f'<span class="meta">נבדק {_ago_tag(p["last_fetched_at"], "ב-" + _when(p["last_fetched_at"]))}{e(stars)}</span>'
+            '</span></a>')
+
+
+def build_store_pages(db: Database, cfg: SiteConfig, out: Path, now: Optional[datetime] = None) -> list[str]:
+    """stores/index.html, stores/<store>.html (its categories), stores/<store>/<category>.html (top 5 lists)."""
+    from .catalog import CAT_BY_SLUG, CATEGORIES, TOP_N, cheapest, collect_catalog, most_popular, store_slug
+    catalog = collect_catalog(db, now)
+    (out / "stores").mkdir(parents=True, exist_ok=True)
+    pages = ["stores/index.html"]
+    order = sorted(catalog, key=lambda d: catalog[d]["name"])
+    tiles = "".join(
+        f'<a class="tile" href="{store_slug(d)}.html"><b>{e(catalog[d]["name"])}</b>'
+        f'<small>{sum(len(v) for v in catalog[d]["cats"].values())} מוצרים שנבדקו</small></a>' for d in order)
+    body = ('<p class="crumbs"><a href="../index.html">ראשי</a> › לפי חנות</p><h1>בחרו חנות</h1>'
+            '<p class="meta">רק מחירים שנבדקו ב-48 השעות האחרונות, של מוצרים במלאי.</p>'
+            f'<div class="tiles">{tiles or "<p class=empty>עוד אין מוצרים שנבדקו. הם יופיעו אחרי הסריקה הבאה.</p>"}</div>')
+    (out / "stores" / "index.html").write_text(
+        _layout(cfg, f"לפי חנות | {cfg.title}", "בחרו חנות וקטגוריה: 5 המוצרים הזולים והפופולריים, במחירים שנבדקו.",
+                body, "stores/index.html", depth=1), encoding="utf-8")
+    for dom in order:
+        name, cats, slug = catalog[dom]["name"], catalog[dom]["cats"], store_slug(dom)
+        (out / "stores" / slug).mkdir(exist_ok=True)
+        cat_tiles = "".join(
+            f'<a class="tile" href="{slug}/{c}.html"><b>{CAT_BY_SLUG[c][2]} {e(CAT_BY_SLUG[c][1])}</b>'
+            f'<small>{len(cats[c])} מוצרים</small></a>' for c, *_ in CATEGORIES if cats.get(c))
+        body = (f'<p class="crumbs"><a href="../index.html">ראשי</a> › <a href="index.html">לפי חנות</a> › {e(name)}</p>'
+                f'<h1>{e(name)}</h1><p class="meta">בחרו קטגוריה</p><div class="tiles">{cat_tiles}</div>')
+        (out / "stores" / f"{slug}.html").write_text(
+            _layout(cfg, f"{name} | {cfg.title}", f"{name}: קטגוריות ומוצרים במחירים שנבדקו.", body,
+                    f"stores/{slug}.html", depth=1), encoding="utf-8")
+        pages.append(f"stores/{slug}.html")
+        for c, cname, emoji, _w in CATEGORIES:
+            if not cats.get(c):
+                continue
+            low = "".join(_product_row(p, "../../", cfg) for p in cheapest(cats[c]))
+            pop_items = most_popular(cats[c])
+            pop = ("".join(_product_row(p, "../../", cfg) for p in pop_items) if pop_items else
+                   '<p class="meta">החנות לא מציגה מספיק ביקורות בקטגוריה הזאת, ולכן אין כאן דירוג פופולריות.</p>')
+            other = "".join(f'<a class="pill" href="{oc}.html">{oe} {e(on)}</a>'
+                            for oc, on, oe, _ in CATEGORIES if oc != c and cats.get(oc))
+            body = (f'<p class="crumbs"><a href="../../index.html">ראשי</a> › <a href="../index.html">לפי חנות</a> › '
+                    f'<a href="../{slug}.html">{e(name)}</a> › {e(cname)}</p>'
+                    f'<h1>{emoji} {e(cname)} ב{e(name)}</h1>'
+                    f'<div class="panel"><h2>💰 {TOP_N} הזולים</h2>{low}</div>'
+                    f'<div class="panel"><h2>⭐ {TOP_N} הפופולריים (לפי ביקורות בחנות)</h2>{pop}</div>'
+                    + (f'<p class="meta">עוד קטגוריות ב{e(name)}:</p><div class="pills">{other}</div>' if other else "")
+                    + '<p class="meta">המחירים נבדקו במועד המצוין ועשויים להשתנות. המחיר הקובע הוא באתר החנות.</p>')
+            (out / "stores" / slug / f"{c}.html").write_text(
+                _layout(cfg, f"{cname} ב{name} | {cfg.title}", f"{cname} ב{name}: 5 הזולים ו-5 הפופולריים, במחירים שנבדקו.",
+                        body, f"stores/{slug}/{c}.html", depth=2), encoding="utf-8")
+            pages.append(f"stores/{slug}/{c}.html")
+    return pages
+
+
 def build_site(db: Database, cfg: SiteConfig, now: Optional[datetime] = None) -> dict:
     """Write the whole site into cfg.out_dir. Returns {"pages": n, "deals": n, "out_dir": path}."""
     out = Path(cfg.out_dir)
@@ -623,7 +700,8 @@ def build_site(db: Database, cfg: SiteConfig, now: Optional[datetime] = None) ->
     (out / "how-we-check.html").write_text(_layout(cfg, f"איך אנחנו בודקים מחירים | {cfg.title}",
                                                    "השיטה: מחיר מאומת, היסטוריית מחיר, השוואה בין חנויות ואישור ידני.",
                                                    HOW_WE_CHECK, "how-we-check.html"), encoding="utf-8")
-    pages = ["index.html", "how-we-check.html", *[deal_path(d["id"]) for d in deals]]
+    pages = ["index.html", "how-we-check.html", *[deal_path(d["id"]) for d in deals],
+             *build_store_pages(db, cfg, out, now)]
     if cfg.base_url:
         urls = "".join(f"<url><loc>{e(cfg.base_url + p)}</loc></url>" for p in pages)
         (out / "sitemap.xml").write_text('<?xml version="1.0" encoding="UTF-8"?>'

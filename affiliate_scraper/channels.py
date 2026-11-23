@@ -64,6 +64,9 @@ _SKIP_SEG = re.compile(r"^(?:לרכישה|לכל ה|למגוון|במבצע|רק
 _ONLY = re.compile(r"\s(?:רק|ב-?רק)\s*-?\s*₪?\s*([\d,]+(?:\.\d{1,2})?)\s*(?:₪|ש\"ח)")
 _MODEL_LINE = re.compile(r"^(?:דגם|מק\"ט|model)\s*[:：]\s*(\S.{1,40})$", re.I)
 _LATIN_MODEL = re.compile(r"[A-Za-z]{2,}")
+# sentences, not product names: "כל מי ש...", "משדרגים את...", "הגיע הזמן...", "אל תפספסו"
+_SLOGAN = re.compile(r"(?:^|\s)(?:כל מי ש|משדרגים|מכינים|הגיע הזמן|אל תפספס|זה הזמן|תתקדמו|תקשיבו|מחכים|רוכשים|"
+                     r"מקבלים|קונים רק|לכל המגוון)", re.U)
 
 
 def _clean(seg: str) -> str:
@@ -79,10 +82,16 @@ def _name_before(segs: list[str], idx: int) -> str:
         seg = _clean(segs[j])
         if len(_LETTER.findall(seg)) < 4 or _SKIP_SEG.match(seg) or seg.endswith("?"):
             continue
-        if _LATIN_MODEL.search(seg):
+        if _LATIN_MODEL.search(seg) and not _SLOGAN.search(seg):
             return seg[:120]
         fallback = fallback or seg[:120]
-    return fallback
+    # no brand/model line right before the price: the post's own title line with a brand (e.g. "... מבית Makita")
+    # beats a marketing sentence ("כל מי שעובד עם מברגה יודע...")
+    for j in range(0, idx + 1):
+        seg = _clean(segs[j])
+        if _LATIN_MODEL.search(seg) and len(_LETTER.findall(seg)) >= 6 and not _SLOGAN.search(seg) and len(seg) <= 90:
+            return seg[:120]
+    return "" if _SLOGAN.search(fallback) else fallback
 
 
 def parse_post(text: str) -> list[dict]:
@@ -216,12 +225,17 @@ def verified_matches(db: Database, title: str, limit: int = 2, days: int = 3) ->
     return out
 
 
-def leads_text(db: Database, hours: float = 48, limit: int = 8) -> Optional[str]:
-    """Plain text for the owner's private chat, or None when there is nothing new."""
+def leads_text(db: Database, hours: float = 48, limit: int = 8, niche_only: bool = True) -> Optional[str]:
+    """Plain text for the owner's private chat, or None when there is nothing new.
+    ``niche_only``: only products in the niche categories (catalog.CATEGORIES: gaming, computers, mobile and
+    headphones, appliances, home) - a baby sheet or winter socks are not leads for this channel."""
     db.conn.executescript(SCHEMA)
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
     rows = [dict(r) for r in db.query("SELECT * FROM channel_claims ORDER BY posted_at DESC LIMIT 200")]
     rows = [r for r in rows if (_parse_iso(r["posted_at"] or r["fetched_at"]) or since) >= since]
+    if niche_only:
+        from .catalog import classify
+        rows = [r for r in rows if classify(r["title"])]
     if not rows:
         return None
     # biggest stated discount first - the store's own figure, shown as such

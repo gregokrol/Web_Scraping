@@ -1,0 +1,101 @@
+"""Browse by store: store -> category -> top 5 cheapest / most popular, and the channel menu."""
+
+import json
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+from affiliate_scraper.catalog import classify, cheapest, collect_catalog, most_popular, store_slug
+from affiliate_scraper.cli import main
+from affiliate_scraper.db import Database
+from affiliate_scraper.models import Product
+from affiliate_scraper.site import SiteConfig, build_site
+from affiliate_scraper.validation import validate_product
+
+
+def add(db, url, name, price, reviews=None, rating=None, store="Bug", stock="InStock"):
+    p = validate_product(Product(url=url, name=name, price=price, currency="ILS", availability=stock, source="json-ld",
+                                 source_type="json-ld", store=store, review_count=reviews, rating=rating))
+    db.save_products([p])
+
+
+def test_classify_into_the_niche():
+    assert classify("קונסולת PlayStation 5 Slim") == "gaming"
+    assert classify("כיסא גיימינג Razer") == "gaming"                    # gaming wins over "כיסא" (home)
+    assert classify("מחשב נייד Lenovo IdeaPad 15") == "computers"
+    assert classify("אוזניות JBL TUNE 520BT") == "mobile"
+    assert classify("שואב אבק רובוטי Roborock Q7") == "appliances"
+    assert classify("מקדחה רוטטת Makita 18V") == "home"
+    assert classify("רובוט דינוזאור לילדים") is None                     # a toy is not an appliance
+    assert classify("קרם לחות") is None
+
+
+def test_catalog_lists_only_fresh_verified_in_stock_allowed(tmp_path):
+    db = Database(tmp_path / "c.db")
+    add(db, "https://bug.example/a", "אוזניות JBL TUNE 520BT", 199)
+    add(db, "https://bug.example/b", "אוזניות Sony WH-1000XM5", 1299, stock="OutOfStock")    # not in stock
+    add(db, "https://bug.example/c", "אוזניות Acme 18+ edition", 99)                           # forbidden word
+    old = (datetime.now(timezone.utc) - timedelta(days=5)).isoformat()
+    add(db, "https://bug.example/d", "אוזניות Philips TAH60", 250)
+    db.conn.execute("UPDATE offers SET last_seen=? WHERE url=?", (old, "https://bug.example/d"))  # stale
+    db.conn.commit()
+    cat = collect_catalog(db)
+    [only] = cat["bug.example"]["cats"]["mobile"]
+    assert only["title"] == "אוזניות JBL TUNE 520BT" and cat["bug.example"]["name"] == "Bug"
+
+
+def test_top_lists():
+    ps = [{"title": f"p{i}", "price": 100 - i, "review_count": rc, "rating": 4.5} for i, rc in
+          enumerate([0, 12, 50, 3, 7, 0, 30])]
+    assert [p["price"] for p in cheapest(ps)] == [94, 95, 96, 97, 98]
+    assert [p["review_count"] for p in most_popular(ps)] == [50, 30, 12, 7, 3]
+    assert most_popular(ps[:3]) == []                                      # too few reviewed: no guessing
+
+
+def test_store_pages_and_navigation(tmp_path):
+    db = Database(tmp_path / "c.db")
+    for i in range(7):
+        add(db, f"https://bug.example/g{i}", f"בקר אלחוטי DualSense צבע {i}", 200 + i * 10, reviews=10 * i or None,
+            rating=4.0 + i / 10)
+    add(db, "https://ivory.example/l", "מחשב נייד Acer Aspire 5", 2499, store="Ivory")
+    cfg = SiteConfig(base_url="https://u.github.io/s/", out_dir=str(tmp_path / "site"))
+    build_site(db, cfg)
+    out = Path(cfg.out_dir)
+    index = (out / "stores" / "index.html").read_text(encoding="utf-8")
+    assert 'href="bug-example.html"' in index and "Ivory" in index
+    store = (out / "stores" / "bug-example.html").read_text(encoding="utf-8")
+    assert 'href="bug-example/gaming.html"' in store
+    page = (out / "stores" / "bug-example" / "gaming.html").read_text(encoding="utf-8")
+    assert page.count('class="prow"') == 10                               # 5 cheapest + 5 most popular
+    assert "₪200.00" in page and 'rel="sponsored nofollow noopener"' in page
+    assert 'href="../../index.html"' in page                               # back to the home page
+    assert "stores/bug-example/gaming.html" in (out / "sitemap.xml").read_text(encoding="utf-8")
+    laptops = (out / "stores" / "ivory-example" / "computers.html").read_text(encoding="utf-8")
+    assert "אין כאן דירוג פופולריות" in laptops                            # no reviews -> said, not guessed
+    assert store_slug("www.Bug.co.il") == "bug-co-il"
+
+
+def test_channel_menu_preview_goes_to_you(tmp_path, local_site, monkeypatch, capsys):
+    import affiliate_scraper.telegram as tgmod
+    monkeypatch.chdir(tmp_path)
+    db = Database(tmp_path / "c.db")
+    add(db, "https://bug.example/a", "אוזניות JBL TUNE 520BT", 199)
+    db.close()
+    (tmp_path / "automation.json").write_text(json.dumps({"db": str(tmp_path / "c.db"),
+                                                          "site": {"base_url": "https://u.github.io/s/"}}),
+                                              encoding="utf-8")
+    monkeypatch.setattr(tgmod, "API", local_site.base)
+    monkeypatch.setattr(tgmod, "MIN_INTERVAL", 0)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:SECRET")
+    monkeypatch.setenv("TELEGRAM_CHANNEL", "@deals_il")
+    monkeypatch.setenv("TELEGRAM_ADMIN_CHAT", "42")
+    local_site.post_reply = b'{"ok": true, "result": {"message_id": 5}}'
+    assert main(["channel-menu"]) == 0
+    [sent] = [json.loads(p["body"]) for p in local_site.posts]
+    assert sent["chat_id"] == "42"                                        # preview: never the channel
+    urls = [b["url"] for row in sent["reply_markup"]["inline_keyboard"] for b in row]
+    assert "https://u.github.io/s/stores/bug-example.html?utm_source=telegram&utm_medium=pinned&utm_campaign=store-menu" in urls
+    local_site.posts.clear()
+    assert main(["channel-menu", "--publish"]) == 0
+    methods = [p["path"].rsplit("/", 1)[-1] for p in local_site.posts]
+    assert methods == ["sendMessage", "pinChatMessage"]
+    assert json.loads(local_site.posts[0]["body"])["chat_id"] == "@deals_il"

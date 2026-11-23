@@ -242,6 +242,17 @@ class TelegramPublisher:
         if chunk.strip():
             self._api("sendMessage", {"chat_id": chat_id, "text": chunk})
 
+    def send_menu(self, chat_id, text: str, buttons: list[tuple[str, str]], per_row: int = 2,
+                  pin: bool = False) -> dict:
+        """A message with URL buttons (opening pages, no bot needed), optionally pinned (needs the pin right)."""
+        rows = [[{"text": t, "url": u} for t, u in buttons[i:i + per_row]] for i in range(0, len(buttons), per_row)]
+        msg = self._api("sendMessage", {"chat_id": chat_id, "text": text, "reply_markup": {"inline_keyboard": rows},
+                                        "link_preview_options": {"is_disabled": True}})
+        if pin and msg.get("message_id"):
+            self._api("pinChatMessage", {"chat_id": chat_id, "message_id": msg["message_id"],
+                                         "disable_notification": True})
+        return msg
+
     def delete_message(self, chat_id, message_id: int) -> None:
         self._api("deleteMessage", {"chat_id": chat_id, "message_id": int(message_id)}, retries=1)
 

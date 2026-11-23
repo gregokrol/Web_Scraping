@@ -1939,3 +1939,60 @@ def _channels_run(args) -> int:
 
 cli.register_subcommand("channels", "Stores' public Telegram channels as leads (store-stated prices, not verified)",
                         _channels_build, _channels_run)
+
+
+# ---------------------------------------------------------------- channel menu: browse by store
+def _menu_build(ap) -> None:
+    ap.add_argument("--config", default="automation.json")
+    ap.add_argument("--publish", action="store_true",
+                    help="post it in the PUBLIC channel and pin it (without this: a preview to your private chat)")
+
+
+def channel_menu(db: Database, site_cfg) -> tuple[str, list[tuple[str, str]]]:
+    from .catalog import collect_catalog, store_slug
+    catalog = collect_catalog(db)
+    utm = "?utm_source=telegram&utm_medium=pinned&utm_campaign=store-menu"
+    buttons = [(f"🏬 {catalog[d]['name']}", f"{site_cfg.base_url}stores/{store_slug(d)}.html{utm}")
+               for d in sorted(catalog, key=lambda d: catalog[d]["name"])]
+    buttons.append(("🔎 כל החנויות", f"{site_cfg.base_url}stores/index.html{utm}"))
+    text = ("🏬 בחרו חנות, ואחר כך קטגוריה:\n"
+            "בכל קטגוריה מופיעים 5 המוצרים הזולים ו-5 הפופולריים, במחירים שנבדקו ב-48 השעות האחרונות.\n\n"
+            "הקישורים עשויים להיות קישורי שותפים. המחיר הקובע הוא באתר החנות.")
+    return text, buttons
+
+
+def _menu_run(args) -> int:
+    from .site import SiteConfig
+    from .telegram import TelegramPublisher
+    from .webhook import PublishError
+    cfg = load_automation(args.config) if Path(args.config).exists() else {}
+    site_cfg = SiteConfig.from_dict(cfg.get("site"))
+    if not site_cfg.base_url.startswith("https://"):
+        _err("error: the website address is not set (py main.py site setup), the buttons would lead nowhere")
+        return 2
+    db = Database(cfg.get("db", DEFAULT_DB))
+    try:
+        text, buttons = channel_menu(db, site_cfg)
+    finally:
+        db.close()
+    if len(buttons) < 2:
+        _err("No store has checked products yet - run the automation first (menu 6), then build the site.")
+        return 1
+    print(text + "\n\n" + "\n".join(f"[{t}] {u}" for t, u in buttons))
+    tg = TelegramPublisher()
+    target = tg.channel if args.publish else tg.admin_chat
+    if not target:
+        _err("error: set " + ("TELEGRAM_CHANNEL" if args.publish else "TELEGRAM_ADMIN_CHAT"))
+        return 2
+    try:
+        tg.send_menu(target, text, buttons, pin=args.publish)
+    except PublishError as exc:
+        _err(f"Telegram problem: {exc}" + (" - the bot needs the 'pin messages' admin right" if args.publish else ""))
+        return 1
+    print("\nPosted in the channel and pinned." if args.publish else
+          "\nPreview sent to your private chat. To post it in the channel and pin it: py main.py channel-menu --publish")
+    return 0
+
+
+cli.register_subcommand("channel-menu", "A pinned channel post with a button per store (store -> category -> top 5)",
+                        _menu_build, _menu_run)
