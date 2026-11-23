@@ -89,13 +89,36 @@ def test_channel_menu_preview_goes_to_you(tmp_path, local_site, monkeypatch, cap
     monkeypatch.setenv("TELEGRAM_CHANNEL", "@deals_il")
     monkeypatch.setenv("TELEGRAM_ADMIN_CHAT", "42")
     local_site.post_reply = b'{"ok": true, "result": {"message_id": 5}}'
-    assert main(["channel-menu"]) == 0
+    assert main(["channel-menu", "--no-check"]) == 0
     [sent] = [json.loads(p["body"]) for p in local_site.posts]
     assert sent["chat_id"] == "42"                                        # preview: never the channel
     urls = [b["url"] for row in sent["reply_markup"]["inline_keyboard"] for b in row]
     assert "https://u.github.io/s/stores/bug-example.html?utm_source=telegram&utm_medium=pinned&utm_campaign=store-menu" in urls
     local_site.posts.clear()
-    assert main(["channel-menu", "--publish"]) == 0
+    assert main(["channel-menu", "--publish", "--no-check"]) == 0
     methods = [p["path"].rsplit("/", 1)[-1] for p in local_site.posts]
     assert methods == ["sendMessage", "pinChatMessage"]
     assert json.loads(local_site.posts[0]["body"])["chat_id"] == "@deals_il"
+
+
+def test_404_page_works_at_any_depth(tmp_path):
+    db = Database(tmp_path / "c.db")
+    cfg = SiteConfig(base_url="https://u.github.io/s/", out_dir=str(tmp_path / "site"))
+    build_site(db, cfg)
+    page = (Path(cfg.out_dir) / "404.html").read_text(encoding="utf-8")
+    assert 'href="https://u.github.io/s/style.css"' in page            # not "style.css" (breaks in stores/x/)
+    assert 'href="https://u.github.io/s/stores/index.html"' in page
+
+
+def test_channel_menu_refuses_buttons_to_missing_pages(tmp_path, monkeypatch, capsys):
+    import requests
+    monkeypatch.chdir(tmp_path)
+    db = Database(tmp_path / "c.db")
+    add(db, "https://bug.example/a", "אוזניות JBL TUNE 520BT", 199)
+    db.close()
+    (tmp_path / "automation.json").write_text(json.dumps({"db": str(tmp_path / "c.db"),
+                                                          "site": {"base_url": "https://u.github.io/s/"}}),
+                                              encoding="utf-8")
+    monkeypatch.setattr(requests, "get", lambda url, timeout=0: type("R", (), {"status_code": 404})())
+    assert main(["channel-menu"]) == 1
+    assert "not on the website yet" in capsys.readouterr().err

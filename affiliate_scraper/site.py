@@ -293,8 +293,11 @@ font-weight:600;cursor:pointer}
 
 
 def _layout(cfg: SiteConfig, title: str, description: str, body: str, path: str, depth: int = 0,
-            og_image: str = "", json_ld: Optional[dict] = None, body_class: str = "", tail: str = "") -> str:
-    root = "../" * depth
+            og_image: str = "", json_ld: Optional[dict] = None, body_class: str = "", tail: str = "",
+            absolute: bool = False) -> str:
+    # absolute: for 404.html, which GitHub Pages serves at ANY missing address (also deep ones like
+    # stores/x/y.html) - relative links to style.css / logo.png would break there
+    root = (cfg.base_url or "/") if absolute else "../" * depth
     canonical = f"{cfg.base_url}{path}" if cfg.base_url else ""
     tg = (f'<a class="btn btn-tg" href="{e(cfg.telegram_url)}" target="_blank" rel="noopener">{TG_ICON} הצטרפו לערוץ</a>'
           if cfg.telegram_url else "")
@@ -694,9 +697,11 @@ def build_site(db: Database, cfg: SiteConfig, now: Optional[datetime] = None) ->
                                             f'<div class="grid" id="grid">{cards}</div>{older_html}', "index.html",
                                             tail=LISTING_JS if (recent or older) else ""), encoding="utf-8")
     (out / "404.html").write_text(_layout(cfg, f"העמוד לא נמצא | {cfg.title}", "העמוד לא נמצא.",
-                                          '<div class="hero"><h1>העמוד לא נמצא</h1><p>ייתכן שהעסקה הוסרה.</p>'
-                                          f'<div class="cta-row"><a class="btn btn-buy" style="width:auto" href="{cfg.base_url or "./"}index.html">'
-                                          'לכל העסקאות</a></div></div>', "404.html"), encoding="utf-8")
+                                          '<div class="hero"><h1>העמוד לא נמצא</h1>'
+                                          '<p>ייתכן שהעסקה הוסרה, או שהאתר מתעדכן ממש עכשיו. נסו שוב בעוד דקה.</p>'
+                                          f'<div class="cta-row"><a class="btn btn-buy" style="width:auto" href="{cfg.base_url or "/"}index.html">'
+                                          f'לכל העסקאות</a> <a class="btn" style="width:auto" href="{cfg.base_url or "/"}stores/index.html">'
+                                          '🏬 לפי חנות</a></div></div>', "404.html", absolute=True), encoding="utf-8")
     (out / "how-we-check.html").write_text(_layout(cfg, f"איך אנחנו בודקים מחירים | {cfg.title}",
                                                    "השיטה: מחיר מאומת, היסטוריית מחיר, השוואה בין חנויות ואישור ידני.",
                                                    HOW_WE_CHECK, "how-we-check.html"), encoding="utf-8")

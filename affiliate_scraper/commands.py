@@ -1946,6 +1946,7 @@ def _menu_build(ap) -> None:
     ap.add_argument("--config", default="automation.json")
     ap.add_argument("--publish", action="store_true",
                     help="post it in the PUBLIC channel and pin it (without this: a preview to your private chat)")
+    ap.add_argument("--no-check", action="store_true", help=argparse.SUPPRESS)
 
 
 def channel_menu(db: Database, site_cfg) -> tuple[str, list[tuple[str, str]]]:
@@ -1978,6 +1979,20 @@ def _menu_run(args) -> int:
     if len(buttons) < 2:
         _err("No store has checked products yet - run the automation first (menu 6), then build the site.")
         return 1
+    if not args.no_check:
+        # every button must open a real page: the store pages exist on the site only after "site publish"
+        import requests
+        missing = []
+        for t, u in buttons:
+            try:
+                if requests.get(u.split("?")[0], timeout=20).status_code != 200:
+                    missing.append(t)
+            except requests.RequestException:
+                missing.append(t)
+        if missing:
+            _err("error: these pages are not on the website yet: " + ", ".join(missing) + ". Run "
+                 "'py main.py site publish', wait a minute or two for GitHub Pages, then try again.")
+            return 1
     print(text + "\n\n" + "\n".join(f"[{t}] {u}" for t, u in buttons))
     tg = TelegramPublisher()
     target = tg.channel if args.publish else tg.admin_chat
