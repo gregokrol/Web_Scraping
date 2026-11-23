@@ -46,7 +46,8 @@ CREATE TABLE IF NOT EXISTS channel_claims (
 """
 # added later (ensure_schema migrates an existing table): the same product in a later post, and price drops
 _LATER_COLUMNS = (("item_key", "TEXT"), ("prev_price", "REAL"), ("prev_posted_at", "TEXT"),
-                  ("drop_notified", "INTEGER DEFAULT 0"))
+                  ("drop_notified", "INTEGER DEFAULT 0"), ("image", "TEXT"))
+_PHOTO = re.compile(r"background-image:\s*url\('(https://[^']+)'\)")
 
 # your names for the stores behind the channels (shown on the website and in the channel menu)
 CHANNEL_STORES = {"kspcoil": "KSP", "payngoil": "מחסני חשמל", "traklin": "טרקלין", "il_home_center": "הום סנטר",
@@ -205,10 +206,14 @@ def parse_channel_html(page_html: str, channel: str) -> list[dict]:
                 links.append(href)
         t = m.select_one("time[datetime]")
         pid = m["data-post"].split("/")[-1]
-        for k, info in enumerate(parse_post(text)):
+        # the post's photo (Telegram's CDN); in a list post it shows several of the products (said on the website)
+        photo_el = m.select_one(".tgme_widget_message_photo_wrap[style]")
+        photo = (_PHOTO.search(photo_el["style"]) or [None, ""])[1] if photo_el else ""
+        items = parse_post(text)
+        for k, info in enumerate(items):
             posts.append({"channel": channel, "post_id": pid if k == 0 else f"{pid}#{k + 1}",
                           "post_url": f"https://t.me/{m['data-post']}", "posted_at": t["datetime"] if t else "",
-                          "link": links[0] if links else "", **info})
+                          "link": links[0] if links else "", "image": photo, **info})
     return posts
 
 
@@ -241,12 +246,19 @@ def save_claims(db: Database, posts: list[dict], exclude_keywords=None) -> int:
             prev_price = prev_at = None
             if prev and prev[0] and p["price"] < prev[0] * (1 - DROP_MIN_PCT / 100):
                 prev_price, prev_at = prev[0], prev[1]
-            cur = c.execute("INSERT OR IGNORE INTO channel_claims(channel, post_id, post_url, posted_at, title, price, "
-                            "was_price, link, fetched_at, item_key, prev_price, prev_posted_at) "
-                            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                            (p["channel"], p["post_id"], p["post_url"], p["posted_at"], p["title"], p["price"],
-                             p.get("was_price"), p.get("link"), now, key, prev_price, prev_at))
-            new += cur.rowcount
+            known = c.execute("SELECT id FROM channel_claims WHERE channel=? AND post_id=?",
+                              (p["channel"], p["post_id"])).fetchone()
+            if known:
+                # seen before: keep its history (prev_price, told or not), refresh what a better parser reads now
+                c.execute("UPDATE channel_claims SET title=?, item_key=?, image=COALESCE(NULLIF(?, ''), image), "
+                          "link=COALESCE(NULLIF(?, ''), link) WHERE id=?",
+                          (p["title"], key, p.get("image") or "", p.get("link") or "", known[0]))
+                continue
+            c.execute("INSERT INTO channel_claims(channel, post_id, post_url, posted_at, title, price, was_price, link, "
+                      "fetched_at, item_key, prev_price, prev_posted_at, image) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                      (p["channel"], p["post_id"], p["post_url"], p["posted_at"], p["title"], p["price"],
+                       p.get("was_price"), p.get("link"), now, key, prev_price, prev_at, p.get("image") or ""))
+            new += 1
     return new
 
 

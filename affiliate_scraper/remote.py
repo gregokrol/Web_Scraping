@@ -74,10 +74,25 @@ class ClaudeNotFound(RuntimeError):
     pass
 
 
+def find_claude() -> Optional[str]:
+    """The Claude Code program: on PATH, else where its installers put it. A listener started at login (or a
+    window opened before the install) often has no PATH entry for it - Windows only adds it to new windows."""
+    found = shutil.which("claude")
+    if found:
+        return found
+    home = Path(os.environ.get("USERPROFILE") or os.path.expanduser("~"))
+    candidates = [home / ".local" / "bin" / "claude.exe", home / ".local" / "bin" / "claude"]
+    for var, rel in (("APPDATA", ("npm", "claude.cmd")), ("LOCALAPPDATA", ("Programs", "claude", "claude.exe")),
+                     ("LOCALAPPDATA", ("AnthropicClaude", "claude.exe"))):
+        if os.environ.get(var):
+            candidates.append(Path(os.environ[var]).joinpath(*rel))
+    return next((str(c) for c in candidates if c.is_file()), None)
+
+
 def run_claude(task: str, project_dir: Path, timeout: int = TASK_TIMEOUT, exe: Optional[str] = None,
                model: Optional[str] = DEFAULT_MANAGER_MODEL) -> str:
     """Run Claude Code headless in the project with the manager instructions; returns its final answer."""
-    exe = exe or shutil.which("claude")
+    exe = exe or find_claude()
     if not exe:
         raise ClaudeNotFound("Claude Code (the 'claude' command) is not installed on this computer")
     args = [exe, "-p", "--output-format", "text", "--permission-mode", "acceptEdits",

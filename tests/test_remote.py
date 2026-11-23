@@ -214,3 +214,16 @@ def test_failed_action_is_told_not_crashing(tmp_path):
     lst = Listener(tg, tmp_path, "42", out_dir=tmp_path / "o", actions={"dpub": boom})
     lst.handle(press("dpub:3"))
     assert any("נכשל" in t and "Telegram is down" in t for _, t in tg.sent)
+
+
+def test_claude_found_outside_path(tmp_path, monkeypatch):
+    from affiliate_scraper.remote import find_claude
+    monkeypatch.setattr(remote.shutil, "which", lambda name: None)       # not on PATH (installed today)
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.delenv("APPDATA", raising=False)
+    monkeypatch.delenv("LOCALAPPDATA", raising=False)
+    assert find_claude() is None
+    exe = tmp_path / ".local" / "bin" / "claude.exe"
+    exe.parent.mkdir(parents=True)
+    exe.write_bytes(b"")
+    assert find_claude() == str(exe)

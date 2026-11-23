@@ -592,10 +592,13 @@ def _claimed_row(p: dict) -> str:
             if p.get("was_price") else ""))
     match = "".join(f'<span class="meta">נבדק אצלנו: {e(m["store"] or m["domain"])} {e(_money(m["price"], p["currency"]))}</span>'
                     for m in p.get("matches") or [])
-    return (f'<a class="prow" href="{e(href)}" target="_blank" rel="sponsored nofollow noopener"><span class="pimg">📢</span>'
+    img = (f'<img src="{e(_safe_url(p["image"]))}" alt="" loading="lazy" referrerpolicy="no-referrer" '
+           'onerror="this.replaceWith(document.createTextNode(\'📢\'))">' if p.get("image") else "📢")
+    return (f'<a class="prow" href="{e(href)}" target="_blank" rel="sponsored nofollow noopener"><span class="pimg">{img}</span>'
             f'<span class="pb"><span class="t">{e(p["title"])}</span>'
             f'<span class="price">{e(_money(p["price"], p["currency"]))}</span>{ref}'
-            f'<span class="meta">לפי ערוץ {e(p["store"])}, {e(_when(p["posted_at"]).split(" ")[0])}. לא נבדק אצלנו בדף המוצר.</span>'
+            f'<span class="meta">לפי ערוץ {e(p["store"])}, {e(_when(p["posted_at"]).split(" ")[0])}. לא נבדק אצלנו בדף המוצר.'
+            f'{" התמונה מהפוסט של החנות." if p.get("image") else ""}</span>'
             f'{match}</span></a>')
 
 

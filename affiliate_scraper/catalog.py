@@ -158,7 +158,7 @@ def _add_channel_stores(db: Database, out: dict, excluded_reason) -> None:
         entry["cats"][cat].append({
             "title": r["title"], "price": r["price"], "currency": r.get("currency") or "ILS", "claimed": True,
             "was_price": r.get("was_price"), "prev_price": r.get("prev_price"), "posted_at": r["posted_at"],
-            "url": r["link"] or r["post_url"], "affiliate_url": "", "image": "", "store": entry["name"],
+            "url": r["link"] or r["post_url"], "affiliate_url": "", "image": r.get("image") or "", "store": entry["name"],
             "matches": verified_matches(db, r["title"], limit=1), "deal_id": None})
 
 
@@ -226,6 +226,7 @@ def search_items(db: Database, now: Optional[datetime] = None, hours: float = 48
         if excluded_reason(r["title"]):
             continue
         items.append({"title": r["title"], "price": r["price"], "currency": r.get("currency") or "ILS",
-                      "store": store_name(r["channel"]), "url": r["link"] or r["post_url"], "image": "", "deal_id": None,
+                      "store": store_name(r["channel"]), "url": r["link"] or r["post_url"], "image": r.get("image") or "",
+                      "deal_id": None,
                       "checked": r["posted_at"] or "", "claimed": True, "cat": classify(r["title"])})
     return items

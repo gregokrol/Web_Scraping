@@ -203,3 +203,17 @@ def test_same_product_across_posts():
 def test_hebrew_prefix_before_a_name():
     from affiliate_scraper.site import heb
     assert heb("ב", "KSP") == "ב-KSP" and heb("ב", "באג") == "בבאג" and heb("ש", "iDigital") == "ש-iDigital"
+
+
+def test_post_photo_is_kept_and_old_rows_are_refreshed(tmp_path):
+    photo = ('<div class="tgme_widget_message" data-post="ShopIL/7"><a class="tgme_widget_message_photo_wrap" '
+             'style="width:100%;background-image:url(\'https://cdn4.telesco.pe/file/abc.jpg\')"></a>'
+             '<div class="tgme_widget_message_text">פאוץ קומפקטי למברגה<br/>ב-₪49<br/>במקום<br/>₪85</div>'
+             '<time datetime="2099-01-01T10:00:00+00:00"></time></div>')
+    db = Database(tmp_path / "c.db")
+    save_claims(db, parse_channel_html(f"<html><body>{photo}</body></html>", "ShopIL"))
+    better = photo.replace("פאוץ קומפקטי למברגה", "פאוץ למברגה מבית Acme")
+    assert save_claims(db, parse_channel_html(f"<html><body>{better}</body></html>", "ShopIL")) == 0   # not new...
+    [row] = db.query("SELECT title, image FROM channel_claims")
+    assert row["title"] == "פאוץ למברגה מבית Acme"                       # ...but refreshed
+    assert row["image"] == "https://cdn4.telesco.pe/file/abc.jpg"
