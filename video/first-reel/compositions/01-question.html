@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="he">
+<head>
+<meta charset="UTF-8"/>
+<link rel="stylesheet" href="shared.css"/>
+<script src="../assets/vendor/gsap.min.js"></script>
+<style>
+#q-root{position:absolute;inset:0;width:1080px;height:1920px;overflow:hidden;direction:rtl;font-family:"Rubik",sans-serif;color:var(--ink);
+background:radial-gradient(120% 70% at 85% 0%,var(--bg2) 0%,#0a1430 48%,var(--bg) 100%)}
+.tag{position:absolute;width:300px;height:132px}
+.tag svg{width:100%;height:100%;overflow:visible}
+.tag text{font-family:"Rubik",sans-serif;font-weight:800;font-size:46px;fill:#fff}
+#cart{position:absolute;left:340px;top:1360px;width:400px;height:360px}
+#cart svg{width:100%;height:100%;overflow:visible}
+</style>
+</head>
+<body>
+<div id="q-root" data-composition-id="question" data-width="1080" data-height="1920">
+  <h1 class="headline" id="h1"><span class="w">עוד</span><span class="w">'מבצע'?</span></h1>
+  <h1 class="headline" id="h2" style="opacity:0"><span class="w">בדקנו</span><span class="w y">בשבילך.</span></h1>
+  <div id="tags"></div>
+  <div id="cart">
+    <svg viewBox="0 0 400 360" aria-hidden="true">
+      <!-- the cart from the logo, redrawn so it can move -->
+      <path id="cart-body" d="M30 70 H95 L135 250 H330 L365 110 H120" fill="none" stroke="#22d3ee" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle id="w1" cx="165" cy="310" r="26" fill="#22d3ee"/>
+      <circle id="w2" cx="305" cy="310" r="26" fill="#22d3ee"/>
+      <path id="check" d="M170 175 L215 220 L305 120" fill="none" stroke="#ffd21f" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"
+            stroke-dasharray="260" stroke-dashoffset="260"/>
+    </svg>
+  </div>
+  <script>
+  (function(){
+    // the noise of "sales" everywhere - illustration of the problem, not claims about any store
+    var words=["מבצע!","‎-70%","רק היום","סייל!","הנחה!","מחיר מטורף","בלאק פריידי","‎-50%"];
+    var colors=["#e0262f","#c2410c","#e0262f","#be185d","#c2410c","#e0262f","#7c3aed","#be185d"];
+    var spots=[[150,560,-5],[560,580,4],[340,720,-3],[130,890,6],[470,880,-6],[300,1000,3],[150,1100,-4],[460,1090,5]];
+    var box=document.getElementById("tags");
+    words.forEach(function(w,i){
+      var d=document.createElement("div"); d.className="tag"; d.id="t"+i;
+      d.style.left=spots[i][0]+"px"; d.style.top=spots[i][1]+"px"; d.style.transform="rotate("+spots[i][2]+"deg)";
+      d.innerHTML='<svg viewBox="0 0 300 132"><path d="M40 6 H286 Q294 6 294 14 V118 Q294 126 286 126 H40 L6 66 Z" fill="'+colors[i]+'"/>'+
+        '<circle cx="44" cy="66" r="11" fill="#060b18"/><text x="170" y="84" text-anchor="middle">'+w.replace(/&/g,"&amp;")+'</text></svg>';
+      box.appendChild(d);
+    });
+    var tl=gsap.timeline({paused:true});
+    // 5 tags on screen from frame 0, the other 3 pop in
+    [5,6,7].forEach(function(i,k){ tl.from("#t"+i,{scale:0,opacity:0,duration:.45,ease:"back.out(2)"},0.35+k*0.28); });
+    tl.to("#tags .tag",{rotation:"+=3",duration:.5,yoyo:true,repeat:3,ease:"sine.inOut",stagger:.05},0.1);
+    // 2.15 s: every tag is sucked into the cart's mouth
+    tl.to("#tags .tag",{x:function(i){return 390-spots[i][0];},y:function(i){return 1480-spots[i][1];},scale:0.08,opacity:0,rotation:0,duration:.55,ease:"power3.in",stagger:.045},2.15);
+    tl.to("#h1 .w",{y:-40,opacity:0,duration:.3,ease:"power2.in",stagger:.06},2.3);
+    // the cart grows and rises, the check is drawn and pops
+    tl.to("#cart",{y:-500,scale:1.35,duration:.6,ease:"power3.out"},2.75);
+    tl.to("#check",{strokeDashoffset:0,duration:.35,ease:"power2.out"},3.15);
+    tl.fromTo("#check",{scale:.6,transformOrigin:"237px 170px"},{scale:1,duration:.45,ease:"back.out(2.4)"},3.15);
+    tl.set("#h2",{opacity:1},2.6);
+    tl.from("#h2 .w",{y:50,opacity:0,duration:.35,ease:"power3.out",stagger:.16},2.65);
+    window.__timelines=window.__timelines||{}; window.__timelines["question"]=tl;
+  })();
+  </script>
+</div>
+</body>
+</html>

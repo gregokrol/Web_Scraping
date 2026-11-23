@@ -1,0 +1,12 @@
+@font-face{font-family:"Rubik";font-weight:500;src:url("../assets/fonts/rubik-hebrew-500-normal.woff2") format("woff2");unicode-range:U+0590-05FF,U+200C-2010,U+20AA,U+25CC,U+FB1D-FB4F}
+@font-face{font-family:"Rubik";font-weight:700;src:url("../assets/fonts/rubik-hebrew-700-normal.woff2") format("woff2");unicode-range:U+0590-05FF,U+200C-2010,U+20AA,U+25CC,U+FB1D-FB4F}
+@font-face{font-family:"Rubik";font-weight:800;src:url("../assets/fonts/rubik-hebrew-800-normal.woff2") format("woff2");unicode-range:U+0590-05FF,U+200C-2010,U+20AA,U+25CC,U+FB1D-FB4F}
+@font-face{font-family:"Rubik";font-weight:500;src:url("../assets/fonts/rubik-latin-500-normal.woff2") format("woff2");unicode-range:U+0000-00FF}
+@font-face{font-family:"Rubik";font-weight:700;src:url("../assets/fonts/rubik-latin-700-normal.woff2") format("woff2");unicode-range:U+0000-00FF}
+@font-face{font-family:"Rubik";font-weight:800;src:url("../assets/fonts/rubik-latin-800-normal.woff2") format("woff2");unicode-range:U+0000-00FF}
+:root{--bg:#060b18;--bg2:#163a7a;--ink:#f2f6ff;--muted:#9db0d4;--yellow:#ffd21f;--yellow2:#ffb800;--cyan:#22d3ee;--red:#ff3d47}
+*{margin:0;padding:0;box-sizing:border-box}
+
+.headline{position:absolute;top:310px;right:192px;left:120px;font-weight:800;font-size:112px;line-height:1.08;letter-spacing:-.01em;text-align:right}
+.headline .w{display:inline-block;margin-left:.22em}
+.headline .y{color:var(--yellow)}

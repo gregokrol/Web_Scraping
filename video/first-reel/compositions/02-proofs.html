@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="he">
+<head>
+<meta charset="UTF-8"/>
+<link rel="stylesheet" href="shared.css"/>
+<script src="../assets/vendor/gsap.min.js"></script>
+<style>
+#p-root{position:absolute;inset:0;width:1080px;height:1920px;overflow:hidden;direction:rtl;font-family:"Rubik",sans-serif;color:var(--ink);
+background:radial-gradient(120% 70% at 85% 0%,var(--bg2) 0%,#0a1430 48%,var(--bg) 100%)}
+.shot{position:absolute;left:50%;border-radius:36px;box-shadow:0 30px 80px rgba(0,0,0,.55),0 0 0 2px rgba(255,255,255,.08);overflow:hidden;transform-origin:50% 50%}
+#hero{width:700px;top:640px;margin-left:-350px}
+#chart{opacity:0;visibility:hidden;width:920px;top:900px;margin-left:-460px}
+#post{opacity:0;visibility:hidden;width:900px;top:820px;margin-left:-450px}
+.shot img{display:block;width:100%}
+.headline{font-size:84px}
+.tagline{position:absolute;top:545px;right:192px;left:120px;font-size:30px;color:var(--muted);text-align:right}
+</style>
+</head>
+<body>
+<div id="p-root" data-composition-id="proofs" data-width="1080" data-height="1920">
+  <!-- REAL screens: the live deal page and channel post of מחיר אמת (Sonos Beam Gen 2 at Bug, 23.11.2026) -->
+  <div class="shot" id="hero"><img src="../assets/deal-hero.png" alt=""/></div>
+  <div class="shot" id="chart"><img src="../assets/deal-chart.png" alt=""/></div>
+  <div class="shot" id="post"><img src="../assets/channel-post.png" alt=""/></div>
+  <h1 class="headline" id="a"><span class="w">מחיר</span><span class="w">קודם</span><span class="w y">שנבדק.</span><br><span class="w">לא</span><span class="w">"מחיר</span><span class="w">מקורי".</span></h1>
+  <h1 class="headline" id="b" style="opacity:0"><span class="w y">5</span><span class="w">בדיקות</span><span class="w">מחיר.</span><br><span class="w">הנמוך</span><span class="w">מאז</span><span class="w y">9.11.</span></h1>
+  <h1 class="headline" id="c" style="opacity:0"><span class="w">רק</span><span class="w">מה</span><span class="w">שעבר</span><span class="w y">בדיקה,</span><br><span class="w">בערוץ.</span></h1>
+  <p class="tagline">מסכים אמיתיים מהאתר ומהערוץ. המחיר נבדק ב-23.11.2026, ועשוי להשתנות.</p>
+  <script>
+  (function(){
+    var tl=gsap.timeline({paused:true});
+    
+    // proof 1: the deal page rises from below
+    tl.from("#hero",{y:900,duration:.9,ease:"expo.out"},0);
+    tl.from("#a .w",{y:50,opacity:0,duration:.35,ease:"power3.out",stagger:.09},0.15);
+    tl.to("#hero",{scale:1.06,duration:2.6,ease:"power2.inOut"},0.9);
+    // proof 2: the page steps back, the price history comes in
+    tl.to("#hero",{opacity:.35,filter:"blur(6px)",duration:.45},3.4);
+    tl.to("#a",{opacity:0,y:-30,duration:.3},3.4);
+    tl.fromTo("#chart",{autoAlpha:0,x:-1100,rotation:-6},{autoAlpha:1,x:0,rotation:0,duration:.85,ease:"expo.out"},3.5);
+    tl.set("#b",{opacity:1},3.6);
+    tl.from("#b .w",{y:50,opacity:0,duration:.35,ease:"power3.out",stagger:.09},3.65);
+    tl.to("#chart",{scale:1.1,duration:3,ease:"power2.inOut"},4.3);
+    // proof 3: the post in the channel
+    tl.to(["#hero","#chart"],{opacity:0,duration:.4},7);
+    tl.to("#b",{opacity:0,y:-30,duration:.3},7);
+    tl.fromTo("#post",{autoAlpha:0,x:1100,rotation:5},{autoAlpha:1,x:0,rotation:0,duration:.85,ease:"expo.out"},7.1);
+    tl.set("#c",{opacity:1},7.2);
+    tl.from("#c .w",{y:50,opacity:0,duration:.35,ease:"power3.out",stagger:.09},7.25);
+    tl.to("#post",{scale:1.05,duration:2.6,ease:"power2.inOut"},7.9);
+    window.__timelines=window.__timelines||{}; window.__timelines["proofs"]=tl;
+  })();
+  </script>
+</div>
+</body>
+</html>

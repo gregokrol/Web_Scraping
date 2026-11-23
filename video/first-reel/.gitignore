@@ -1,0 +1,4 @@
+.hyperframes/
+renders/*
+!renders/mechir-emet-reel-v1.mp4
+node_modules/
