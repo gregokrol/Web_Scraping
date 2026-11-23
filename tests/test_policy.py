@@ -76,3 +76,29 @@ def test_permit_needs_the_written_permission_confirmation(tmp_path, monkeypatch,
     assert CrawlPolicy.load(tmp_path / "sources.json").blocked_reason("https://ksp.co.il/web/outlet") is None
     assert main(["stores", "unpermit", "ksp.co.il"]) == 0
     assert CrawlPolicy.load(tmp_path / "sources.json").blocked_reason("https://ksp.co.il/web/outlet")
+
+
+def test_direct_scrape_reads_sources_json_and_its_permission(tmp_path, monkeypatch):
+    import json
+
+    import pytest
+
+    from affiliate_scraper import cli
+    from affiliate_scraper.policy import CrawlPolicy
+    monkeypatch.chdir(tmp_path)
+    seen = {}
+
+    def stop(args):                                  # catch the settings before any network request
+        seen["sources"] = args.sources
+        raise RuntimeError("stop")
+
+    monkeypatch.setattr(cli, "make_fetcher", stop)
+    with pytest.raises(RuntimeError):
+        cli.main(["https://ksp.co.il/web/item/1", "--no-db"])
+    assert seen["sources"] is None                   # no sources.json here -> KSP stays blocked
+    (tmp_path / "sources.json").write_text(json.dumps({"stores": [], "permitted_domains": ["ksp.co.il"]}),
+                                           encoding="utf-8")
+    with pytest.raises(RuntimeError):
+        cli.main(["https://ksp.co.il/web/item/1", "--no-db"])
+    assert seen["sources"] == "sources.json"         # read without --sources
+    assert CrawlPolicy.load(seen["sources"]).blocked_reason("https://ksp.co.il/web/item/1") is None

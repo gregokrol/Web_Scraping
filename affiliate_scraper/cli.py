@@ -68,7 +68,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
 
     g = ap.add_argument_group("sources")
-    g.add_argument("--sources", help="Store settings JSON (see sources.example.json)")
+    g.add_argument("--sources", help="Store settings JSON (default: sources.json in this folder, if it exists)")
     g.add_argument("--feed", action="append", default=[], help="Product feed URL or file (Google XML / CSV). Repeatable")
     g.add_argument("--amazon-search", action="append", default=[], help="Amazon Creators API keyword search. Repeatable")
     g.add_argument("--amazon-asin", action="append", default=[], help="Amazon Creators API by ASIN(s), comma separated")
@@ -248,6 +248,9 @@ def explain_no_products(errors, max_shown: int = 5) -> list[str]:
 def scrape_main(argv: list[str]) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if not args.sources and Path("sources.json").is_file():
+        # a direct scrape uses the same store settings and permissions (permitted_domains) as the automation
+        args.sources = "sources.json"
     setup_logging(args.verbose)
 
     def err(msg: str) -> None:
