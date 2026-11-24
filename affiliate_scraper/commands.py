@@ -1960,7 +1960,7 @@ cli.register_subcommand("telegram-listen", "Run the agent manager from Telegram:
 
 # ---------------------------------------------------------------- stores' Telegram channels (leads)
 def _channels_build(ap) -> None:
-    ap.add_argument("action", choices=["list", "add", "remove", "fetch", "leads", "drops", "post"])
+    ap.add_argument("action", choices=["list", "add", "remove", "fetch", "leads", "drops", "post", "auto"])
     ap.add_argument("names", nargs="*", help="Channel names, e.g. KSPcoil payngoil (or t.me/KSPcoil); post: the id")
     ap.add_argument("--publish", action="store_true", help="post: in the PUBLIC channel (default: a preview to you)")
     ap.add_argument("--config", default="automation.json")
@@ -1999,14 +1999,17 @@ def auto_channel_posts(cfg: dict, db: Database, tg, channel_drops: list[dict]) -
     """A big drop in a store's own Telegram channel may be posted by itself (the ``channels_auto`` rule) - only
     when you chose automatic or smart approval; with manual approval every channel post waits for your button.
     Returns the drops that still need your decision."""
+    from .telegram import agent_run
     from .webhook import PublishError
+    if agent_run():
+        return channel_drops                    # the agent manager never posts in the public channel
     not_manual = cfg.get("require_approval", True) is False or bool((cfg.get("auto_publish") or {}).get("enabled"))
     if not (channel_drops and tg and tg.channel and not_manual):
         return channel_drops
     from .channels import auto_post_candidates, auto_rules, mark_auto_posted, store_name
     for r in auto_post_candidates(db, channel_drops, auto_rules(cfg.get("channels_auto"))):
         try:
-            publish_claim(db, r["id"], tg, publish=True)
+            publish_claim(db, r["id"], tg, publish=True, auto=True)
         except (PublishError, ValueError) as exc:
             _err(f"Channel auto-post problem: {exc}")
             break
@@ -2024,7 +2027,7 @@ def auto_channel_posts(cfg: dict, db: Database, tg, channel_drops: list[dict]) -
     return channel_drops
 
 
-def publish_claim(db: Database, claim_id: int, tg, publish: bool) -> str:
+def publish_claim(db: Database, claim_id: int, tg, publish: bool, auto: bool = False) -> str:
     """Post a channel price: to the public channel (publish) or as a preview to you. Returns what happened."""
     from .channels import ensure_schema, post_text
     from .content import DISCLOSURE
@@ -2037,9 +2040,40 @@ def publish_claim(db: Database, claim_id: int, tg, publish: bool) -> str:
     if not target:
         raise ValueError("set " + ("TELEGRAM_CHANNEL" if publish else "TELEGRAM_ADMIN_CHAT"))
     link = r["link"] or r["post_url"]
-    tg.send_menu(target, post_text(db, r, DISCLOSURE["he"]),
+    tg.send_menu(target, post_text(db, r, DISCLOSURE["he"], auto=auto),
                  [("לפרטים ורכישה ›", link)] if link.startswith("https://") else [])
+    if publish:                              # so the automatic rule does not post the same product again this week
+        with db.tx() as c:
+            c.execute("UPDATE channel_claims SET published_at=? WHERE id=?",
+                      (datetime.now(timezone.utc).isoformat(), claim_id))
     return f"✅ פורסם בערוץ: {r['title'][:80]}" if publish else "תצוגה מקדימה נשלחה אליך."
+
+
+def _channels_auto(args, path: Path, cfg: dict) -> int:
+    """py main.py channels auto on|off|status - your choice: may a big drop in a store's channel be posted by itself?"""
+    from .channels import auto_rules
+    choice = (args.names or ["status"])[0]
+    if choice not in ("on", "off", "status"):
+        _err("error: py main.py channels auto on | off | status")
+        return 2
+    rules = auto_rules(cfg.get("channels_auto"))
+    if choice != "status":
+        if not path.exists():
+            _err(f"error: {path} not found")
+            return 2
+        rules["enabled"] = choice == "on"
+        cfg["channels_auto"] = rules
+        path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+    not_manual = cfg.get("require_approval", True) is False or bool((cfg.get("auto_publish") or {}).get("enabled"))
+    if rules["enabled"]:
+        print(f"channels auto: ON - a {rules['min_drop_pct']:g}%+ drop in a store's own channel (niche only, "
+              f"vs its post from the last {rules['max_prev_age_days']:g} days) is posted by itself, at most "
+              f"{rules['per_day']} a day, worded as the store's price."
+              + ("" if not_manual else "\nNOTE: approval is MANUAL, so nothing is posted by itself until you "
+                                       "run: py main.py approval smart"))
+    else:
+        print("channels auto: OFF - every product from the stores' channels waits for your button.")
+    return 0
 
 
 def _channels_post(args, db: Database) -> int:
@@ -2105,6 +2139,8 @@ def _channels_run(args) -> int:
             return 0
         if args.action == "post":
             return _channels_post(args, db)
+        if args.action == "auto":
+            return _channels_auto(args, path, cfg)
         text = leads_text(db)
         if not text:
             print("No new products from the channels in the last 48 hours.")

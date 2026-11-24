@@ -146,8 +146,8 @@ def test_old_table_on_the_owners_computer_is_migrated(tmp_path):
     from affiliate_scraper.channels import ensure_schema
     db = Database(path)
     ensure_schema(db)
-    [row] = db.query("SELECT item_key, drop_notified FROM channel_claims")
-    assert row["item_key"] and row["drop_notified"] == 0
+    [row] = db.query("SELECT item_key, drop_notified, auto_posted_at, published_at FROM channel_claims")
+    assert row["item_key"] and row["drop_notified"] == 0 and row["auto_posted_at"] is None and row["published_at"] is None
 
 
 def test_channel_store_on_the_website_is_marked_as_the_stores_price(tmp_path):
@@ -220,11 +220,11 @@ def test_post_photo_is_kept_and_old_rows_are_refreshed(tmp_path):
 
 
 # ---------------------------------------------------------------- channels_auto: big drops posted by themselves
-def _drop(db, pid, title, old, new, hours_ago=2, channel="ShopIL"):
+def _drop(db, pid, title, old, new, hours_ago=2, channel="ShopIL", prev_days=5):
     from datetime import datetime, timedelta, timezone
     now = datetime.now(timezone.utc)
     first = post(pid, [title, f"ב-₪{old:,}", "במקום", f"₪{old * 2:,}"],
-                 when=(now - timedelta(days=5)).isoformat())
+                 when=(now - timedelta(days=prev_days)).isoformat())
     later = post(pid + 1000, [title, f"ב-₪{new:,}", "במקום", f"₪{old * 2:,}"],
                  when=(now - timedelta(hours=hours_ago)).isoformat())
     save_claims(db, parse_channel_html(f"<html><body>{first}</body></html>", channel))
@@ -242,7 +242,7 @@ class FakeChannelTG:
         self.notes.append(text)
 
 
-SMART = {"auto_publish": {"enabled": True}}
+SMART = {"auto_publish": {"enabled": True}, "channels_auto": {"enabled": True}}
 
 
 def test_big_niche_drop_is_posted_by_itself_once_a_day(tmp_path):
@@ -281,8 +281,60 @@ def test_manual_approval_or_rule_off_means_buttons_only(tmp_path):
     db = Database(tmp_path / "c.db")
     _drop(db, 1, "מקלדת מכנית Acme K8", 250, 150)
     drops = new_drops(db)
-    for cfg in ({}, {"require_approval": True}, {**SMART, "channels_auto": {"enabled": False}}):
+    for cfg in ({}, {"require_approval": True}, {**SMART, "channels_auto": {"enabled": False}},
+                {"auto_publish": {"enabled": True}}):             # smart approval alone does NOT switch it on
         tg = FakeChannelTG()
         assert auto_channel_posts(cfg, db, tg, drops) == drops and tg.posts == []
     tg = FakeChannelTG()
-    assert auto_channel_posts({"require_approval": False}, db, tg, drops) == [] and len(tg.posts) == 1
+    assert auto_channel_posts({"require_approval": False, "channels_auto": {"enabled": True}}, db, tg, drops) == []
+    assert len(tg.posts) == 1
+
+
+def test_auto_post_is_careful(tmp_path, monkeypatch):
+    from affiliate_scraper.channels import new_drops
+    from affiliate_scraper.commands import auto_channel_posts, publish_claim
+    db = Database(tmp_path / "c.db")
+    # the earlier post is 3 months old -> "-40%" against it would mislead
+    _drop(db, 1, "מקלדת מכנית Acme K8", 250, 150, prev_days=90)
+    tg = FakeChannelTG()
+    assert auto_channel_posts(SMART, db, tg, new_drops(db)) and tg.posts == []
+    # the agent manager runs -> never posts
+    db2 = Database(tmp_path / "d.db")
+    _drop(db2, 1, "עכבר גיימינג Acme M3", 200, 150)
+    monkeypatch.setenv("MECHIR_AGENT_RUN", "1")
+    tg = FakeChannelTG()
+    assert auto_channel_posts(SMART, db2, tg, new_drops(db2)) and tg.posts == []
+    monkeypatch.delenv("MECHIR_AGENT_RUN")
+    # you posted it yourself today (button) -> not again by itself this week
+    [d] = new_drops(db2)
+    publish_claim(db2, d["id"], FakeChannelTG(), publish=True)
+    tg = FakeChannelTG()
+    assert auto_channel_posts(SMART, db2, tg, new_drops(db2)) and tg.posts == []
+
+
+def test_auto_post_text_is_calm_and_claims_nothing_unchecked(tmp_path):
+    from affiliate_scraper.channels import new_drops
+    from affiliate_scraper.commands import auto_channel_posts
+    db = Database(tmp_path / "c.db")
+    p = validate_product(Product(url="https://shop.example/k8", name="מקלדת מכנית Acme K8", price=199.0,
+                                 currency="ILS", availability="InStock", source="json-ld", source_type="json-ld"))
+    db.save_products([p])                                     # a word-match a person never looked at
+    _drop(db, 1, "מקלדת מכנית Acme K8", 250, 150)
+    tg = FakeChannelTG()
+    auto_channel_posts(SMART, db, tg, new_drops(db))
+    [(_, text)] = tg.posts
+    assert text.startswith("📉") and "נבדק אצלנו:" not in text and "לא נבדק אצלנו" in text and "גילוי נאות" in text
+
+
+def test_channels_auto_switch(tmp_path, monkeypatch, capsys):
+    cfg = tmp_path / "automation.json"
+    cfg.write_text(json.dumps({"telegram_channels": ["ShopIL"]}), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    assert main(["channels", "auto", "status"]) == 0 and "OFF" in capsys.readouterr().out
+    assert main(["channels", "auto", "on"]) == 0
+    out = capsys.readouterr().out
+    assert "ON" in out and "MANUAL" in out                    # approval is manual -> says nothing will happen yet
+    saved = json.loads(cfg.read_text(encoding="utf-8"))
+    assert saved["channels_auto"]["enabled"] is True and saved["telegram_channels"] == ["ShopIL"]
+    assert main(["channels", "auto", "off"]) == 0
+    assert json.loads(cfg.read_text(encoding="utf-8"))["channels_auto"]["enabled"] is False

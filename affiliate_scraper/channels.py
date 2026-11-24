@@ -46,7 +46,8 @@ CREATE TABLE IF NOT EXISTS channel_claims (
 """
 # added later (ensure_schema migrates an existing table): the same product in a later post, and price drops
 _LATER_COLUMNS = (("item_key", "TEXT"), ("prev_price", "REAL"), ("prev_posted_at", "TEXT"),
-                  ("drop_notified", "INTEGER DEFAULT 0"), ("image", "TEXT"), ("auto_posted_at", "TEXT"))
+                  ("drop_notified", "INTEGER DEFAULT 0"), ("image", "TEXT"), ("auto_posted_at", "TEXT"),
+                  ("published_at", "TEXT"))
 _PHOTO = re.compile(r"background-image:\s*url\('(https://[^']+)'\)")
 
 # your names for the stores behind the channels (shown on the website and in the channel menu)
@@ -291,16 +292,17 @@ def drop_text(db: Database, r: dict) -> str:
     return "\n".join(lines)
 
 
-def post_text(db: Database, r: dict, disclosure: str) -> str:
-    """The public post for a channel price - stated as the store's price, never as a verified one."""
+def post_text(db: Database, r: dict, disclosure: str, auto: bool = False) -> str:
+    """The public post for a channel price - stated as the store's price, never as a verified one.
+    ``auto`` (posted without the owner's look): no word-matched "checked by us" lines, a calm icon."""
     store = store_name(r["channel"])
-    lines = [f"🔥 {r['title'][:120]}",
+    lines = [f"{'📉' if auto else '🔥'} {r['title'][:120]}",
              f"• ₪{r['price']:,.2f} לפי ערוץ {store} ({_date(r['posted_at'])}). לא נבדק אצלנו בדף המוצר."]
     if r.get("prev_price"):
         lines.append(f"• בפוסט הקודם של {store} ({_date(r['prev_posted_at'])}): ₪{r['prev_price']:,.2f}")
     elif r.get("was_price"):
         lines.append(f"• במקום ₪{r['was_price']:,.2f}, לפי {store}")
-    for m in verified_matches(db, r["title"]):
+    for m in ([] if auto else verified_matches(db, r["title"])):
         lines.append(f"• נבדק אצלנו: {m['store'] or m['domain']} ₪{m['price']:,.2f}")
     lines += ["", disclosure]
     return "\n".join(lines)
@@ -385,7 +387,9 @@ def leads_text(db: Database, hours: float = 48, limit: int = 8, niche_only: bool
 
 
 # ---------------------------------------------------------------- automatic posts from the stores' channels
-AUTO_DEFAULTS = {"enabled": True, "min_drop_pct": 20.0, "per_day": 1, "niche_only": True, "max_age_hours": 48}
+# OFF unless automation.json says so (py main.py channels auto on): the owner's choice, not a default
+AUTO_DEFAULTS = {"enabled": False, "min_drop_pct": 20.0, "per_day": 1, "niche_only": True, "max_age_hours": 48,
+                 "max_prev_age_days": 30}
 
 
 def auto_rules(cfg: Optional[dict]) -> dict:
@@ -420,12 +424,16 @@ def auto_post_candidates(db: Database, drops: list[dict], rules: dict, now: Opti
         posted = _parse_iso(r.get("posted_at") or "")
         if not posted or now - posted > timedelta(hours=float(rules["max_age_hours"])):
             continue
+        prev = _parse_iso(r.get("prev_posted_at") or "")      # "the earlier post" must be recent, not months old
+        if not prev or posted - prev > timedelta(days=float(rules["max_prev_age_days"])):
+            continue
         if rules.get("niche_only") and classify(r.get("title") or "") not in NICHE:
             continue
         if excluded_reason(r.get("title") or ""):
             continue
-        if db.query("SELECT 1 FROM channel_claims WHERE item_key=? AND auto_posted_at >= ?", (r.get("item_key"), week)):
-            continue
+        if db.query("SELECT 1 FROM channel_claims WHERE item_key=? AND (auto_posted_at >= ? OR published_at >= ?)",
+                    (r.get("item_key"), week, week)):
+            continue                                           # posted this week already (by itself or by you)
         out.append(r)
     return out
 
@@ -433,5 +441,5 @@ def auto_post_candidates(db: Database, drops: list[dict], rules: dict, now: Opti
 def mark_auto_posted(db: Database, ids: list[int], now: Optional[datetime] = None) -> None:
     when = (now or datetime.now(timezone.utc)).isoformat()
     with db.tx() as c:
-        c.executemany("UPDATE channel_claims SET auto_posted_at=?, drop_notified=1 WHERE id=?",
-                      [(when, i) for i in ids])
+        c.executemany("UPDATE channel_claims SET auto_posted_at=?, published_at=?, drop_notified=1 WHERE id=?",
+                      [(when, when, i) for i in ids])
