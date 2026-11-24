@@ -346,3 +346,62 @@ def test_every_project_skill_and_agent_loads():
                 assert ": " not in value, (f, line)
     for s in ("social", "copywriting", "video"):            # the owner's rules come first in the borrowed skills
         assert "כללי הבעלים קודמים" in (root / "skills" / s / "SKILL.md").read_text(encoding="utf-8")
+
+
+def test_every_press_in_a_batch_is_answered_before_the_slow_actions_run(tmp_path):
+    from affiliate_scraper.remote import listen_forever
+    order = []
+    tg = ButtonTG()
+    tg.answer_button = lambda cid, text="": order.append(("answer", cid))
+    a, b = press("dpub:1"), press("dpub:2")
+    a["update_id"], b["update_id"] = 1, 2
+    a["callback_query"]["id"], b["callback_query"]["id"] = "cbA", "cbB"
+    stop = threading.Event()
+    batches = [[a, b]]
+
+    def get_updates(offset):
+        if not batches:
+            stop.set()
+            return []
+        return batches.pop()
+    tg.get_updates = get_updates
+    lst = Listener(tg, tmp_path, "42", out_dir=tmp_path / "o",
+                   actions={"dpub": lambda i: order.append(("action", i)) or "ok"})
+    listen_forever(lst, lambda: None, lambda o: None, stop)
+    assert order == [("answer", "cbA"), ("answer", "cbB"), ("action", 1), ("action", 2)]   # each answered once
+
+
+def test_batch_answers_only_presses_that_will_run_each_once(tmp_path):
+    tg = ButtonTG()
+    done = []
+    lst = Listener(tg, tmp_path, "42", out_dir=tmp_path / "o", actions={"dpub": lambda i: done.append(i) or "ok"})
+    other = press("dpub:1", from_id=99)
+    group = press("dpub:2", chat_id=-100, chat_type="group")
+    unknown = press("rm:3")
+    good = press("dpub:4")
+    for u, cid in ((other, "o"), (group, "g"), (unknown, "u"), (good, "ok")):
+        u["callback_query"]["id"] = cid
+    batch = [other, group, unknown, good]
+    lst.ack_buttons(batch)
+    assert tg.answered == [("ok", "מבצע...")]                       # only the press that will run
+    for u in batch:
+        lst.handle(u)
+    ids = [cid for cid, _ in tg.answered]
+    assert sorted(ids) == ["g", "o", "ok", "u"] and len(ids) == len(set(ids))   # each press answered once
+    assert done == [4] and lst._acked == set()
+
+
+def test_failed_batch_answer_is_retried_by_the_handler(tmp_path):
+    tg = ButtonTG()
+    calls = []
+
+    def flaky(cid, text=""):
+        calls.append(cid)
+        if len(calls) == 1:
+            raise RuntimeError("network")
+    tg.answer_button = flaky
+    lst = Listener(tg, tmp_path, "42", out_dir=tmp_path / "o", actions={"dpub": lambda i: "ok"})
+    u = press("dpub:5")
+    lst.ack_buttons([u])
+    lst.handle(u)
+    assert calls == ["cb1", "cb1"]

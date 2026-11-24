@@ -131,6 +131,7 @@ class Listener:
         """``actions``: button handlers by prefix, e.g. {"cpost": publish a channel price, "dpub": approve and
         publish a deal} - each gets the id and returns the text to show you."""
         self.actions = actions or {}
+        self._acked: set = set()          # button presses already answered (ack_buttons)
         self.tg, self.project_dir, self.admin_chat = tg, Path(project_dir), str(admin_chat).strip()
         self.runner, self.status, self.digest = runner, status, digest
         self.out_dir = Path(out_dir or self.project_dir / "agents_output" / "telegram")
@@ -155,10 +156,10 @@ class Listener:
     def handle_button(self, cq: dict) -> None:
         """A press on a button in YOUR private chat. Anyone else's press is refused (and does nothing)."""
         msg = cq.get("message") or {}
-        mine = (str((cq.get("from") or {}).get("id")) == self.admin_chat and self.authorized(msg))
+        mine = self._mine(cq)
         data = str(cq.get("data") or "")
         prefix, _, ident = data.partition(":")
-        if not mine or prefix not in self.actions or not ident.isdigit():
+        if not self._valid_press(cq):
             try:
                 self.tg.answer_button(cq.get("id", ""), "לא מורשה" if not mine else "פעולה לא מוכרת")
             except Exception:  # noqa: BLE001
@@ -166,7 +167,10 @@ class Listener:
             log.info("ignored a button press: %s from %s", data, (cq.get("from") or {}).get("id"))
             return
         try:
-            self.tg.answer_button(cq["id"], "מבצע...")
+            if cq["id"] in self._acked:
+                self._acked.discard(cq["id"])              # answered already by ack_buttons
+            else:
+                self.tg.answer_button(cq["id"], "מבצע...")
             self.tg.clear_buttons(self.admin_chat, msg["message_id"])     # one decision per message
         except Exception as exc:  # noqa: BLE001
             log.warning("button acknowledgement failed: %s", exc)
@@ -175,6 +179,26 @@ class Listener:
         except Exception as exc:  # noqa: BLE001 - tell, do not crash the listener
             result = f"❌ נכשל: {str(exc)[:300]}"
         self.reply(result)
+
+    def _mine(self, cq: dict) -> bool:
+        return str((cq.get("from") or {}).get("id")) == self.admin_chat and self.authorized(cq.get("message") or {})
+
+    def _valid_press(self, cq: dict) -> bool:
+        """YOUR press, in your private chat, on a known action with a numeric id - the only presses that run."""
+        prefix, _, ident = str(cq.get("data") or "").partition(":")
+        return self._mine(cq) and prefix in self.actions and ident.isdigit()
+
+    def ack_buttons(self, updates: list) -> None:
+        """Answer every button press of a batch at once, before any action runs: Telegram only accepts the
+        answer for a short time, and one action (publish + website) can take a minute."""
+        for u in updates:
+            cq = u.get("callback_query") or {}
+            if cq.get("id") and self._valid_press(cq):
+                try:
+                    self.tg.answer_button(cq["id"], "מבצע...")
+                    self._acked.add(cq["id"])
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("button acknowledgement failed: %s", exc)
 
     def handle(self, update: dict) -> None:
         if update.get("callback_query"):
@@ -278,6 +302,7 @@ def listen_forever(listener: Listener, get_offset: Callable[[], Optional[int]],
             log.warning("getUpdates failed: %s", exc)
             time.sleep(10)
             continue
+        listener.ack_buttons(updates)
         for u in updates:
             offset = int(u["update_id"]) + 1
             save_offset(offset)          # saved first: a message that crashes us is not repeated forever
