@@ -736,6 +736,21 @@ def compare_across_stores(db: Database, cfg: dict, since: str, with_known_matche
 
 
 def _run_run(args) -> int:
+    from .remote import RUN_LOCK_PORT, single_instance
+    lock = None if getattr(args, "dry_run", False) else single_instance(RUN_LOCK_PORT)
+    if lock is None and not getattr(args, "dry_run", False):
+        # the scheduled run while a manual one is still going (or the other way round): two runs would hit the
+        # stores twice as often and could publish the same deal twice
+        _err("Another automation run is still going on this computer - this one is skipped.")
+        return 0
+    try:
+        return _run_once(args)
+    finally:
+        if lock is not None:
+            lock.close()
+
+
+def _run_once(args) -> int:
     from .alerts import DealRules, detect_deals, notify_pending, publish_approved
     from .webhook import PublishError, send_event, webhook_url
     try:

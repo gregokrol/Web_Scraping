@@ -250,11 +250,15 @@ class Listener:
         self.reply(f"📋 סיכום המנהל ({minutes:.0f} דקות):\n\n{answer}")
 
 
-def single_instance() -> Optional[socket.socket]:
-    """A listening socket on localhost as a lock: None if another listener already runs."""
+RUN_LOCK_PORT = 47824           # one automation run at a time (a manual run and the scheduled one)
+
+
+def single_instance(port: int = LOCK_PORT) -> Optional[socket.socket]:
+    """A listening socket on localhost as a lock: None if another one (listener / run) already holds it.
+    The operating system frees it when the process ends, also after a crash."""
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        s.bind(("127.0.0.1", LOCK_PORT))
+        s.bind(("127.0.0.1", port))
         s.listen(1)
         return s
     except OSError:

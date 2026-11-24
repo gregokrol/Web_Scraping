@@ -634,3 +634,17 @@ def test_health_says_a_429_store_is_slowed_down(tmp_path):
                   + [{"url": "https://other.example/a", "kind": "http_403"}])
     text = " ".join(str(x) for x in run_health(db, {}, check_site=False).values() if isinstance(x, list))
     assert "סורקת אותה לאט יותר" in text and "מורידים קצב או מוותרים" in text   # 403 keeps the old advice
+
+
+def test_only_one_automation_run_at_a_time(tmp_path, capsys):
+    from affiliate_scraper.remote import RUN_LOCK_PORT, single_instance
+    (tmp_path / "automation.json").write_text(json.dumps({"db": str(tmp_path / "x.db"), "targets": ["https://a.example/"]}),
+                                              encoding="utf-8")
+    held = single_instance(RUN_LOCK_PORT)                  # "the scheduled run is still going"
+    assert held is not None
+    try:
+        assert main(["run", "--config", str(tmp_path / "automation.json")]) == 0
+        assert "Another automation run is still going" in capsys.readouterr().err
+        assert not (tmp_path / "x.db").exists()            # it did nothing
+    finally:
+        held.close()
