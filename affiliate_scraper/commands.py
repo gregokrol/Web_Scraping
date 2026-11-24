@@ -545,7 +545,8 @@ def search_stores(cfg: dict, only: Optional[list[str]] = None, affiliate_only: b
     if not src or not Path(src).exists():
         return []
     stores = [s for s in load_stores(src)
-              if s.enabled and (s.search_url or s.search_sitemap) and (not only or s.domain in only)]
+              if s.enabled and s.search is not False and (s.search_url or s.search_sitemap)
+              and (not only or s.domain in only)]
     if affiliate_only:
         joined = joined_programs(cfg.get("db", DEFAULT_DB))
         stores = [s for s in stores if affiliate_info(s, joined)["has_program"]]
@@ -1450,8 +1451,9 @@ cli.register_subcommand("health", "Self-check: runs, store errors, published dea
 
 # ---------------------------------------------------------------- stores (sources.json)
 def _stores_build(ap) -> None:
-    ap.add_argument("action", choices=["list", "daily-off", "daily-on", "sale-add", "sale-remove", "find-sales", "update",
-                                       "disable", "enable", "permit", "unpermit"])
+    ap.add_argument("action", choices=["list", "daily-off", "daily-on", "search-off", "search-on", "sale-add",
+                                       "sale-remove", "find-sales", "update", "disable", "enable", "permit",
+                                       "unpermit"])
     ap.add_argument("domains", nargs="*", help="Store domains, or 'all'. sale-add: a store's sale page URL(s)")
     ap.add_argument("--sources", default=None, help="Default: sources_config from automation.json, else sources.json")
     ap.add_argument("--config", default="automation.json")
@@ -1485,6 +1487,8 @@ def _stores_run(args) -> int:
             if sales:
                 scan += f", sale: {sales}"
             search = "search: yes" if (st.get("search_url") or st.get("search_sitemap")) else "search: no"
+            if search == "search: yes" and st.get("search") is False:
+                search = "search: off"
             off_all = "  [DISABLED]" if st.get("enabled") is False else ""
             print(f"  {st.get('domain', '?'):24} {scan:28} {search}{off_all}")
         print("\nDaily scan = the store pages read in every run. Search = used by the automatic searches (menu 19).")
@@ -1535,6 +1539,16 @@ def _stores_run(args) -> int:
         elif args.action == "daily-on" and st.get("_start_urls_off"):
             st["start_urls"] = [*(st.get("start_urls") or []), *st.pop("_start_urls_off")]
             print(f"daily scan on: {st['domain']}")
+            changed += 1
+        elif args.action == "search-off" and (st.get("search_url") or st.get("search_sitemap")) \
+                and st.get("search") is not False:
+            # the search address stays saved (search-on brings it back); daily and sale pages stay on
+            st["search"] = False
+            print(f"search off: {st['domain']}" + (" (sale pages stay on)" if sales else ""))
+            changed += 1
+        elif args.action == "search-on" and st.get("search") is False:
+            st.pop("search")
+            print(f"search on: {st['domain']}")
             changed += 1
     known = {str(st.get("domain", "")).lower() for st in stores}
     for d in want - known - {"all"}:
@@ -1742,7 +1756,7 @@ def _stores_sale(args, path: Path, data: dict) -> int:
     return 0 if changed or args.action == "sale-remove" else 1
 
 
-cli.register_subcommand("stores", "Show the stores and turn their daily page scan off / on (sources.json)",
+cli.register_subcommand("stores", "Show the stores and turn their daily page scan / searches off / on (sources.json)",
                         _stores_build, _stores_run)
 
 

@@ -52,6 +52,9 @@ class StoreConfig:
     search_url: str = ""
     search_include: str = ""
     search_selector: str = ""
+    # False = not used by the searches (`py main.py stores search-off`), e.g. a store that answers 429 to many
+    # search requests but reads its sale pages fine - search_url stays saved, `search-on` brings it back
+    search: bool = True
     # CSS selector for the product cards on the daily-scan pages (start_urls), for a store whose product
     # addresses have no fixed shape - only links inside these cards are products
     link_selector: str = ""

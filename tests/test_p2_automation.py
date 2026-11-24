@@ -648,3 +648,31 @@ def test_only_one_automation_run_at_a_time(tmp_path, capsys):
         assert not (tmp_path / "x.db").exists()            # it did nothing
     finally:
         held.close()
+
+
+def test_stores_search_off_and_on_keeps_the_search_page_and_the_sale_pages(tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    src = {"stores": [
+        {"domain": "a.example", "search_url": "https://a.example/s?q={q}",
+         "start_urls": ["https://a.example/sale"], "sale_urls": ["https://a.example/sale"]},
+        {"domain": "b.example", "search_url": "https://b.example/s?q={q}"},
+        {"domain": "c.example", "start_urls": ["https://c.example/x"]}]}
+    (tmp_path / "sources.json").write_text(json.dumps(src), encoding="utf-8")
+    cfg = {"sources_config": str(tmp_path / "sources.json"), "delay": 3}
+    from affiliate_scraper.commands import automation_scrape_jobs, search_jobs
+    assert [d for d, _ in search_jobs(cfg, "lego")] == ["a.example", "b.example"]
+    assert main(["stores", "search-off", "a.example", "c.example"]) == 0
+    out = capsys.readouterr().out
+    assert "search off: a.example (sale pages stay on)" in out and "c.example" not in out   # c has no search
+    data = json.loads((tmp_path / "sources.json").read_text(encoding="utf-8"))
+    assert data["stores"][0]["search"] is False and data["stores"][0]["search_url"] == "https://a.example/s?q={q}"
+    assert [d for d, _ in search_jobs(cfg, "lego")] == ["b.example"]          # not searched any more
+    assert any("https://a.example/sale" in argv for argv in automation_scrape_jobs(cfg))   # its sale page still is
+    assert main(["stores", "list"]) == 0
+    assert "search: off" in capsys.readouterr().out
+    assert main(["stores", "search-off", "a.example"]) == 0
+    assert "nothing changed" in capsys.readouterr().out
+    assert main(["stores", "search-on", "all"]) == 0
+    data = json.loads((tmp_path / "sources.json").read_text(encoding="utf-8"))
+    assert "search" not in data["stores"][0]
+    assert [d for d, _ in search_jobs(cfg, "lego")] == ["a.example", "b.example"]
