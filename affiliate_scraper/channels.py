@@ -426,12 +426,57 @@ def leads_text(db: Database, hours: float = 48, limit: int = 8, niche_only: bool
 # ---------------------------------------------------------------- automatic posts from the stores' channels
 # OFF unless automation.json says so (py main.py channels auto on): the owner's choice, not a default
 AUTO_DEFAULTS = {"enabled": False, "min_drop_pct": 20.0, "per_day": 1, "niche_only": True, "max_age_hours": 48,
-                 "max_prev_age_days": 30}
+                 "max_prev_age_days": 30,
+                 # a NEW post of the store ("₪X instead of ₪Y") may be posted too: the store's stated discount
+                 # at least min_claim_pct, at most new_per_day a day - always worded as the store's own claim
+                 "new_posts": True, "min_claim_pct": 25.0, "new_per_day": 3}
 
 
 def auto_rules(cfg: Optional[dict]) -> dict:
-    """``channels_auto`` in automation.json, over the defaults: a drop of 20%+ in the niche, at most 1 a day."""
+    """``channels_auto`` in automation.json, over the defaults: a drop of 20%+ in the niche, at most 1 a day;
+    a new post with a stated discount of 25%+, at most 3 a day."""
     return {**AUTO_DEFAULTS, **(cfg or {})}
+
+
+def auto_new_post_candidates(db: Database, rules: dict, now: Optional[datetime] = None) -> list[dict]:
+    """New posts of the stores' channels (no earlier post of the product) that may be posted WITHOUT the owner's
+    click: the store states a "was" price at least ``min_claim_pct`` higher, posted lately, in the niche, nothing
+    forbidden, the product not posted this week, at most ``new_per_day`` in 24 hours. The biggest stated
+    discount first. The post says it is the store's price and the store's "instead of" (post_text)."""
+    from .alerts import excluded_reason
+    from .catalog import NICHE, classify
+    if not (rules.get("enabled") and rules.get("new_posts")):
+        return []
+    ensure_schema(db)
+    now = now or datetime.now(timezone.utc)
+    day = (now - timedelta(hours=24)).isoformat()
+    week = (now - timedelta(days=7)).isoformat()
+    room = int(rules["new_per_day"]) - db.query(
+        "SELECT COUNT(*) n FROM channel_claims WHERE prev_price IS NULL AND auto_posted_at >= ?", (day,))[0]["n"]
+    if room <= 0:
+        return []
+    since = (now - timedelta(hours=float(rules["max_age_hours"]))).isoformat()
+    rows = [dict(r) for r in db.query(
+        "SELECT * FROM channel_claims WHERE prev_price IS NULL AND was_price > price AND price > 0 "
+        "AND posted_at >= ? AND auto_posted_at IS NULL AND published_at IS NULL", (since,))]
+    rows.sort(key=lambda r: ((r["was_price"] - r["price"]) / r["was_price"], r.get("posted_at") or ""), reverse=True)
+    out, keys = [], set()
+    for r in rows:
+        if len(out) >= room:
+            break
+        if (r["was_price"] - r["price"]) / r["was_price"] * 100 < float(rules["min_claim_pct"]):
+            continue
+        if rules.get("niche_only") and classify(r.get("title") or "") not in NICHE:
+            continue
+        if excluded_reason(r.get("title") or ""):
+            continue
+        key = r.get("item_key") or r.get("title")
+        if key in keys or db.query("SELECT 1 FROM channel_claims WHERE item_key=? AND (auto_posted_at >= ? OR "
+                                   "published_at >= ?)", (r.get("item_key"), week, week)):
+            continue                                    # the same product twice in one batch, or posted this week
+        keys.add(key)
+        out.append(r)
+    return out
 
 
 def auto_post_candidates(db: Database, drops: list[dict], rules: dict, now: Optional[datetime] = None) -> list[dict]:
@@ -447,8 +492,8 @@ def auto_post_candidates(db: Database, drops: list[dict], rules: dict, now: Opti
     now = now or datetime.now(timezone.utc)
     day = (now - timedelta(hours=24)).isoformat()
     week = (now - timedelta(days=7)).isoformat()
-    room = int(rules["per_day"]) - db.query("SELECT COUNT(*) n FROM channel_claims WHERE auto_posted_at >= ?",
-                                            (day,))[0]["n"]
+    room = int(rules["per_day"]) - db.query("SELECT COUNT(*) n FROM channel_claims WHERE prev_price IS NOT NULL "
+                                            "AND auto_posted_at >= ?", (day,))[0]["n"]   # new posts: own limit
     out = []
     for r in sorted(drops, key=lambda r: (r["prev_price"] - r["price"]) / r["prev_price"] if r.get("prev_price") else 0,
                     reverse=True):
