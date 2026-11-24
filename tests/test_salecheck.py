@@ -49,6 +49,8 @@ def test_up_then_a_sale_back_to_the_old_price_is_told_with_dates(tmp_path):
     assert '₪100 "במקום ₪149" (33% הנחה)' in t and "עלה ל-₪130" in t and "זהה למחיר" in t
     assert "את ₪149 לא ראינו שם אף פעם. הכי גבוה שראינו: ₪130" in t
     assert "בלי פרשנות" in t and clean(t)
+    assert f["pattern"]["low_at"][:10] == (NOW - timedelta(days=20)).isoformat()[:10]       # the last ₪100
+    assert f["pattern"]["high_at"][:10] == (NOW - timedelta(days=12)).isoformat()[:10]      # the first ₪130
     assert buttons_for(f) == [("לדף המוצר בחנות ›", "https://shop.example/k")]      # no affiliate link on a note
 
 

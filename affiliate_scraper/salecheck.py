@@ -66,7 +66,7 @@ def _pct(hi: float, lo: float) -> int:
 
 def _rise_then_back(points: list[tuple[str, float]], price: float, min_rise_pct: float) -> Optional[dict]:
     """In time order: a point at about ``price`` or less, LATER a point at least min_rise_pct higher.
-    -> {low_at, low, high_at, high} (the latest such pair), or None."""
+    -> {low_at, low, high_at, high}: the last low before a rise and the FIRST higher price after it, or None."""
     best = None
     for i, (t1, p1) in enumerate(points):
         if p1 > price * (1 + SAME):
@@ -74,6 +74,7 @@ def _rise_then_back(points: list[tuple[str, float]], price: float, min_rise_pct:
         for t2, p2 in points[i + 1:]:
             if p2 >= price * (1 + min_rise_pct / 100):
                 best = {"low_at": t1, "low": p1, "high_at": t2, "high": p2}
+                break
     return best
 
 
