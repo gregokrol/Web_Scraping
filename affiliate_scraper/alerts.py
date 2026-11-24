@@ -160,6 +160,7 @@ def savings_evidence(st, price: float, comparison: Optional[dict]) -> Optional[d
 
 def detect_deals(db: Database, rules: DealRules, now: Optional[datetime] = None) -> list[dict]:
     """Create pending alerts for qualifying offers. Returns the newly created alerts."""
+    from .salecheck import offer_finding
     now = now or datetime.now(timezone.utc)
     since = (now - timedelta(hours=rules.seen_within_hours)).replace(microsecond=0).isoformat()
     offers = [dict(r) for r in db.query(
@@ -188,6 +189,8 @@ def detect_deals(db: Database, rules: DealRules, now: Optional[datetime] = None)
         if excluded_reason(o["title"], rules.exclude_keywords) or excluded_reason(o.get("category") or "",
                                                                                 rules.exclude_keywords):
             continue
+        if offer_finding(db, o, now=now):
+            continue                   # our checks contradict the store's "was" price: a sale-check, not a deal
         comparison = _comparison_for(db, o)
         saving = savings_evidence(st, o["price"], comparison)
         if saving is None or saving["pct"] < rules.min_savings_pct:

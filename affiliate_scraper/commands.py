@@ -898,6 +898,8 @@ def _run_once(args) -> int:
     channel_drops = auto_channel_posts(cfg, db, tg, channel_drops)
     # a published deal whose price changed (up, down, out of stock, back): its channel post says so
     update_posts(cfg, db, tg, (lambda aid: page_url(site_cfg, aid)) if site_on else None)
+    # a store's discount our checks (or its own channel posts) contradict: a factual note in the channel
+    sale_checks(cfg, db, tg)
     # a product posted again cheaper in a store's channel: told to you right away, once
     if channel_drops and tg and tg.admin_chat:
         from .channels import drop_text, mark_drops_told
@@ -2114,6 +2116,41 @@ def auto_channel_posts(cfg: dict, db: Database, tg, channel_drops: list[dict]) -
     return channel_drops
 
 
+def sale_checks(cfg: dict, db: Database, tg) -> list[dict]:
+    """'We checked this sale' notes (salecheck.py): published by themselves ("price_warnings": {"auto": true},
+    the owner's choice) or, with auto off, sent to you only. You are told about every published note.
+    Never while the agent manager runs. Returns the notes handled."""
+    from .salecheck import buttons_for, candidates, record, rules_from
+    from .telegram import agent_run
+    from .webhook import PublishError
+    rules = rules_from(cfg.get("price_warnings"))
+    if agent_run() or not rules["enabled"] or not tg:
+        return []
+    done = []
+    for f in candidates(db, rules):
+        src = "לפי הבדיקות שלנו" if f["source"] == "offer" else f"לפי הפוסטים של {f['store']} בטלגרם"
+        if rules["auto"] and tg.channel:
+            try:
+                msg = tg.send_menu(tg.channel, f["text"], buttons_for(f))
+            except PublishError as exc:
+                _err(f"Sale check problem: {exc}")
+                break
+            record(db, f, True, {"telegram": {"chat_id": tg.channel, "message_id": (msg or {}).get("message_id")}})
+            _err(f"Sale check posted ({f['source']}): {f['title'][:60]}")
+            note = (f"📢 פורסמה בערוץ לבד בדיקת מבצע ({src}):\n{f['title'][:90]}\n"
+                    "אם זה לא מתאים, מחק את הפוסט בערוץ.")
+        else:
+            record(db, f, False)
+            note = f"🔍 בדיקת מבצע ({src}), לא פורסמה:\n\n{f['text']}"
+        if tg.admin_chat:
+            try:
+                tg.notify_admin(note)
+            except PublishError:
+                pass
+        done.append(f)
+    return done
+
+
 MAX_POST_UPDATES = 20           # channel posts rewritten in one run (a store's price change can touch many)
 
 
@@ -2736,6 +2773,32 @@ def _post_updates_run(args) -> int:
         return 0
     finally:
         db.close()
+
+
+def _sale_check_build(ap) -> None:
+    ap.add_argument("--config", default="automation.json")
+
+
+def _sale_check_run(args) -> int:
+    """The 'we checked this sale' notes the next run would publish - a list only, nothing is sent."""
+    from .salecheck import candidates, rules_from
+    cfg = load_automation(args.config) if Path(args.config).exists() else {}
+    rules = rules_from(cfg.get("price_warnings"))
+    db = Database(cfg.get("db", DEFAULT_DB))
+    try:
+        todo = candidates(db, rules)
+        for f in todo:
+            print(f"--- {f['source']} #{f['ref_id']} ({f['store']})\n{f['text']}\n")
+        mode = "published by themselves" if rules["auto"] else "sent to you only"
+        print(f"{len(todo)} note(s) for the next run ({mode}, at most {rules['per_day']} a day)."
+              + ("" if rules["enabled"] else " The rule is OFF (price_warnings.enabled)."))
+        return 0
+    finally:
+        db.close()
+
+
+cli.register_subcommand("sale-check", "Sales that our checks contradict: the notes the next run would publish",
+                        _sale_check_build, _sale_check_run)
 
 
 cli.register_subcommand("post-updates", "Channel posts whose price changed since they were posted (list / --apply)",

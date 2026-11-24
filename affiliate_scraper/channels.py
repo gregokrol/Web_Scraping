@@ -447,6 +447,18 @@ def auto_rules(cfg: Optional[dict]) -> dict:
     return {**AUTO_DEFAULTS, **(cfg or {})}
 
 
+def _posted_before_at_or_below(db: Database, r: dict) -> bool:
+    """The store's channel posted the same product at this price or less in the last DROP_LOOKBACK_DAYS:
+    today's "sale" is the old price again (after a rise), not a new offer."""
+    start = _parse_iso(r.get("posted_at") or "")
+    if not start:
+        return False
+    since = (start - timedelta(days=DROP_LOOKBACK_DAYS)).isoformat()
+    return any(same_product(e["title"], r["title"]) for e in db.query(
+        "SELECT title FROM channel_claims WHERE channel=? AND id<>? AND posted_at < ? AND posted_at >= ? "
+        "AND price > 0 AND price <= ?", (r["channel"], r["id"], r["posted_at"], since, float(r["price"]) * 1.005)))
+
+
 def auto_new_post_candidates(db: Database, rules: dict, now: Optional[datetime] = None) -> list[dict]:
     """New posts of the stores' channels (no earlier post of the product) that may be posted WITHOUT the owner's
     click: the store states a "was" price at least ``min_claim_pct`` higher, posted lately, in the niche, nothing
@@ -479,6 +491,8 @@ def auto_new_post_candidates(db: Database, rules: dict, now: Optional[datetime] 
             continue
         if excluded_reason(r.get("title") or ""):
             continue
+        if _posted_before_at_or_below(db, r):
+            continue                                    # they posted it at this price (or less) lately: not new
         key = r.get("item_key") or r.get("title")
         if key in keys or db.query("SELECT 1 FROM channel_claims WHERE item_key=? AND (auto_posted_at >= ? OR "
                                    "published_at >= ?)", (r.get("item_key"), week, week)):

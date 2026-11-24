@@ -24,6 +24,8 @@ MIN_DAYS = 7
 # "lowest in 90 days" needs history that really spans ~90 days (2 days of slack for scan timing);
 # a shorter history can only say "lowest since <first check>"
 FULL_90D_DAYS = 88
+# a "drop" back to a price the store already charged lately is no drop: 100 -> 130 -> 100 is the old price again
+RECENT_LOW_DAYS = 60
 
 
 @dataclass
@@ -42,6 +44,7 @@ class HistoryStats:
     prior_median_90d: Optional[float] = None
     prior_max_90d: Optional[float] = None
     prev_period_obs: int = 0                 # how many checks in a row saw the previous price
+    prior_low_60d: Optional[float] = None    # lowest price in the 60 days BEFORE the current price period
     sufficient: bool = False
     status: str = "insufficient_data"
     flags: list[str] = field(default_factory=list)
@@ -85,6 +88,8 @@ def compute_stats(observations: list[tuple[str, float]], now: Optional[datetime]
     in90 = [p for dt, p in obs if dt >= now - timedelta(days=90)]
     prior30 = [p for dt, p in prior if dt >= period_start - timedelta(days=30)]
     prior90 = [p for dt, p in prior if dt >= period_start - timedelta(days=90)]
+    prior60 = [p for dt, p in prior if dt >= period_start - timedelta(days=RECENT_LOW_DAYS)]
+    st.prior_low_60d = min(prior60) if prior60 else None      # also for a short history
 
     st.sufficient = st.n_obs >= MIN_OBSERVATIONS and st.days_covered >= MIN_DAYS
     st.status = "ok" if st.sufficient else "insufficient_data"
@@ -99,9 +104,17 @@ def compute_stats(observations: list[tuple[str, float]], now: Optional[datetime]
     return st
 
 
+def back_to_recent_low(st: HistoryStats) -> bool:
+    """The current price was already charged (or less) in the 60 days before it - after a rise it is the
+    old price again, not a drop."""
+    return (st.current_price is not None and st.prior_low_60d is not None
+            and st.current_price >= st.prior_low_60d * 0.995)
+
+
 def detect_price_drop(st: HistoryStats, threshold_pct: float = 10.0) -> Optional[dict]:
-    """A significant, real drop: vs previous observation AND below the prior 90-day median."""
-    if not st.sufficient or st.current_price is None or st.previous_price is None:
+    """A significant, real drop: vs previous observation AND below the prior 90-day median - and not just
+    back to a price of the last 60 days."""
+    if not st.sufficient or st.current_price is None or st.previous_price is None or back_to_recent_low(st):
         return None
     cur, prev = st.current_price, st.previous_price
     drop_pct = (prev - cur) / prev * 100 if prev else 0
@@ -127,7 +140,7 @@ def detect_price_change(st: HistoryStats, threshold_pct: float = 10.0) -> Option
     when the previous price held for at least two checks in a row)."""
     prev = stable_previous_price(st)
     cur = st.current_price
-    if prev is None or cur is None or st.sufficient:
+    if prev is None or cur is None or st.sufficient or back_to_recent_low(st):
         return None          # with a full history detect_price_drop decides
     drop_pct = (prev - cur) / prev * 100 if prev else 0
     if drop_pct >= threshold_pct:
