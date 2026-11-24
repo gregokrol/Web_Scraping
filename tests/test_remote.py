@@ -79,6 +79,11 @@ def test_manager_task_runs_once_and_reports_back(tmp_path):
 
 def test_missing_claude_is_explained(tmp_path, monkeypatch):
     monkeypatch.setattr(remote.shutil, "which", lambda name: None)
+    # find_claude also looks where the installers put it (~\.local\bin, %APPDATA%, %LOCALAPPDATA%): point all of
+    # those at an empty folder, so a computer that HAS Claude Code still runs this as "not installed"
+    for var in ("USERPROFILE", "HOME", "APPDATA", "LOCALAPPDATA"):
+        monkeypatch.setenv(var, str(tmp_path / "empty"))
+    assert remote.find_claude() is None
     tg = FakeTG()
     lst = Listener(tg, tmp_path, "42", out_dir=tmp_path / "o")
     lst.handle(msg("/manager x"))
