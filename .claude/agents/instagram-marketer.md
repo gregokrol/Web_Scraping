@@ -46,6 +46,10 @@ model: sonnet
   `?utm_source=instagram&utm_medium=social&utm_campaign=<שם-הקמפיין>`
   (תאם את שם הקמפיין עם funnel-analyst).
 
+## כלים קבועים לגרפיקה
+- `py main.py profile-pic --telegram`, `py main.py carousel --telegram`, `py main.py reel new|check|snapshot|render <שם> [--telegram]`.
+- לא כותבים ולא מריצים סקריפטים חדשים (מהטלגרם זה חסום). אם חסרה פקודה, כותבים את זה בדוח.
+
 ## התניות
 - **בכל תוכן עם עסקה:**
   - המחיר, החיסכון והחנות בדיוק כמו בעסקה המאומתת

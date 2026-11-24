@@ -44,7 +44,7 @@ MIN_INTERVAL = 3.1   # Telegram allows ~20 posts/minute per channel; stay well b
 
 # set for Claude Code started by the Telegram manager (remote.run_claude): public actions are refused
 AGENT_RUN_ENV = "MECHIR_AGENT_RUN"
-CHANNEL_WRITES = {"sendMessage", "sendPhoto", "sendMediaGroup", "pinChatMessage", "editMessageText",
+CHANNEL_WRITES = {"sendMessage", "sendPhoto", "sendMediaGroup", "sendVideo", "sendDocument", "pinChatMessage", "editMessageText",
                   "editMessageCaption", "editMessageReplyMarkup", "deleteMessage"}
 
 
@@ -159,7 +159,7 @@ class TelegramPublisher:
                     # multipart upload: nested values (reply_markup) must be JSON strings
                     form = {k: (json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v)
                             for k, v in payload.items()}
-                    resp = self.session.post(url, data=form, files=files, timeout=60)
+                    resp = self.session.post(url, data=form, files=files, timeout=max(60, http_timeout))
                 else:
                     resp = self.session.post(url, json=payload, timeout=http_timeout)
                 data = resp.json()
@@ -275,6 +275,16 @@ class TelegramPublisher:
                  for i in range(len(paths))]
         files = {f"f{i}": (p.name, p.read_bytes(), "image/png") for i, p in enumerate(paths)}
         self._api("sendMediaGroup", {"chat_id": chat_id, "media": media}, files=files)
+
+    def send_file(self, chat_id, path, caption: str = "") -> dict:
+        """One local file: .mp4 as a video, .png/.jpg as a photo, anything else as a document."""
+        p = Path(path)
+        ext = p.suffix.lower()
+        method, field, mime = (("sendVideo", "video", "video/mp4") if ext == ".mp4" else
+                               ("sendPhoto", "photo", "image/png" if ext == ".png" else "image/jpeg")
+                               if ext in (".png", ".jpg", ".jpeg") else ("sendDocument", "document", "application/octet-stream"))
+        payload = {"chat_id": chat_id, **({"caption": caption[:1000]} if caption else {})}
+        return self._api(method, payload, files={field: (p.name, p.read_bytes(), mime)}, http_timeout=180)
 
     def send_buttons(self, chat_id, text: str, buttons: list[tuple[str, str]]) -> dict:
         """A message with action buttons (callback_data, handled by the listener: py main.py telegram-listen)."""

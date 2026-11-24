@@ -2372,3 +2372,93 @@ def _screens_run(args) -> int:
 
 cli.register_subcommand("screens", "Real screenshots of your website for videos and posts (default 1080x1920)",
                         _screens_build, _screens_run)
+
+
+# ===================================================================== graphics the Telegram manager may run
+def _send_to_owner(paths: list, caption: str, album: bool = False) -> int:
+    """Files to YOUR private Telegram chat (never the channel). 0 = sent or not configured, 1 = failed."""
+    from .telegram import TelegramPublisher
+    from .webhook import PublishError
+    tg = TelegramPublisher()
+    if not tg.admin_chat:
+        _err("TELEGRAM_ADMIN_CHAT is not set - the files are only saved here.")
+        return 0
+    try:
+        if album:
+            tg.send_album(tg.admin_chat, paths[:10], caption)
+        else:
+            for i, p in enumerate(paths):
+                tg.send_file(tg.admin_chat, p, caption if i == 0 else "")
+        print("Sent to your Telegram chat.")
+        return 0
+    except PublishError as exc:
+        _err(f"Telegram problem: {exc}")
+        return 1
+
+
+def _profile_pic_build(ap) -> None:
+    ap.add_argument("--logo", default="video/first-reel/assets/logo.png", help="the round logo (PNG)")
+    ap.add_argument("--out", default="brand", help="folder for the pictures (default %(default)s)")
+    ap.add_argument("--telegram", action="store_true", help="send them to your private chat")
+
+
+def _profile_pic_run(args) -> int:
+    from .media import MediaError, inside_project, profile_pics
+    try:
+        files = profile_pics(inside_project(Path.cwd(), args.logo), inside_project(Path.cwd(), args.out))
+    except MediaError as exc:
+        _err(f"error: {exc}")
+        return 2
+    for f in files:
+        print(f)
+    if args.telegram:
+        return _send_to_owner([files[2], files[0], files[1]],
+                              "🖼️ תמונות פרופיל לאינסטגרם (1080x1080): א - הלוגו המלא, ב - העגלה. "
+                              "התצוגה מראה אותן בעיגול, בגדול ובגודל האמיתי. לא הועלה לשום מקום.")
+    return 0
+
+
+cli.register_subcommand("profile-pic", "Two Instagram profile pictures from the logo + a round preview",
+                        _profile_pic_build, _profile_pic_run)
+
+
+def _reel_build(ap) -> None:
+    ap.add_argument("action", choices=["new", "check", "snapshot", "render"],
+                    help="new = copy the first reel as a starting point; check / snapshot / render with HyperFrames")
+    ap.add_argument("name", help="the reel folder inside video/ (e.g. week-48)")
+    ap.add_argument("--at", default="", help="snapshot: seconds, e.g. 1,4,8,12,16")
+    ap.add_argument("--telegram", action="store_true", help="snapshot / render: send the result to your private chat")
+
+
+def _reel_run(args) -> int:
+    from .media import MediaError, latest_snapshots, reel_dir, reel_new, reel_run
+    root = Path.cwd()
+    try:
+        if args.action == "new":
+            dst = reel_new(root, args.name)
+            print(f"New reel project: {dst}\nEdit compositions/*.html and assets/, then: "
+                  f"py main.py reel check {args.name}")
+            return 0
+        project = reel_dir(root, args.name)
+        code, tail, mp4 = reel_run(args.action, project, args.at)
+    except MediaError as exc:
+        _err(f"error: {exc}")
+        return 2
+    print(tail)
+    if code != 0:
+        _err(f"{args.action} failed (exit {code}).")
+        return 1
+    if args.action == "render":
+        print(f"Video: {mp4}")
+        if args.telegram:
+            return _send_to_owner([mp4], f"🎬 ריל {args.name} (טיוטה, לא פורסם). לפני העלאה: QA ובדיקת מחיר.")
+    if args.action == "snapshot":
+        frames = latest_snapshots(project)
+        print("\n".join(map(str, frames)))
+        if args.telegram and frames:
+            return _send_to_owner(frames, f"🖼️ פריימים מהריל {args.name}", album=True)
+    return 0
+
+
+cli.register_subcommand("reel", "A HyperFrames reel in video/<name>: new, check, snapshot, render (needs Node.js)",
+                        _reel_build, _reel_run)
