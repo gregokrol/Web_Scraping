@@ -294,10 +294,17 @@ def test_auto_post_is_careful(tmp_path, monkeypatch):
     from affiliate_scraper.channels import new_drops
     from affiliate_scraper.commands import auto_channel_posts, publish_claim
     db = Database(tmp_path / "c.db")
-    # the earlier post is 3 months old -> "-40%" against it would mislead
+    # the earlier post is 3 months old -> "-40%" against it would mislead: not even a drop any more
     _drop(db, 1, "מקלדת מכנית Acme K8", 250, 150, prev_days=90)
     tg = FakeChannelTG()
-    assert auto_channel_posts(SMART, db, tg, new_drops(db)) and tg.posts == []
+    assert new_drops(db) == []
+    auto_channel_posts(SMART, db, tg, [])          # as a NEW post it may go - as the store's claim, never a drop
+    assert all("הכי זול שהם פרסמו לפני כן" not in t and "הם כתבו שזה במקום" in t for _, t in tg.posts)
+    # 45 days (inside the drop lookback, past the auto rule's 30): a drop for you, never posted by itself
+    db3 = Database(tmp_path / "e.db")
+    _drop(db3, 1, "מקלדת מכנית Acme K8", 250, 150, prev_days=45)
+    tg = FakeChannelTG()
+    assert auto_channel_posts(SMART, db3, tg, new_drops(db3)) and tg.posts == []
     # the agent manager runs -> never posts
     db2 = Database(tmp_path / "d.db")
     _drop(db2, 1, "עכבר גיימינג Acme M3", 200, 150)
@@ -480,7 +487,7 @@ def test_a_drop_and_new_posts_have_separate_daily_limits(tmp_path):
     tg = FakeChannelTG()
     assert auto_channel_posts(SMART, db, tg, new_drops(db)) == []
     assert len(tg.posts) == 2
-    assert any("בפוסט הקודם שלהם" in t for _, t in tg.posts) and any("הם כתבו שזה במקום" in t for _, t in tg.posts)
+    assert any("הכי זול שהם פרסמו לפני כן" in t for _, t in tg.posts) and any("הם כתבו שזה במקום" in t for _, t in tg.posts)
 
 
 def test_channels_auto_status_tells_about_new_posts(tmp_path, monkeypatch, capsys):
@@ -489,3 +496,41 @@ def test_channels_auto_status_tells_about_new_posts(tmp_path, monkeypatch, capsy
     assert main(["channels", "auto", "on"]) == 0
     out = capsys.readouterr().out
     assert "New posts too" in out and "25%+" in out and "3 a day" in out
+
+
+def _posts(db, prices_days):
+    """The same product posted by one channel at these (price, day of month) - in order."""
+    for i, (price, day) in enumerate(prices_days):
+        page = "<html><body>" + post(100 + i, ["שעון חכם Acme Runner 265", f"ב-₪{price:,}", "במקום", "₪1,999"],
+                                     when=f"2099-03-{day:02d}T10:00:00+00:00") + "</body></html>"
+        save_claims(db, parse_channel_html(page, "ShopIL"))
+
+
+def test_back_to_the_old_price_after_a_rise_is_not_a_drop(tmp_path):
+    from affiliate_scraper.channels import new_drops
+    db = Database(tmp_path / "c.db")
+    _posts(db, [(1000, 1), (1300, 10), (1000, 20)])          # up, then "a discount" back to where it was
+    assert new_drops(db) == []
+
+
+def test_a_drop_is_against_the_lowest_recent_price_not_the_last_post(tmp_path):
+    from affiliate_scraper.channels import drop_text, new_drops, post_text
+    db = Database(tmp_path / "c.db")
+    _posts(db, [(1000, 1), (1300, 10), (900, 20)])
+    [d] = new_drops(db)
+    assert (d["price"], d["prev_price"]) == (900.0, 1000.0)   # -10% vs ₪1,000 - not -31% vs ₪1,300
+    assert d["prev_posted_at"].startswith("2099-03-01")
+    assert "הכי זול שפרסמו לפני כן: ₪1,000.00" in drop_text(db, d) and "(ירידה של 10%)" in drop_text(db, d)
+    assert "הכי זול שהם פרסמו לפני כן: ₪1,000" in post_text(db, d, "x")
+
+
+def test_a_price_older_than_the_lookback_is_not_the_reference(tmp_path):
+    from affiliate_scraper.channels import DROP_LOOKBACK_DAYS, new_drops
+    db = Database(tmp_path / "c.db")
+    old = "<html><body>" + post(1, ["שעון חכם Acme Runner 265", "ב-₪800", "במקום", "₪1,999"],
+                                when="2098-12-01T10:00:00+00:00") + "</body></html>"
+    save_claims(db, parse_channel_html(old, "ShopIL"))        # more than DROP_LOOKBACK_DAYS before
+    assert DROP_LOOKBACK_DAYS < 90
+    _posts(db, [(1300, 1), (1000, 20)])
+    [d] = new_drops(db)
+    assert d["prev_price"] == 1300.0

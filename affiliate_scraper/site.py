@@ -588,7 +588,7 @@ def _refuse_project_folder(folder: Path, what: str) -> None:
 def _claimed_row(p: dict) -> str:
     """A price from a store's own Telegram channel: said so, with the date, and our checked price if we have one."""
     href = _safe_url(p["url"])
-    ref = (f'<span class="was">{e(_money(p["prev_price"], p["currency"]))}</span> <small>בפוסט הקודם</small>'
+    ref = (f'<span class="was">{e(_money(p["prev_price"], p["currency"]))}</span> <small>הכי זול שפרסמו לפני כן</small>'
            if p.get("prev_price") else
            (f'<span class="was">{e(_money(p["was_price"], p["currency"]))}</span> <small>לפי החנות</small>'
             if p.get("was_price") else ""))

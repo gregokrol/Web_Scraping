@@ -54,6 +54,9 @@ _PHOTO = re.compile(r"background-image:\s*url\('(https://[^']+)'\)")
 CHANNEL_STORES = {"kspcoil": "KSP", "payngoil": "מחסני חשמל", "traklin": "טרקלין", "il_home_center": "הום סנטר",
                   "almsales": "א.ל.מ"}
 DROP_MIN_PCT = 1.0          # a later post at least 1% cheaper than the earlier one is a drop
+# ...than the LOWEST price the channel posted for the product in these days - not just its last post: ₪100 -> ₪130
+# -> ₪100 is back to the old price, not a 23% drop
+DROP_LOOKBACK_DAYS = 60
 CLAIM_DAYS = 7              # a channel price is shown for a week after the post
 
 
@@ -255,8 +258,9 @@ def fetch_channel(fetcher, name: str) -> list[dict]:
 def save_claims(db: Database, posts: list[dict], exclude_keywords=None) -> int:
     """Store the posts that name a product and a price. Returns how many were new.
 
-    When the same product (item_key) was posted before by the same channel at a higher price, the new row
-    remembers that price (prev_price): a price drop, which is told to the owner once (new_drops)."""
+    When the same product (item_key) is now cheaper than the LOWEST price the same channel posted for it in the
+    last DROP_LOOKBACK_DAYS, the new row remembers that lowest price (prev_price): a price drop, told to the owner
+    once (new_drops). Back to an earlier price after a rise is not a drop."""
     from .alerts import excluded_reason
     ensure_schema(db)
     now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
@@ -266,10 +270,14 @@ def save_claims(db: Database, posts: list[dict], exclude_keywords=None) -> int:
             if not p.get("price") or not p.get("title") or excluded_reason(p["title"], exclude_keywords):
                 continue
             key = item_key(p["title"])
+            when = p.get("posted_at") or now
+            start = _parse_iso(when)
+            start = (start - timedelta(days=DROP_LOOKBACK_DAYS)).isoformat() if start else ""
             earlier = c.execute("SELECT price, posted_at, title FROM channel_claims WHERE channel=? AND post_id<>? "
-                                "AND posted_at < ? ORDER BY posted_at DESC LIMIT 300",
-                                (p["channel"], p["post_id"], p.get("posted_at") or now)).fetchall()
-            prev = next(((r[0], r[1]) for r in earlier if same_product(r[2], p["title"])), None)
+                                "AND posted_at < ? AND posted_at >= ? ORDER BY posted_at DESC LIMIT 300",
+                                (p["channel"], p["post_id"], when, start)).fetchall()
+            same = [(r[0], r[1]) for r in earlier if r[0] and same_product(r[2], p["title"])]
+            prev = min(same, key=lambda x: x[0]) if same else None      # the lowest lately, the latest on a tie
             prev_price = prev_at = None
             if prev and prev[0] and p["price"] < prev[0] * (1 - DROP_MIN_PCT / 100):
                 prev_price, prev_at = prev[0], prev[1]
@@ -313,7 +321,8 @@ def drop_text(db: Database, r: dict) -> str:
     store = store_name(r["channel"])
     pct = round((r["prev_price"] - r["price"]) / r["prev_price"] * 100)
     lines = [f"📉 המחיר ירד שוב (לפי ערוץ {store}): {r['title'][:90]}",
-             f"₪{r['price']:,.2f} עכשיו, לעומת ₪{r['prev_price']:,.2f} בפוסט מ-{_date(r['prev_posted_at'])} (ירידה של {pct}%)"]
+             f"₪{r['price']:,.2f} עכשיו. הכי זול שפרסמו לפני כן: ₪{r['prev_price']:,.2f}, בפוסט מ-{_date(r['prev_posted_at'])} "
+             f"(ירידה של {pct}%)"]
     if r.get("coupon"):
         lines.append(f"🎟️ קופון בפוסט של החנות: {r['coupon']}")
     for m in verified_matches(db, r["title"]):
@@ -330,7 +339,7 @@ def post_text(db: Database, r: dict, disclosure: str, auto: bool = False) -> str
     store = store_name(r["channel"])
     say = f"{short_money(r['price'])} לפי הערוץ של {store} ({_date(r['posted_at'])}), לא נבדק אצלנו בדף המוצר"
     if r.get("prev_price"):
-        say += f". בפוסט הקודם שלהם ({_date(r['prev_posted_at'])}) זה היה {short_money(r['prev_price'])}"
+        say += f". הכי זול שהם פרסמו לפני כן: {short_money(r['prev_price'])} ({_date(r['prev_posted_at'])})"
     elif r.get("was_price"):
         say += f". הם כתבו שזה במקום {short_money(r['was_price'])}"
     lines = [r["title"][:120], "", say + "."]
