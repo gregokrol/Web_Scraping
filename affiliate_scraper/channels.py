@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS channel_claims (
 # added later (ensure_schema migrates an existing table): the same product in a later post, and price drops
 _LATER_COLUMNS = (("item_key", "TEXT"), ("prev_price", "REAL"), ("prev_posted_at", "TEXT"),
                   ("drop_notified", "INTEGER DEFAULT 0"), ("image", "TEXT"), ("auto_posted_at", "TEXT"),
-                  ("published_at", "TEXT"))
+                  ("published_at", "TEXT"), ("coupon", "TEXT"))
 _PHOTO = re.compile(r"background-image:\s*url\('(https://[^']+)'\)")
 
 # your names for the stores behind the channels (shown on the website and in the channel menu)
@@ -134,8 +134,8 @@ def _name_before(segs: list[str], idx: int) -> str:
     fallback = ""
     for j in range(idx, max(-1, idx - 4), -1):
         seg = _clean(segs[j])
-        if len(_LETTER.findall(seg)) < 4 or _SKIP_SEG.match(seg) or seg.endswith("?"):
-            continue
+        if len(_LETTER.findall(seg)) < 4 or _SKIP_SEG.match(seg) or seg.endswith("?") or _COUPON_WORD.search(seg):
+            continue                       # a coupon line is not the product's name
         if _LATIN_MODEL.search(seg) and not _SLOGAN.search(seg):
             return seg[:120]
         fallback = fallback or seg[:120]
@@ -189,6 +189,31 @@ def parse_post(text: str) -> list[dict]:
     return items
 
 
+_COUPON_WORD = re.compile(r"קופון|קוד\s*הנחה|קוד\s*קופון|קוד\s*:|בקוד|coupon|promo\s*code", re.I)
+# a code has a letter AND a digit (TG50, KSP10): "500", "KSP" or "USB" alone are not codes
+_COUPON_CODE = re.compile(r"(?<![A-Za-z0-9])(?=[A-Z0-9_-]*[A-Z])(?=[A-Z0-9_-]*\d)([A-Z0-9][A-Z0-9_-]{2,19})(?![A-Za-z0-9])")
+_COUPON_AMOUNT = re.compile(r"₪\s?\d|\d\s?₪|\d+\s?%|\d+\s?ש\"?ח")
+# the store's pressure words are not repeated by us (MARKETING.md): "רק היום", "מהרו"... - a real date ("עד 27.11") stays
+_PRESSURE = re.compile(r"רק\s+היום|רק\s+עכשיו|מהרו|מהרי|לפני\s+ש(?:ייגמר|נגמר|יאזל)|עד\s+גמר\s+המלאי|נשארו(?:\s+רק)?(?:\s+\d+)?"
+                       r"|לזמן\s+מוגבל|ל-?\d+\s+שעות\s+בלבד|אחרונים|אל\s+תפספסו|אל\s+תחמיצו|🔥|⏰|⏳|!+", re.I)
+
+
+def coupon_of(text: str) -> str:
+    """The coupon line the store itself wrote in the post (e.g. "קוד קופון TG50 - ₪50 הנחה בקנייה מעל ₪500"),
+    word for word and shortened, or "" when the post has none. Only what the post says - nothing is worked out
+    from it (the price after a coupon depends on the store's terms)."""
+    for ln in (text or "").splitlines():
+        if not _COUPON_WORD.search(ln):
+            continue
+        ln = re.sub(r"\s+", " ", _PRESSURE.sub(" ", ln)).strip(" •-–|*,.")
+        if not (_COUPON_CODE.search(ln) or _COUPON_AMOUNT.search(ln)):
+            continue                     # "coupons are coming soon" names no code and no amount - not a coupon
+        if len(ln) > 140:
+            ln = ln[:140].rsplit(" ", 1)[0] + "…"
+        return ln
+    return ""
+
+
 def parse_channel_html(page_html: str, channel: str) -> list[dict]:
     soup = BeautifulSoup(page_html, "lxml")
     posts = []
@@ -211,10 +236,11 @@ def parse_channel_html(page_html: str, channel: str) -> list[dict]:
         photo_el = m.select_one(".tgme_widget_message_photo_wrap[style]")
         photo = (_PHOTO.search(photo_el["style"]) or [None, ""])[1] if photo_el else ""
         items = parse_post(text)
+        coupon = coupon_of(text)
         for k, info in enumerate(items):
             posts.append({"channel": channel, "post_id": pid if k == 0 else f"{pid}#{k + 1}",
                           "post_url": f"https://t.me/{m['data-post']}", "posted_at": t["datetime"] if t else "",
-                          "link": links[0] if links else "", "image": photo, **info})
+                          "link": links[0] if links else "", "image": photo, "coupon": coupon, **info})
     return posts
 
 
@@ -252,13 +278,16 @@ def save_claims(db: Database, posts: list[dict], exclude_keywords=None) -> int:
             if known:
                 # seen before: keep its history (prev_price, told or not), refresh what a better parser reads now
                 c.execute("UPDATE channel_claims SET title=?, item_key=?, image=COALESCE(NULLIF(?, ''), image), "
-                          "link=COALESCE(NULLIF(?, ''), link) WHERE id=?",
-                          (p["title"], key, p.get("image") or "", p.get("link") or "", known[0]))
+                          "link=COALESCE(NULLIF(?, ''), link), coupon=? WHERE id=?",
+                          (p["title"], key, p.get("image") or "", p.get("link") or "", p.get("coupon") or "",
+                           known[0]))
                 continue
             c.execute("INSERT INTO channel_claims(channel, post_id, post_url, posted_at, title, price, was_price, link, "
-                      "fetched_at, item_key, prev_price, prev_posted_at, image) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                      "fetched_at, item_key, prev_price, prev_posted_at, image, coupon) "
+                      "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                       (p["channel"], p["post_id"], p["post_url"], p["posted_at"], p["title"], p["price"],
-                       p.get("was_price"), p.get("link"), now, key, prev_price, prev_at, p.get("image") or ""))
+                       p.get("was_price"), p.get("link"), now, key, prev_price, prev_at, p.get("image") or "",
+                       p.get("coupon") or ""))
             new += 1
     return new
 
@@ -285,6 +314,8 @@ def drop_text(db: Database, r: dict) -> str:
     pct = round((r["prev_price"] - r["price"]) / r["prev_price"] * 100)
     lines = [f"📉 המחיר ירד שוב (לפי ערוץ {store}): {r['title'][:90]}",
              f"₪{r['price']:,.2f} עכשיו, לעומת ₪{r['prev_price']:,.2f} בפוסט מ-{_date(r['prev_posted_at'])} (ירידה של {pct}%)"]
+    if r.get("coupon"):
+        lines.append(f"🎟️ קופון בפוסט של החנות: {r['coupon']}")
     for m in verified_matches(db, r["title"]):
         lines.append(f"נבדק אצלנו: {m['store'] or m['domain']} ₪{m['price']:,.2f}")
     lines += [r["link"] or r["post_url"], "",
@@ -302,6 +333,8 @@ def post_text(db: Database, r: dict, disclosure: str, auto: bool = False) -> str
         lines.append(f"• בפוסט הקודם של {store} ({_date(r['prev_posted_at'])}): ₪{r['prev_price']:,.2f}")
     elif r.get("was_price"):
         lines.append(f"• במקום ₪{r['was_price']:,.2f}, לפי {store}")
+    if r.get("coupon"):
+        lines.append(f"• 🎟️ קופון לפי ערוץ {store}: {r['coupon']} (התנאים לפי החנות)")
     for m in ([] if auto else verified_matches(db, r["title"])):
         lines.append(f"• נבדק אצלנו: {m['store'] or m['domain']} ₪{m['price']:,.2f}")
     lines += ["", disclosure]
@@ -377,6 +410,8 @@ def leads_text(db: Database, hours: float = 48, limit: int = 8, niche_only: bool
         was = f" במקום ₪{r['was_price']:,.0f} (לפי החנות)" if r.get("was_price") else ""
         lines.append(f"• {r['title'][:70]}")
         lines.append(f"  {r['channel']}: ₪{r['price']:,.2f}{was}")
+        if r.get("coupon"):
+            lines.append(f"  🎟️ קופון: {r['coupon']}")
         for m in verified_matches(db, r["title"]):
             lines.append(f"  נבדק אצלנו: {m['store'] or m['domain']} ₪{m['price']:,.2f}")
         lines.append(f"  {r['link'] or r['post_url']}")

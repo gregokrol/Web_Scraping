@@ -320,8 +320,11 @@ def test_auto_post_text_is_calm_and_claims_nothing_unchecked(tmp_path):
                                  currency="ILS", availability="InStock", source="json-ld", source_type="json-ld"))
     db.save_products([p])                                     # a word-match a person never looked at
     _drop(db, 1, "מקלדת מכנית Acme K8", 250, 150)
+    from affiliate_scraper.channels import post_text
+    drops = new_drops(db)
+    assert "נבדק אצלנו:" in post_text(db, drops[0], "x")               # the match is real; only auto hides it
     tg = FakeChannelTG()
-    auto_channel_posts(SMART, db, tg, new_drops(db))
+    auto_channel_posts(SMART, db, tg, drops)
     [(_, text)] = tg.posts
     assert text.startswith("📉") and "נבדק אצלנו:" not in text and "לא נבדק אצלנו" in text and "גילוי נאות" in text
 
@@ -338,3 +341,48 @@ def test_channels_auto_switch(tmp_path, monkeypatch, capsys):
     assert saved["channels_auto"]["enabled"] is True and saved["telegram_channels"] == ["ShopIL"]
     assert main(["channels", "auto", "off"]) == 0
     assert json.loads(cfg.read_text(encoding="utf-8"))["channels_auto"]["enabled"] is False
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("אוזניות Acme\nב-₪199\nבמקום ₪299\nקוד קופון TG50 - ₪50 הנחה בקנייה מעל ₪500!", "קוד קופון TG50 - ₪50 הנחה בקנייה מעל ₪500"),
+    ("מקלדת\n• בקוד KSP10 קבלו 10% הנחה", "בקוד KSP10 קבלו 10% הנחה"),
+    ("קופונים חדשים בקרוב, הישארו מעודכנים", ""),          # no code and no amount -> not a coupon
+    ("קוד קופון TG50 רק היום! מהרו לפני שייגמר", "קוד קופון TG50"),      # the store's pressure is not repeated
+    ("קופון ₪50 עד 27.11 🔥 נשארו רק 3", "קופון ₪50 עד 27.11"),          # a real date stays
+    ("קופון בלעדי לחברי ערוץ KSP", ""), ("קופון USB חדש", ""),            # no code, no amount
+    ("קוד קופון TG50 " + "מילה " * 40, "קוד קופון TG50 " + " ".join(["מילה"] * 25) + "…"),
+    ("מקלדת Acme K8\nב-₪249\nבמקום ₪299", ""),
+])
+def test_coupon_is_read_word_for_word(text, expected):
+    from affiliate_scraper.channels import coupon_of
+    assert coupon_of(text) == expected
+
+
+def test_coupon_reaches_the_post_the_owner_and_the_website(tmp_path):
+    from affiliate_scraper.channels import drop_text, new_drops, post_text
+    db = Database(tmp_path / "c.db")
+    page = "<html><body>" + post(7, ["מקלדת מכנית Acme K8", "ב-₪249", "במקום", "₪299",
+                                     "קוד קופון TG50 - ₪50 הנחה ברכישה מהטלגרם"]) + "</body></html>"
+    save_claims(db, parse_channel_html(page, "ShopIL"))
+    [r] = [dict(x) for x in db.query("SELECT * FROM channel_claims")]
+    assert r["coupon"] == "קוד קופון TG50 - ₪50 הנחה ברכישה מהטלגרם"
+    text = post_text(db, r, "גילוי נאות")
+    assert "🎟️ קופון לפי ערוץ" in text and "TG50" in text and "התנאים לפי החנות" in text
+    assert "₪199" not in text                                  # no "price after coupon" is worked out
+    _drop(db, 100, "עכבר גיימינג Acme M3", 200, 150)
+    assert "קופון" not in drop_text(db, new_drops(db)[0])      # no coupon in that post -> nothing said
+    from affiliate_scraper.site import _claimed_row
+    row = _claimed_row({**r, "url": r["link"] or r["post_url"], "store": "ShopIL", "currency": "ILS", "matches": []})
+    assert "TG50" in row and "התנאים לפי החנות" in row
+
+
+def test_coupon_line_is_not_the_product_name_and_a_removed_coupon_goes(tmp_path):
+    db = Database(tmp_path / "c.db")
+    first = post(8, ["קוד קופון TG50 - ₪50 הנחה", "מקלדת מכנית Acme K8", "ב-₪249", "במקום", "₪299"])
+    save_claims(db, parse_channel_html(f"<html><body>{first}</body></html>", "ShopIL"))
+    [r] = db.query("SELECT title, coupon FROM channel_claims")
+    assert "קופון" not in r["title"] and r["coupon"].startswith("קוד קופון TG50")
+    edited = post(8, ["מקלדת מכנית Acme K8", "ב-₪249", "במקום", "₪299"])     # the store took the coupon out
+    save_claims(db, parse_channel_html(f"<html><body>{edited}</body></html>", "ShopIL"))
+    [r] = db.query("SELECT coupon FROM channel_claims")
+    assert r["coupon"] == ""

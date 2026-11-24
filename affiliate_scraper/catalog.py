@@ -159,7 +159,7 @@ def _add_channel_stores(db: Database, out: dict, excluded_reason) -> None:
             "title": r["title"], "price": r["price"], "currency": r.get("currency") or "ILS", "claimed": True,
             "was_price": r.get("was_price"), "prev_price": r.get("prev_price"), "posted_at": r["posted_at"],
             "url": r["link"] or r["post_url"], "affiliate_url": "", "image": r.get("image") or "", "store": entry["name"],
-            "matches": verified_matches(db, r["title"], limit=1), "deal_id": None})
+            "matches": verified_matches(db, r["title"], limit=1), "deal_id": None, "coupon": r.get("coupon") or ""})
 
 
 def biggest_stated_discount(products: list[dict], n: int = TOP_N) -> list[dict]:
