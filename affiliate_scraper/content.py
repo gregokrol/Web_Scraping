@@ -18,6 +18,14 @@ from __future__ import annotations
 import html
 from typing import Optional
 
+def short_date(iso: str) -> str:
+    """'2026-11-09' -> '9.11'"""
+    try:
+        return f"{int(iso[8:10])}.{int(iso[5:7])}"
+    except (ValueError, IndexError):
+        return iso
+
+
 DISCLOSURE = {
     "he": "גילוי נאות: ייתכן שחלק מהקישורים הם קישורי שותפים. רכישה דרכם עשויה לזכות אותנו בעמלה, ללא עלות נוספת עבורך. "
           "המחירים נכונים למועד הבדיקה ועשויים להשתנות.",
@@ -27,12 +35,14 @@ DISCLOSURE = {
 
 T = {
     "he": {"price": "מחיר: {price}", "eilat": "מחיר באילת: {price}", "asof": "(נבדק ב-{when} UTC)", "below_median": "{pct}% מתחת למחיר החציוני ב-{n} חנויות",
-           "lowest90": "המחיר הנמוך ביותר ב-90 הימים האחרונים", "drop": "ירד ב-{pct}% (מ-{old})",
+           "lowest90": "המחיר הנמוך ביותר ב-90 הימים האחרונים",
+           "lowest_since": "המחיר הנמוך ביותר מאז {since} (מאז שהתחלנו לבדוק)", "drop": "ירד ב-{pct}% (מ-{old})",
            "was": "במקום {was} (הנחה של {pct}%, אומתה מול היסטוריית המחירים)", "free_ship": "משלוח חינם",
            "ship": "משלוח: {cost}", "rating": "דירוג {rating}/5 ({n} ביקורות)", "store": "בחנות {store}",
            "cta": "לפרטים ורכישה", "excl_ship": "(לא כולל משלוח)"},
     "en": {"price": "Price: {price}", "eilat": "Eilat price: {price}", "asof": "(checked {when} UTC)", "below_median": "{pct}% below the median price across {n} stores",
-           "lowest90": "Lowest price in the last 90 days", "drop": "Down {pct}% (from {old})",
+           "lowest90": "Lowest price in the last 90 days",
+           "lowest_since": "Lowest price since {since} (when our checks began)", "drop": "Down {pct}% (from {old})",
            "was": "Was {was} ({pct}% off, verified against price history)", "free_ship": "Free shipping",
            "ship": "Shipping: {cost}", "rating": "Rated {rating}/5 ({n} reviews)", "store": "at {store}",
            "cta": "See the deal", "excl_ship": "(excl. shipping)"},
@@ -73,6 +83,8 @@ def build_content(offer: dict, history: Optional[dict] = None, comparison: Optio
 
     if history and history.get("lowest_90d"):
         claim(t["lowest90"], "price_history_90d")
+    elif history and history.get("lowest_since"):
+        claim(t["lowest_since"].format(since=short_date(history["lowest_since"])), "price_history_since")
     if price_drop:
         claim(t["drop"].format(pct=round(price_drop["drop_pct"]), old=_money(price_drop["from"], cur)), "price_history")
     if discount_check and discount_check.get("status") == "verified" and offer.get("list_price"):

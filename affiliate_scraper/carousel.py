@@ -14,6 +14,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
+from .content import short_date
 
 e = html.escape
 
@@ -120,7 +121,8 @@ def slides_html(deals: list[dict], telegram_url: str = "", product_images: bool 
                if product_images and (d.get("image") or "").startswith("https://") else icon)
         save = f'<span class="save">חיסכון {d["savings_pct"]}%</span>' if d.get("savings_pct") else ""
         was = f'<span class="was">{e(_money(d.get("prev_price")))}</span>' if d.get("prev_price") else ""
-        low = " · <b>הנמוך ב-90 יום</b>" if d.get("lowest90") else ""
+        low = (" · <b>הנמוך ב-90 יום</b>" if d.get("lowest90") else
+               f" · <b>הנמוך מאז {short_date(d['lowest_since'])}</b>" if d.get("lowest_since") else "")
         out.append(_page(
             f'<div class="slide">{_brand(logo)}<div class="n">{i}/{total}</div>'
             f'<div class="pic">{pic}</div><div class="title">{e((d.get("title") or "")[:110])}</div>'

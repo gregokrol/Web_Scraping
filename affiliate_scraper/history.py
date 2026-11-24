@@ -21,6 +21,9 @@ from .validation import _parse_iso
 
 MIN_OBSERVATIONS = 3
 MIN_DAYS = 7
+# "lowest in 90 days" needs history that really spans ~90 days (2 days of slack for scan timing);
+# a shorter history can only say "lowest since <first check>"
+FULL_90D_DAYS = 88
 
 
 @dataclass
@@ -132,10 +135,23 @@ def detect_price_change(st: HistoryStats, threshold_pct: float = 10.0) -> Option
     return None
 
 
-def is_lowest_in_90d(st: HistoryStats) -> bool:
+def _lowest_in_window(st: HistoryStats) -> bool:
     return bool(st.sufficient and st.current_price is not None and st.min_90d is not None
                 and st.current_price <= st.min_90d and st.prior_max_90d is not None
                 and st.current_price < st.prior_max_90d)
+
+
+def is_lowest_in_90d(st: HistoryStats) -> bool:
+    """The lowest price in 90 days - only when the checks really cover about 90 days."""
+    return _lowest_in_window(st) and st.days_covered >= FULL_90D_DAYS
+
+
+def lowest_since(st: HistoryStats) -> Optional[str]:
+    """For a history shorter than 90 days: the date of the first check (``YYYY-MM-DD``) when the current
+    price is the lowest seen since then and below an earlier price; else None."""
+    if not _lowest_in_window(st) or st.days_covered >= FULL_90D_DAYS or not st.first_seen:
+        return None
+    return st.first_seen[:10]
 
 
 def check_discount_claim(st: HistoryStats, price: Optional[float], list_price: Optional[float]) -> dict:

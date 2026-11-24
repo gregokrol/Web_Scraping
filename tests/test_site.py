@@ -341,3 +341,32 @@ def test_static_pages_do_not_bake_in_how_long_ago(tmp_path):
     assert first == again
     page = first[f"{a['id']}.html"]
     assert '<time class="ago" data-paren datetime="' in page and "לפני דקה" not in page.split("<script>(function(){")[0]
+
+
+def test_old_90_day_claim_is_not_shown_with_a_short_history(tmp_path):
+    # a deal saved before the fix said "lowest in 90 days" with only ~30 days of checks
+    from affiliate_scraper.site import collect_deals
+    db, oid = seed_db(tmp_path)
+    content = {"claims": [{"text": "המחיר הנמוך ביותר ב-90 הימים האחרונים", "basis": "price_history_90d"}]}
+    db.conn.execute("INSERT INTO deal_alerts(offer_id, kind, fingerprint, price, currency, title, content_json, status, "
+                    "created_at) VALUES (?,?,?,?,?,?,?,?,?)", (oid, "lowest_90d", "x", 90.0, "ILS", "Acme Kettle",
+                                                               json.dumps(content), "published",
+                                                               datetime.now(timezone.utc).isoformat()))
+    db.conn.commit()
+    [d] = collect_deals(db, cfg(tmp_path))
+    assert d["lowest90"] is False and d["lowest_since"]
+    assert all(c["basis"] != "price_history_90d" for c in d["content"]["claims"])
+    build_site(db, cfg(tmp_path))
+    page = next((Path(cfg(tmp_path).out_dir) / "deals").glob("*.html")).read_text(encoding="utf-8")
+    assert "90 הימים האחרונים" not in page and "הנמוך ב-90 יום" not in page
+    assert "הנמוך מאז" in page
+
+
+def test_publish_rechecks_an_old_90_day_claim(tmp_path):
+    from affiliate_scraper.alerts import _recheck_claims
+    db, oid = seed_db(tmp_path)              # ~30 days of checks
+    content = {"claims": [{"text": "מחיר: ₪90", "basis": "verified_price"},
+                          {"text": "המחיר הנמוך ביותר ב-90 הימים האחרונים", "basis": "price_history_90d"}]}
+    out = _recheck_claims(db, oid, content)
+    assert [c["basis"] for c in out["claims"]] == ["verified_price", "price_history_since"]
+    assert "90" not in out["claims"][1]["text"] and "מאז" in out["claims"][1]["text"]

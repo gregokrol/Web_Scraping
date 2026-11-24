@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
+from .content import short_date
 from urllib.parse import quote
 
 from .db import Database
@@ -397,10 +398,19 @@ LISTING_JS = """<script>
 KIND_LABEL = {"price_drop": "📉 ירידת מחיר", "price_change": "📉 ירידת מחיר", "lowest_90d": "🏆 הנמוך ב-90 יום", "top_deal": "🔥 עסקה משתלמת"}
 
 
+def _low_label(d: dict) -> str:
+    if d.get("lowest90"):
+        return "🏆 הנמוך ב-90 יום"
+    if d.get("lowest_since"):
+        return f"🏆 הנמוך מאז {short_date(d['lowest_since'])}"
+    kind = "top_deal" if d.get("kind") == "lowest_90d" else d.get("kind")   # an old "90 days" alert
+    return KIND_LABEL.get(kind, "")
+
+
 def _card(d: dict, cfg: SiteConfig, depth: int = 0) -> str:
     root = "../" * depth
     img = f'<img src="{e(_safe_url(d["image"]))}" alt="{e(d["title"])}" loading="lazy" referrerpolicy="no-referrer">' if d.get("image") else ""
-    label = "העסקה הסתיימה" if d["ended"] else ("🏆 הנמוך ב-90 יום" if d["lowest90"] else KIND_LABEL.get(d["kind"], ""))
+    label = "העסקה הסתיימה" if d["ended"] else _low_label(d)
     ribbon = f'<span class="ribbon{" low" if d["lowest90"] and not d["ended"] else ""}">{e(label)}</span>' if label else ""
     save = (f'<span class="save"><bdi dir="ltr">-{d["savings_pct"]}%</bdi><small>חיסכון</small></span>'
             if d["savings_pct"] and not d["ended"] else "")
@@ -422,7 +432,7 @@ def _card(d: dict, cfg: SiteConfig, depth: int = 0) -> str:
 def collect_deals(db: Database, cfg: SiteConfig, now: Optional[datetime] = None) -> list[dict]:
     """Approved deals + the REAL numbers that make them attractive (nothing here is estimated or invented)."""
     from .alerts import store_prices
-    from .history import is_lowest_in_90d, stable_previous_price, stats_for_offer
+    from .history import is_lowest_in_90d, lowest_since, stable_previous_price, stats_for_offer
     now = now or datetime.now(timezone.utc)
     rows = db.query(
         "SELECT a.id, a.kind, a.title, a.price, a.currency, a.content_json, a.created_at, a.status, a.offer_id, "
@@ -455,8 +465,15 @@ def collect_deals(db: Database, cfg: SiteConfig, now: Optional[datetime] = None)
         prev = ref if (ref and ref > d["price"]) else None
         d["prev_price"] = prev
         drop = round((prev - d["price"]) / prev * 100) if prev else None
-        d["lowest90"] = is_lowest_in_90d(st) or any(c.get("basis") == "price_history_90d"
-                                                    for c in d["content"].get("claims", []))
+        # computed from the history NOW; a "90 days" claim saved with the deal is not trusted on its own
+        d["lowest90"] = is_lowest_in_90d(st)
+        d["lowest_since"] = None if d["lowest90"] else lowest_since(st)
+        claims = [c for c in d["content"].get("claims", [])
+                  if c.get("basis") != "price_history_90d" or d["lowest90"]]
+        if d["lowest_since"] and not any(c.get("basis") == "price_history_since" for c in claims):
+            claims.append({"text": f"המחיר הנמוך ביותר מאז {short_date(d['lowest_since'])} (מאז שהתחלנו לבדוק)",
+                           "basis": "price_history_since"})
+        d["content"]["claims"] = claims
         # savings vs the cheapest OTHER store; other pages of the same store never count
         vs_market = None
         other = [r["price"] for r in store_prices(db, d["group_id"], d["currency"]) if r["domain"] != d["domain"]]
@@ -519,7 +536,7 @@ def _deal_page(db: Database, d: dict, cfg: SiteConfig) -> str:
     elif d["stale"]:
         warn = '<p class="warn">⚠️ המחיר נבדק לפני יותר מ-48 שעות ועשוי להשתנות. בדקו את המחיר המעודכן באתר החנות.</p>'
     img = f'<img src="{e(_safe_url(d["image"]))}" alt="{e(d["title"])}" referrerpolicy="no-referrer">' if d.get("image") else ""
-    label = "העסקה הסתיימה" if d["ended"] else ("🏆 הנמוך ב-90 יום" if d["lowest90"] else KIND_LABEL.get(d["kind"], ""))
+    label = "העסקה הסתיימה" if d["ended"] else _low_label(d)
     chip = f'<span class="chip">חיסכון {d["savings_pct"]}%</span>' if d["savings_pct"] and not d["ended"] else ""
     was = (f'<p class="meta">מחיר קודם שנבדק באותה חנות: <span class="was">{e(_money(d["prev_price"], d["currency"]))}</span></p>'
            if d["prev_price"] and not d["ended"] else "")
@@ -807,7 +824,7 @@ def build_site(db: Database, cfg: SiteConfig, now: Optional[datetime] = None) ->
             f'<div class="stats"><div class="stat"><b>{len(deals):,}</b><span>עסקאות שפורסמו</span></div>'
             f'<div class="stat"><b>{n_stores:,}</b><span>חנויות בהשוואה</span></div>'
             f'<div class="stat"><b>{n_checks:,}</b><span>בדיקות מחיר</span></div></div>'
-            f'<div class="trust"><span>✓ נבדק מול 90 יום</span><span>✓ מושווה בין חנויות</span><span>✓ מאושר ידנית</span></div>'
+            f'<div class="trust"><span>✓ נבדק מול היסטוריית המחיר</span><span>✓ מושווה בין חנויות</span><span>✓ מאושר ידנית</span></div>'
             f'</section>')
     stores = sorted({d["store"] for d in recent + older if d.get("store")})
     chips = "".join(f'<button type="button" class="chipf" data-store="{e(st)}">{e(st)}</button>' for st in stores)

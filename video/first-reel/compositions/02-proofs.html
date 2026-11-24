@@ -8,7 +8,7 @@
 #p-root{position:absolute;inset:0;width:1080px;height:1920px;overflow:hidden;direction:rtl;font-family:"Rubik",sans-serif;color:var(--ink);
 background:radial-gradient(120% 70% at 85% 0%,var(--bg2) 0%,#0a1430 48%,var(--bg) 100%)}
 .shot{position:absolute;left:50%;border-radius:36px;box-shadow:0 30px 80px rgba(0,0,0,.55),0 0 0 2px rgba(255,255,255,.08);overflow:hidden;transform-origin:50% 50%}
-#hero{width:700px;top:640px;margin-left:-350px}
+#hero{width:920px;top:760px;margin-left:-460px}
 #chart{opacity:0;visibility:hidden;width:920px;top:900px;margin-left:-460px}
 #post{opacity:0;visibility:hidden;width:900px;top:820px;margin-left:-450px}
 .shot img{display:block;width:100%}
@@ -18,14 +18,14 @@ background:radial-gradient(120% 70% at 85% 0%,var(--bg2) 0%,#0a1430 48%,var(--bg
 </head>
 <body>
 <div id="p-root" data-composition-id="proofs" data-width="1080" data-height="1920">
-  <!-- REAL screens: the live deal page and channel post of מחיר אמת (Sonos Beam Gen 2 at Bug, 23.11.2026) -->
-  <div class="shot" id="hero"><img src="../assets/deal-hero.png" alt=""/></div>
+  <!-- REAL screens (cropped; one line removed from the post): the live deal page and channel post of מחיר אמת (Sonos Beam Gen 2 at Bug, 23.11.2026) -->
+  <div class="shot" id="hero"><img src="../assets/deal-price.png" alt=""/></div>
   <div class="shot" id="chart"><img src="../assets/deal-chart.png" alt=""/></div>
-  <div class="shot" id="post"><img src="../assets/channel-post.png" alt=""/></div>
+  <div class="shot" id="post"><img src="../assets/channel-post-trim.png" alt=""/></div>
   <h1 class="headline" id="a"><span class="w">מחיר</span><span class="w">קודם</span><span class="w y">שנבדק.</span><br><span class="w">לא</span><span class="w">"מחיר</span><span class="w">מקורי".</span></h1>
   <h1 class="headline" id="b" style="opacity:0"><span class="w y">5</span><span class="w">בדיקות</span><span class="w">מחיר.</span><br><span class="w">הנמוך</span><span class="w">מאז</span><span class="w y">9.11.</span></h1>
   <h1 class="headline" id="c" style="opacity:0"><span class="w">רק</span><span class="w">מה</span><span class="w">שעבר</span><span class="w y">בדיקה,</span><br><span class="w">בערוץ.</span></h1>
-  <p class="tagline">מסכים אמיתיים מהאתר ומהערוץ. המחיר נבדק ב-23.11.2026, ועשוי להשתנות.</p>
+  <p class="tagline">מסכים אמיתיים מהאתר ומהערוץ. הבדיקה האחרונה ב-23.11.2026. המחיר עשוי להשתנות.</p>
   <script>
   (function(){
     var tl=gsap.timeline({paused:true});

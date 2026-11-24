@@ -21,9 +21,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from .content import build_content
+from .content import T, build_content, short_date
 from .db import Database
-from .history import (check_discount_claim, detect_price_change, detect_price_drop, is_lowest_in_90d,
+from .history import (check_discount_claim, detect_price_change, detect_price_drop, is_lowest_in_90d, lowest_since,
                       stable_previous_price, stats_for_offer)
 from .models import now_iso
 from .webhook import PublishError, send_event
@@ -195,7 +195,7 @@ def detect_deals(db: Database, rules: DealRules, now: Optional[datetime] = None)
         if _is_duplicate(db, o, kind, rules, now):
             continue
         disc = check_discount_claim(st, o["price"], o["list_price"])
-        content = build_content(o, {"lowest_90d": lowest}, comparison, drop, disc,
+        content = build_content(o, {"lowest_90d": lowest, "lowest_since": lowest_since(st)}, comparison, drop, disc,
                                 lang=rules.language, disclosure=rules.disclosure)
         fp = f"{o['id']}:{kind}:{o['price']:.2f}:{o['currency']}"
         with db.tx() as c:
@@ -275,7 +275,7 @@ def publish_approved(db: Database, url, session=None, auto_approve: bool = False
         payload = {"alert_id": r["id"], "kind": r["kind"], "title": r["title"], "price": r["price"],
                    "currency": r["currency"], "deal_score": r["deal_score"], "affiliate_score": r["affiliate_score"],
                    "store": r["store"], "url": r["url"], "affiliate_url": r["affiliate_url"], "image": r["image"],
-                   "content": json.loads(r["content_json"] or "{}"),
+                   "content": _recheck_claims(db, r["offer_id"], json.loads(r["content_json"] or "{}")),
                    "page_url": page_url_for(r["id"]) if page_url_for else ""}
         try:
             ref = send("deal.publish", payload)
@@ -289,6 +289,27 @@ def publish_approved(db: Database, url, session=None, auto_approve: bool = False
                 c.execute("UPDATE deal_alerts SET status='failed', error=? WHERE id=?", (str(exc)[:300], r["id"]))
             failed += 1
     return {"published": sent, "failed": failed, "ids": published_ids}
+
+
+def _recheck_claims(db: Database, offer_id: int, content: dict) -> dict:
+    """A deal approved before the 90-day rule was fixed may still carry "lowest in 90 days": check it again
+    against the history at publish time, and say "lowest since <first check>" instead when it is shorter."""
+    claims = content.get("claims") or []
+    if not any(c.get("basis") == "price_history_90d" for c in claims):
+        return content
+    st = stats_for_offer(db, offer_id)
+    if is_lowest_in_90d(st):
+        return content
+    since = lowest_since(st)
+    lang_he = any("\u0590" <= ch <= "\u05ff" for c in claims for ch in c.get("text", ""))
+    fixed = []
+    for c in claims:
+        if c.get("basis") != "price_history_90d":
+            fixed.append(c)
+        elif since:
+            fixed.append({"text": T["he" if lang_he else "en"]["lowest_since"].format(since=short_date(since)),
+                          "basis": "price_history_since"})
+    return {**content, "claims": fixed}
 
 
 def smart_approve(db: Database, min_savings_pct: float = 15.0, per_store_per_day: int = 2,

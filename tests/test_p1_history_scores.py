@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 from affiliate_scraper.cli import main
 from affiliate_scraper.db import Database
-from affiliate_scraper.history import (check_discount_claim, compute_stats, detect_price_drop, is_lowest_in_90d,
+from affiliate_scraper.history import (check_discount_claim, compute_stats, detect_price_drop, is_lowest_in_90d, lowest_since,
                                        stats_for_offer)
 from affiliate_scraper.matching import compare_prices
 from affiliate_scraper.models import Product
@@ -69,8 +69,12 @@ def test_stats_need_enough_data():
 def test_price_drop_detection():
     st = compute_stats([(ago(30), 100), (ago(20), 100), (ago(10), 100), (ago(0), 80)], now=NOW)
     drop = detect_price_drop(st)
-    assert drop and drop["drop_pct"] == 20.0 and drop["lowest_90d"] is True
-    assert is_lowest_in_90d(st)
+    assert drop and drop["drop_pct"] == 20.0
+    # 30 days of checks are NOT "the lowest in 90 days" - only "the lowest since the first check"
+    assert drop["lowest_90d"] is False and not is_lowest_in_90d(st)
+    assert lowest_since(st) == st.first_seen[:10]
+    full = compute_stats([(ago(89), 100), (ago(60), 100), (ago(30), 100), (ago(0), 80)], now=NOW)
+    assert is_lowest_in_90d(full) and lowest_since(full) is None
     small = compute_stats([(ago(30), 100), (ago(20), 100), (ago(10), 100), (ago(0), 98)], now=NOW)
     assert detect_price_drop(small) is None
 
@@ -259,3 +263,16 @@ def test_concurrent_store_upserts_do_not_collide(tmp_path):
     assert db.query("SELECT COUNT(*) n FROM affiliate_programs")[0]["n"] == 1
     sid = db.upsert_source("shop.example", trust_score=0.9)
     assert db.query("SELECT trust_score FROM sources WHERE id=?", (sid,))[0]["trust_score"] == 0.9
+
+
+def test_short_history_never_claims_90_days():
+    # the Sonos case: first check on 9.11, 5 checks, 14 days -> "lowest since 9.11", never "90 days"
+    from affiliate_scraper.content import build_content, short_date
+    st = compute_stats([(ago(14), 1999), (ago(5), 1399), (ago(3), 1399), (ago(1), 1399), (ago(0), 1399)], now=NOW)
+    assert st.sufficient and not is_lowest_in_90d(st) and lowest_since(st)
+    assert short_date("2026-11-09") == "9.11"
+    offer = {"title": "Sonos Beam", "price": 1399.0, "currency": "ILS", "url": "https://www.bug.co.il/x",
+             "last_fetched_at": "2026-11-23T09:03:00+00:00", "store": "BUG"}
+    c = build_content(offer, {"lowest_90d": is_lowest_in_90d(st), "lowest_since": lowest_since(st)}, lang="he")
+    texts = " ".join(x["text"] for x in c["claims"])
+    assert "90" not in texts and "הנמוך ביותר מאז" in texts

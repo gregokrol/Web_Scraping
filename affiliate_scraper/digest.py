@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from .content import short_date
 
 from .db import Database
 from .validation import _parse_iso
@@ -55,6 +56,8 @@ def build_digest(db: Database, site_cfg, now: Optional[datetime] = None, count: 
             facts.append(f"במקום {_money(d['prev_price'], d['currency'])}")
         if d["lowest90"]:
             facts.append("הנמוך ב-90 יום")
+        elif d.get("lowest_since"):
+            facts.append(f"הנמוך מאז {short_date(d['lowest_since'])}")
         link = page_url(site_cfg, d["id"]) or d.get("affiliate_url") or d.get("url") or ""
         lines.append(f"{nums[i] if i < len(nums) else f'{i + 1}.'} {title}")
         lines.append(f"💰 {price}" + (f" · {' · '.join(facts)}" if facts else "") + f" · {d['store']}")
