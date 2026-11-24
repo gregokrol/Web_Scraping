@@ -217,3 +217,72 @@ def test_post_photo_is_kept_and_old_rows_are_refreshed(tmp_path):
     [row] = db.query("SELECT title, image FROM channel_claims")
     assert row["title"] == "פאוץ למברגה מבית Acme"                       # ...but refreshed
     assert row["image"] == "https://cdn4.telesco.pe/file/abc.jpg"
+
+
+# ---------------------------------------------------------------- channels_auto: big drops posted by themselves
+def _drop(db, pid, title, old, new, hours_ago=2, channel="ShopIL"):
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    first = post(pid, [title, f"ב-₪{old:,}", "במקום", f"₪{old * 2:,}"],
+                 when=(now - timedelta(days=5)).isoformat())
+    later = post(pid + 1000, [title, f"ב-₪{new:,}", "במקום", f"₪{old * 2:,}"],
+                 when=(now - timedelta(hours=hours_ago)).isoformat())
+    save_claims(db, parse_channel_html(f"<html><body>{first}</body></html>", channel))
+    save_claims(db, parse_channel_html(f"<html><body>{later}</body></html>", channel))
+
+
+class FakeChannelTG:
+    def __init__(self, channel="@deals_il"):
+        self.channel, self.admin_chat, self.posts, self.notes = channel, "42", [], []
+
+    def send_menu(self, chat_id, text, buttons, **kw):
+        self.posts.append((chat_id, text))
+
+    def notify_admin(self, text):
+        self.notes.append(text)
+
+
+SMART = {"auto_publish": {"enabled": True}}
+
+
+def test_big_niche_drop_is_posted_by_itself_once_a_day(tmp_path):
+    from affiliate_scraper.channels import new_drops
+    from affiliate_scraper.commands import auto_channel_posts
+    db = Database(tmp_path / "c.db")
+    _drop(db, 1, "מקלדת מכנית Acme K8", 250, 190)            # -24%, computers
+    _drop(db, 2, "עכבר גיימינג Acme M3", 200, 150)            # -25%, gaming - but only 1 a day
+    tg = FakeChannelTG()
+    left = auto_channel_posts(SMART, db, tg, new_drops(db))
+    assert len(tg.posts) == 1 and tg.posts[0][0] == "@deals_il"
+    assert "לא נבדק אצלנו" in tg.posts[0][1]                  # the store's price, said so in the post
+    assert len(left) == 1 and tg.notes and "פורסם בערוץ לבד" in tg.notes[0]
+    assert auto_channel_posts(SMART, db, FakeChannelTG(), left) == left        # the day's quota is used
+
+
+@pytest.mark.parametrize("title,old,new,hours,why", [
+    ("מקלדת מכנית Acme K8", 250, 230, 2, "only -8%"),
+    ("שמיכת תינוק Acme Soft", 250, 150, 2, "not the niche"),
+    ("מקלדת מכנית Acme K8", 250, 150, 72, "an old post"),
+    ("מארז וייפ גיימינג Acme V2", 250, 150, 2, "forbidden product"),
+])
+def test_what_is_not_posted_by_itself(tmp_path, title, old, new, hours, why):
+    from affiliate_scraper.channels import new_drops
+    from affiliate_scraper.commands import auto_channel_posts
+    db = Database(tmp_path / "c.db")
+    _drop(db, 1, title, old, new, hours_ago=hours)
+    drops = new_drops(db)
+    tg = FakeChannelTG()
+    assert auto_channel_posts(SMART, db, tg, drops) == drops and tg.posts == [], why
+
+
+def test_manual_approval_or_rule_off_means_buttons_only(tmp_path):
+    from affiliate_scraper.channels import new_drops
+    from affiliate_scraper.commands import auto_channel_posts
+    db = Database(tmp_path / "c.db")
+    _drop(db, 1, "מקלדת מכנית Acme K8", 250, 150)
+    drops = new_drops(db)
+    for cfg in ({}, {"require_approval": True}, {**SMART, "channels_auto": {"enabled": False}}):
+        tg = FakeChannelTG()
+        assert auto_channel_posts(cfg, db, tg, drops) == drops and tg.posts == []
+    tg = FakeChannelTG()
+    assert auto_channel_posts({"require_approval": False}, db, tg, drops) == [] and len(tg.posts) == 1

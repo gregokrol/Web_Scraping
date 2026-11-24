@@ -835,6 +835,7 @@ def _run_run(args) -> int:
                     _err("Daily summary to share sent to your Telegram chat.")
                 except PublishError as exc:
                     _err(f"Notification problem: {exc}")
+    channel_drops = auto_channel_posts(cfg, db, tg, channel_drops)
     # a product posted again cheaper in a store's channel: told to you right away, once
     if channel_drops and tg and tg.admin_chat:
         from .channels import drop_text, mark_drops_told
@@ -1992,6 +1993,35 @@ def fetch_channels(cfg: dict, db: Database, delay: float = 3.0) -> int:
         new += n
         _err(f"channel {name}: {len(posts)} product(s) in the recent posts, {n} new")
     return new
+
+
+def auto_channel_posts(cfg: dict, db: Database, tg, channel_drops: list[dict]) -> list[dict]:
+    """A big drop in a store's own Telegram channel may be posted by itself (the ``channels_auto`` rule) - only
+    when you chose automatic or smart approval; with manual approval every channel post waits for your button.
+    Returns the drops that still need your decision."""
+    from .webhook import PublishError
+    not_manual = cfg.get("require_approval", True) is False or bool((cfg.get("auto_publish") or {}).get("enabled"))
+    if not (channel_drops and tg and tg.channel and not_manual):
+        return channel_drops
+    from .channels import auto_post_candidates, auto_rules, mark_auto_posted, store_name
+    for r in auto_post_candidates(db, channel_drops, auto_rules(cfg.get("channels_auto"))):
+        try:
+            publish_claim(db, r["id"], tg, publish=True)
+        except (PublishError, ValueError) as exc:
+            _err(f"Channel auto-post problem: {exc}")
+            break
+        mark_auto_posted(db, [r["id"]])
+        channel_drops = [d for d in channel_drops if d["id"] != r["id"]]
+        pct = round((r["prev_price"] - r["price"]) / r["prev_price"] * 100)
+        _err(f"Posted from the {store_name(r['channel'])} channel by itself: {r['title'][:60]} (-{pct}%)")
+        if tg.admin_chat:
+            try:
+                tg.notify_admin(f"📢 פורסם בערוץ לבד (כלל ערוצי החנויות: ירידה של {pct}%, לפי ערוץ "
+                                f"{store_name(r['channel'])}):\n{r['title'][:100]}\n"
+                                "המחיר לא נבדק אצלנו. אם זה לא מתאים, מחק את הפוסט בערוץ.")
+            except PublishError:
+                pass
+    return channel_drops
 
 
 def publish_claim(db: Database, claim_id: int, tg, publish: bool) -> str:

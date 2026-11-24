@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS channel_claims (
 """
 # added later (ensure_schema migrates an existing table): the same product in a later post, and price drops
 _LATER_COLUMNS = (("item_key", "TEXT"), ("prev_price", "REAL"), ("prev_posted_at", "TEXT"),
-                  ("drop_notified", "INTEGER DEFAULT 0"), ("image", "TEXT"))
+                  ("drop_notified", "INTEGER DEFAULT 0"), ("image", "TEXT"), ("auto_posted_at", "TEXT"))
 _PHOTO = re.compile(r"background-image:\s*url\('(https://[^']+)'\)")
 
 # your names for the stores behind the channels (shown on the website and in the channel menu)
@@ -382,3 +382,56 @@ def leads_text(db: Database, hours: float = 48, limit: int = 8, niche_only: bool
     lines.append("לפרסום: רק אחרי בדיקה שלך. מחיר החנות לא נחשב 'מאומת' ולא קובע חיסכון.")
     return "\n".join(lines)
 
+
+
+# ---------------------------------------------------------------- automatic posts from the stores' channels
+AUTO_DEFAULTS = {"enabled": True, "min_drop_pct": 20.0, "per_day": 1, "niche_only": True, "max_age_hours": 48}
+
+
+def auto_rules(cfg: Optional[dict]) -> dict:
+    """``channels_auto`` in automation.json, over the defaults: a drop of 20%+ in the niche, at most 1 a day."""
+    return {**AUTO_DEFAULTS, **(cfg or {})}
+
+
+def auto_post_candidates(db: Database, drops: list[dict], rules: dict, now: Optional[datetime] = None) -> list[dict]:
+    """The channel price drops that may be posted WITHOUT the owner's click: the store's own channel posted the
+    product again at least ``min_drop_pct`` cheaper, recently, in the niche, nothing forbidden, not posted already
+    this week, and at most ``per_day`` such posts in 24 hours. The post itself says the price is the store's
+    (post_text: "לפי ערוץ ..., לא נבדק אצלנו")."""
+    from .alerts import excluded_reason
+    from .catalog import NICHE, classify
+    if not rules.get("enabled"):
+        return []
+    ensure_schema(db)
+    now = now or datetime.now(timezone.utc)
+    day = (now - timedelta(hours=24)).isoformat()
+    week = (now - timedelta(days=7)).isoformat()
+    room = int(rules["per_day"]) - db.query("SELECT COUNT(*) n FROM channel_claims WHERE auto_posted_at >= ?",
+                                            (day,))[0]["n"]
+    out = []
+    for r in sorted(drops, key=lambda r: (r["prev_price"] - r["price"]) / r["prev_price"] if r.get("prev_price") else 0,
+                    reverse=True):
+        if room - len(out) <= 0:
+            break
+        if not (r.get("prev_price") and r.get("price") and r["price"] < r["prev_price"]):
+            continue
+        if (r["prev_price"] - r["price"]) / r["prev_price"] * 100 < float(rules["min_drop_pct"]):
+            continue
+        posted = _parse_iso(r.get("posted_at") or "")
+        if not posted or now - posted > timedelta(hours=float(rules["max_age_hours"])):
+            continue
+        if rules.get("niche_only") and classify(r.get("title") or "") not in NICHE:
+            continue
+        if excluded_reason(r.get("title") or ""):
+            continue
+        if db.query("SELECT 1 FROM channel_claims WHERE item_key=? AND auto_posted_at >= ?", (r.get("item_key"), week)):
+            continue
+        out.append(r)
+    return out
+
+
+def mark_auto_posted(db: Database, ids: list[int], now: Optional[datetime] = None) -> None:
+    when = (now or datetime.now(timezone.utc)).isoformat()
+    with db.tx() as c:
+        c.executemany("UPDATE channel_claims SET auto_posted_at=?, drop_notified=1 WHERE id=?",
+                      [(when, i) for i in ids])
