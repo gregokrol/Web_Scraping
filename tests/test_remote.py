@@ -405,3 +405,174 @@ def test_failed_batch_answer_is_retried_by_the_handler(tmp_path):
     lst.ack_buttons([u])
     lst.handle(u)
     assert calls == ["cb1", "cb1"]
+
+
+# ------------------------------------------------------------------ pictures with a task
+JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 64
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+
+
+class PhotoTG(FakeTG):
+    def __init__(self, files):
+        super().__init__()
+        self.files, self.downloaded = files, []
+
+    def download_file(self, file_id, max_bytes=0):
+        self.downloaded.append(file_id)
+        return self.files[file_id]
+
+
+def photo_msg(file_id, caption=None, chat_id=42, chat_type="private", group=None, size=1000):
+    m = {"chat": {"id": chat_id, "type": chat_type},
+         "photo": [{"file_id": "small", "width": 90, "height": 90, "file_size": 10},
+                   {"file_id": file_id, "width": 1080, "height": 1920, "file_size": size}]}
+    if caption is not None:
+        m["caption"] = caption
+    if group:
+        m["media_group_id"] = group
+    return {"update_id": 5, "message": m}
+
+
+def wait_task(lst):
+    for _ in range(100):
+        if lst.busy:
+            lst.busy.join(5)
+            return
+        threading.Event().wait(0.05)
+
+
+def test_photo_with_manager_caption_is_saved_and_given_to_the_manager(tmp_path):
+    ran = []
+    tg = PhotoTG({"big": JPEG})
+    lst = Listener(tg, tmp_path, "42", runner=lambda task, d: ran.append(task) or "ok", out_dir=tmp_path / "o")
+    lst.handle(photo_msg("big", caption="/manager נתוני האינסטגרם של השבוע"))
+    wait_task(lst)
+    assert tg.downloaded == ["big"]                                  # the largest size, not the thumbnail
+    [saved] = list((tmp_path / "agents_output" / "inbox").glob("*.jpg"))
+    assert saved.read_bytes() == JPEG
+    [task] = ran
+    assert task.startswith("נתוני האינסטגרם של השבוע") and f"agents_output/inbox/{saved.name}" in task
+    assert any("קיבלתי" in t and "📷" in t for _, t in tg.sent)
+
+
+def test_photo_without_the_command_gets_a_hint_and_is_not_downloaded(tmp_path):
+    ran = []
+    tg = PhotoTG({"big": JPEG})
+    lst = Listener(tg, tmp_path, "42", runner=lambda task, d: ran.append(task) or "ok", out_dir=tmp_path / "o")
+    lst.handle(photo_msg("big"))
+    lst.handle(photo_msg("big", caption="מה זה?"))
+    assert ran == [] and tg.downloaded == []
+    assert len(tg.sent) == 2 and all("/manager" in t for _, t in tg.sent)
+
+
+def test_photo_from_anyone_else_is_ignored(tmp_path):
+    tg = PhotoTG({"big": JPEG})
+    lst = Listener(tg, tmp_path, "42", runner=lambda task, d: "ok", out_dir=tmp_path / "o")
+    lst.handle(photo_msg("big", caption="/manager x", chat_id=99))
+    lst.handle(photo_msg("big", caption="/manager x", chat_type="group"))
+    assert tg.downloaded == [] and tg.sent == []
+
+
+def test_an_album_is_one_task_with_all_its_photos(tmp_path):
+    ran = []
+    tg = PhotoTG({"a": JPEG, "b": PNG, "c": JPEG})
+    lst = Listener(tg, tmp_path, "42", runner=lambda task, d: ran.append(task) or "ok", out_dir=tmp_path / "o")
+    lst.album_wait = 0.5          # long enough that a busy test machine does not split the album
+    lst.handle(photo_msg("a", group="G1"))
+    lst.handle(photo_msg("b", caption="/manager שלוש תמונות", group="G1"))   # the caption on one photo only
+    lst.handle(photo_msg("c", group="G1"))
+    wait_task(lst)
+    assert len(ran) == 1 and ran[0].startswith("שלוש תמונות")
+    assert ran[0].count("agents_output/inbox/") == 3 and ".png" in ran[0]
+    assert tg.downloaded == ["a", "b", "c"]
+
+
+def test_a_file_that_is_not_a_picture_is_refused(tmp_path):
+    ran = []
+    tg = PhotoTG({"fake": b"MZ\x90\x00 an exe pretending"})
+    lst = Listener(tg, tmp_path, "42", runner=lambda task, d: ran.append(task) or "ok", out_dir=tmp_path / "o")
+    lst.handle(photo_msg("fake", caption="/manager x"))
+    wait_task(lst)
+    assert ran == [] and not list((tmp_path / "agents_output" / "inbox").glob("*"))
+    assert any("לא הצלחתי" in t for _, t in tg.sent)
+    # a pdf or video is not taken as a picture at all - and the task is not started without it
+    lst.handle({"update_id": 6, "message": {"chat": {"id": 42, "type": "private"}, "caption": "/manager y",
+                                            "document": {"file_id": "d", "mime_type": "application/pdf"}}})
+    assert ran == [] and "d" not in tg.downloaded and "רק תמונות" in tg.sent[-1][1]
+
+
+def test_picture_sent_as_a_file_is_accepted_but_its_name_is_not_used(tmp_path):
+    ran = []
+    tg = PhotoTG({"d": PNG})
+    lst = Listener(tg, tmp_path, "42", runner=lambda task, d: ran.append(task) or "ok", out_dir=tmp_path / "o")
+    lst.handle({"update_id": 7, "message": {"chat": {"id": 42, "type": "private"}, "caption": "/manager z",
+                                            "document": {"file_id": "d", "mime_type": "image/png",
+                                                         "file_name": "../../evil.bat"}}})
+    wait_task(lst)
+    [saved] = list((tmp_path / "agents_output" / "inbox").glob("*"))
+    assert saved.suffix == ".png" and "evil" not in saved.name and len(ran) == 1
+
+
+def test_too_many_or_too_big_pictures_are_refused(tmp_path):
+    ran = []
+    tg = PhotoTG({"big": JPEG})
+    lst = Listener(tg, tmp_path, "42", runner=lambda task, d: ran.append(task) or "ok", out_dir=tmp_path / "o")
+    lst.handle(photo_msg("big", caption="/manager x", size=remote.MAX_IMAGE_BYTES + 1))
+    lst.command("/manager x", [{"file_id": "big", "size": 1}] * (remote.MAX_IMAGES + 1))
+    assert ran == [] and tg.downloaded == []
+    assert "גדולה מדי" in tg.sent[0][1] and "יותר מדי תמונות" in tg.sent[1][1]
+
+
+def test_download_file_uses_the_file_url_and_has_a_size_limit():
+    from types import SimpleNamespace
+    from affiliate_scraper.telegram import TelegramError, TelegramPublisher
+
+    class Resp:
+        def __init__(self, body, status=200):
+            self.body, self.status_code = body, status
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def iter_content(self, n):
+            for i in range(0, len(self.body), n):
+                yield self.body[i:i + n]
+
+    class Bot:
+        def __init__(self, size=None, body=JPEG):
+            self.size, self.body, self.got = size, body, []
+
+        def post(self, url, json=None, **kw):
+            assert url.endswith("/getFile") and json == {"file_id": "F"}
+            result = {"file_path": "photos/file_1.jpg"}
+            if self.size is not None:
+                result["file_size"] = self.size
+            return SimpleNamespace(status_code=200, json=lambda: {"ok": True, "result": result})
+
+        def get(self, url, stream=False, timeout=None):
+            self.got.append(url)
+            return Resp(self.body)
+
+    bot = Bot()
+    tg = TelegramPublisher(token="123:" + "A" * 35, admin_chat="42", session=bot, min_interval=0, env={})
+    assert tg.download_file("F") == JPEG
+    assert bot.got == [f"https://api.telegram.org/file/bot123:{'A' * 35}/photos/file_1.jpg"]
+    with pytest.raises(TelegramError, match="too large"):
+        TelegramPublisher(token="123:" + "A" * 35, session=Bot(size=50), min_interval=0, env={}).download_file("F", 10)
+    with pytest.raises(TelegramError, match="too large"):          # no size given: stopped while reading
+        TelegramPublisher(token="123:" + "A" * 35, session=Bot(body=b"x" * 100), min_interval=0,
+                          env={}).download_file("F", 10)
+
+
+@pytest.mark.parametrize("caption", ["מנהל: נתוני השבוע", "מנהל נתוני השבוע", "/m נתוני השבוע",
+                                     "/manager@mechir_bot נתוני השבוע"])
+def test_every_manager_form_works_in_a_caption(tmp_path, caption):
+    ran = []
+    tg = PhotoTG({"big": JPEG})
+    lst = Listener(tg, tmp_path, "42", runner=lambda task, d: ran.append(task) or "ok", out_dir=tmp_path / "o")
+    lst.handle(photo_msg("big", caption=caption))
+    wait_task(lst)
+    assert len(ran) == 1 and ran[0].startswith("נתוני השבוע") and "agents_output/inbox/" in ran[0]

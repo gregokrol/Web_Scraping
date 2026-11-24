@@ -7,6 +7,9 @@ Safety:
 * Claude runs with a fixed, limited tool list: read/edit project files, the project's own commands and
   tests, read-only git. No commit, push, delete or other shell commands (docs/agents/RULES.md)
 * one task at a time; a time limit stops a run that hangs
+* pictures sent with "/manager <task>" in the caption (e.g. Instagram Insights screenshots) are saved in
+  agents_output/inbox (git-ignored) and their paths are added to the task: only jpg / png / webp, checked by
+  their bytes, at most 10 per task and 10 MB each, file names chosen by us (never the sender's)
 """
 
 from __future__ import annotations
@@ -39,10 +42,18 @@ DEFAULT_MANAGER_MODEL = "sonnet"
 _MODEL_OK = re.compile(r"^(sonnet|opus|haiku|claude-[a-z0-9.-]+)$")
 MAX_TASK_CHARS = 2000
 LOCK_PORT = 47823               # a second listener would make Telegram answer 409 Conflict
+# pictures sent with a task (e.g. Instagram Insights screenshots): saved in the project for the manager to Read
+MAX_IMAGES = 10                 # a Telegram album holds up to 10
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+ALBUM_WAIT = 3.0                # the photos of one album arrive as separate messages: collect them first
+IMAGE_TYPES = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
+IMAGE_HINT = ("📷 כדי שהמנהל יקרא את התמונה, שלח אותה שוב וכתוב בכיתוב שלה /manager ואת המשימה, למשל:\n"
+              "/manager אלה נתוני האינסטגרם של השבוע, תעדכן את funnel-analyst")
 
 HELP = ("🤖 מנהל הסוכנים - פקודות:\n"
         "/manager <משימה> - המנהל מפרק את המשימה, מחלק לסוכנים, מעביר QA ומחזיר סיכום\n"
         "   (אפשר גם: מנהל: <משימה>)\n"
+        "📷 תמונה או כמה תמונות עם /manager <משימה> בכיתוב - המנהל מקבל גם אותן (למשל צילומי מסך מאינסטגרם)\n"
         "/task - מה המנהל עושה עכשיו, וכמה זמן\n"
         "/status - דוח בדיקה עכשיו\n"
         "/digest - הסיכום לשיתוף עכשיו\n"
@@ -62,6 +73,30 @@ def parse_command(text: str) -> tuple[str, str]:
     if word in ("/status", "/digest", "/help", "/start", "/task"):
         return ("help" if word == "/start" else word[1:]), ""
     return "unknown", t
+
+
+def image_refs(msg: dict) -> list[dict]:
+    """The pictures in a message: [{"file_id", "size"}]. A photo (Telegram keeps several sizes: the largest),
+    or a picture sent as a file (jpg / png / webp only)."""
+    photos = msg.get("photo") or []
+    if photos:
+        best = max(photos, key=lambda p: (p.get("width", 0) * p.get("height", 0), p.get("file_size", 0)))
+        return [{"file_id": best["file_id"], "size": int(best.get("file_size") or 0)}]
+    doc = msg.get("document") or {}
+    if doc.get("file_id") and str(doc.get("mime_type", "")).lower() in IMAGE_TYPES:
+        return [{"file_id": doc["file_id"], "size": int(doc.get("file_size") or 0)}]
+    return []
+
+
+def image_kind(data: bytes) -> Optional[str]:
+    """The file extension by the bytes themselves (never by the sender's file name), or None if no picture."""
+    if data.startswith(b"\xff\xd8\xff"):
+        return "jpg"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "webp"
+    return None
 
 
 def manager_prompt(task: str) -> str:
@@ -135,6 +170,10 @@ class Listener:
         self.tg, self.project_dir, self.admin_chat = tg, Path(project_dir), str(admin_chat).strip()
         self.runner, self.status, self.digest = runner, status, digest
         self.out_dir = Path(out_dir or self.project_dir / "agents_output" / "telegram")
+        self.inbox = self.project_dir / "agents_output" / "inbox"     # pictures you sent (git-ignored)
+        self.album_wait = ALBUM_WAIT
+        self._albums: dict[str, dict] = {}
+        self._lock = threading.Lock()         # album parts and task start come from the timer thread too
         self.busy: Optional[threading.Thread] = None
         self.current = ""
         self.started: Optional[float] = None
@@ -209,7 +248,41 @@ class Listener:
             if msg:
                 log.info("ignored a message from chat %s", (msg.get("chat") or {}).get("id"))
             return
-        cmd, arg = parse_command(msg.get("text") or "")
+        text = msg.get("text") or msg.get("caption") or ""     # a picture's words come as its caption
+        images = image_refs(msg)
+        if not images and any(msg.get(k) for k in ("document", "video", "audio", "voice", "video_note", "sticker")):
+            self.reply("אפשר לצרף למשימה רק תמונות (jpg, png או webp). את הקובץ הזה המנהל לא מקבל.")
+            return
+        if images and msg.get("media_group_id"):
+            self._album_part(str(msg["media_group_id"]), text, images)
+            return
+        self.command(text, images)
+
+    def _album_part(self, group: str, text: str, images: list[dict]) -> None:
+        """One photo of an album. The album is handled as ONE message once no more photos arrive."""
+        with self._lock:
+            album = self._albums.setdefault(group, {"text": "", "images": [], "timer": None})
+            album["images"] += images
+            if text and not album["text"]:
+                album["text"] = text                   # the caption is usually on one photo only
+            if album["timer"]:
+                album["timer"].cancel()
+            album["timer"] = threading.Timer(self.album_wait, self.album_done, args=(group,))
+            album["timer"].daemon = True
+            album["timer"].start()
+
+    def album_done(self, group: str) -> None:
+        with self._lock:
+            album = self._albums.pop(group, None)
+        if album:
+            self.command(album["text"], album["images"])
+
+    def command(self, text: str, images: Optional[list[dict]] = None) -> None:
+        images = images or []
+        cmd, arg = parse_command(text)
+        if images and cmd != "manager":
+            self.reply(IMAGE_HINT)
+            return
         if cmd == "help":
             self.reply(HELP)
         elif cmd == "task":
@@ -234,17 +307,53 @@ class Listener:
                 self.reply("כתוב את המשימה אחרי הפקודה, למשל:\n/manager תכין 3 טיוטות לאינסטגרם מהעסקאות של היום")
             elif len(arg) > MAX_TASK_CHARS:
                 self.reply(f"המשימה ארוכה מדי ({len(arg)} תווים). עד {MAX_TASK_CHARS}.")
-            elif self.busy and self.busy.is_alive():
-                self.reply(f"⏳ המנהל עוד עובד על המשימה הקודמת:\n{self.current[:200]}\nשלח שוב כשהיא תסתיים.")
+            elif len(images) > MAX_IMAGES:
+                self.reply(f"יותר מדי תמונות ({len(images)}). עד {MAX_IMAGES} בכל משימה.")
+            elif any(i["size"] > MAX_IMAGE_BYTES for i in images):
+                self.reply(f"תמונה גדולה מדי. עד {MAX_IMAGE_BYTES // (1024 * 1024)} MB לתמונה.")
             else:
-                self.current = arg
-                self.busy = threading.Thread(target=self._work, args=(arg,), daemon=True)
-                self.busy.start()
+                with self._lock:
+                    if self.busy and self.busy.is_alive():
+                        self.reply(f"⏳ המנהל עוד עובד על המשימה הקודמת:\n{self.current[:200]}\n"
+                                   "שלח שוב כשהיא תסתיים.")
+                        return
+                    self.current = arg
+                    self.busy = threading.Thread(target=self._work, args=(arg, images), daemon=True)
+                    self.busy.start()
         else:
             self.reply("לא הבנתי. " + HELP)
 
-    def _work(self, task: str) -> None:
-        self.reply(f"✅ קיבלתי. המנהל מתחיל לעבוד על:\n{task[:300]}\n\nזה יכול לקחת כמה דקות. הסיכום יגיע לכאן.")
+    def save_images(self, images: list[dict]) -> list[str]:
+        """Download the pictures into agents_output/inbox -> their paths relative to the project (for Read)."""
+        self.inbox.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        paths = []
+        for n, ref in enumerate(images, 1):
+            data = self.tg.download_file(ref["file_id"], max_bytes=MAX_IMAGE_BYTES)
+            kind = image_kind(data)
+            if not kind:
+                raise ValueError(f"קובץ {n} הוא לא תמונה (jpg, png או webp)")
+            path = self.inbox / f"{stamp}_{n}.{kind}"
+            path.write_bytes(data)
+            try:
+                paths.append(path.relative_to(self.project_dir).as_posix())
+            except ValueError:
+                paths.append(str(path))
+        return paths
+
+    def _work(self, task: str, images: Optional[list[dict]] = None) -> None:
+        note = f"\n📷 עם {len(images)} תמונות" if images else ""
+        self.reply(f"✅ קיבלתי. המנהל מתחיל לעבוד על:\n{task[:300]}{note}\n\n"
+                   "זה יכול לקחת כמה דקות. הסיכום יגיע לכאן.")
+        if images:
+            try:
+                paths = self.save_images(images)
+            except Exception as exc:  # noqa: BLE001 - tell, do not crash the listener
+                self.reply(f"❌ לא הצלחתי לשמור את התמונות, והמשימה לא התחילה: {str(exc)[:300]}")
+                return
+            task += ("\n\nThe owner attached these pictures (screenshots). Open each one with the Read tool and "
+                     "use only what is really in them; do not guess numbers that are not readable:\n"
+                     + "\n".join(f"- {p}" for p in paths))
         started = self.started = time.monotonic()
         self.started_at = datetime.now(timezone.utc).isoformat(timespec="microseconds")
         done = threading.Event()
