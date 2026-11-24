@@ -307,5 +307,5 @@ def test_short_post_says_where_the_earlier_price_comes_from_and_the_shipping():
                       {"status": "verified", "claimed_pct": 24.5}, lang="he")
     text = format_post(c, 1024)
     assert "שראינו שם קודם" not in text                              # the store's "was" price, not one we saw
-    assert "במקום ₪106 שהחנות מציגה (בדקנו מול היסטוריית המחיר)" in text
+    assert "במקום ₪106 שהחנות מציגה (24% פחות, בדקנו מול היסטוריית המחיר)" in text
     assert "משלוח: ₪39." in text and "(לא כולל משלוח)" in text and "מהמחיר האמצעי" in text

@@ -96,12 +96,12 @@ def friendly_post(content: dict) -> str:
     price = f.get("price")
     say = short_money(price, cur) + (f" {heb_prefix('ב', store)}" if store else "")
     if f.get("was") and price is not None and f["was"] > price:
-        if f.get("was_source", "history") == "history":
-            say += f", במקום {short_money(f['was'], cur)} שראינו שם קודם"
-        else:                     # the store's own "was" price - checked against the history, never seen as such
-            say += f", במקום {short_money(f['was'], cur)} שהחנות מציגה (בדקנו מול היסטוריית המחיר)"
-        if f.get("pct"):
-            say += f" ({f['pct']}% פחות)"
+        pct = f"{f['pct']}% פחות" if f.get("pct") else ""
+        if f.get("was_source") == "history":
+            say += f", במקום {short_money(f['was'], cur)} שראינו שם קודם" + (f" ({pct})" if pct else "")
+        else:                     # the store's own "was" price (or unknown): checked against the history, never seen
+            say += (f", במקום {short_money(f['was'], cur)} שהחנות מציגה "
+                    f"({pct + ', ' if pct else ''}בדקנו מול היסטוריית המחיר)")
     lines = [f"<b>{e(content.get('title', ''))}</b>", "", e(say + ".")]
     if f.get("lowest90"):
         lines.append("הכי זול שראינו שם ב-90 יום.")
