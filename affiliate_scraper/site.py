@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
-from .content import short_date
+from .content import T, short_date
 from urllib.parse import quote
 
 from .db import Database
@@ -471,7 +471,7 @@ def collect_deals(db: Database, cfg: SiteConfig, now: Optional[datetime] = None)
         claims = [c for c in d["content"].get("claims", [])
                   if c.get("basis") != "price_history_90d" or d["lowest90"]]
         if d["lowest_since"] and not any(c.get("basis") == "price_history_since" for c in claims):
-            claims.append({"text": f"המחיר הנמוך ביותר מאז {short_date(d['lowest_since'])} (מאז שהתחלנו לבדוק)",
+            claims.append({"text": T["he"]["lowest_since"].format(since=short_date(d["lowest_since"])),
                            "basis": "price_history_since"})
         d["content"]["claims"] = claims
         # savings vs the cheapest OTHER store; other pages of the same store never count
