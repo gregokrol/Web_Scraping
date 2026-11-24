@@ -121,7 +121,10 @@ CREATE TABLE IF NOT EXISTS deal_alerts (
     created_at TEXT, decided_at TEXT, published_at TEXT, notified_at TEXT, error TEXT,
     published_ref TEXT,                 -- where it was posted (e.g. Telegram chat + message id), for withdrawing
     savings_pct REAL,                   -- the verified saving when detected (decides automatic publishing)
-    auto_approved INTEGER DEFAULT 0     -- approved by the 'smart' mode, not by the owner
+    auto_approved INTEGER DEFAULT 0,    -- approved by the 'smart' mode, not by the owner
+    shown_price REAL,                   -- the price the channel post says now (after an update)
+    shown_state TEXT,                   -- what the post says now: ok | up | down | gone
+    post_updated_at TEXT                -- when the post was last rewritten for a price change
 );
 CREATE INDEX IF NOT EXISTS ix_alerts_offer ON deal_alerts(offer_id, created_at);
 """
@@ -189,7 +192,8 @@ class Database:
             if col not in cols:
                 self.conn.execute(f"ALTER TABLE offers ADD COLUMN {col} {typ}")
         cols = {r[1] for r in self.conn.execute("PRAGMA table_info(deal_alerts)")}
-        for col, typ in (("published_ref", "TEXT"), ("savings_pct", "REAL"), ("auto_approved", "INTEGER DEFAULT 0")):
+        for col, typ in (("published_ref", "TEXT"), ("savings_pct", "REAL"), ("auto_approved", "INTEGER DEFAULT 0"),
+                         ("shown_price", "REAL"), ("shown_state", "TEXT"), ("post_updated_at", "TEXT")):
             if col not in cols:
                 self.conn.execute(f"ALTER TABLE deal_alerts ADD COLUMN {col} {typ}")
 

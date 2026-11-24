@@ -332,6 +332,67 @@ def posts_to_fix(db: Database, page_url_for=None) -> list[dict]:
     return out
 
 
+def _changed(a: float, b: float) -> bool:
+    """A real price change: at least 1% and at least ₪1 (no post rewritten for agorot)."""
+    return abs(a - b) >= max(1.0, abs(b) * 0.01)
+
+
+def post_updates(db: Database, page_url_for=None, seen_within_hours: float = 36.0,
+                 now: Optional[datetime] = None) -> list[dict]:
+    """Published channel posts whose product changed since the post said it: the price went up (the deal is over),
+    went down, the product is out of stock - or it is back at the posted price (the note goes). Only from a price
+    we checked lately (verified, fetched within ``seen_within_hours``); a store we could not read changes nothing.
+    -> [{id, title, ref, state, price, note, payload}] for TelegramPublisher.edit_deal; each post once per change
+    (shown_price / shown_state remember what the post says now)."""
+    from .content import israel_time, short_money
+    now = now or datetime.now(timezone.utc)
+    since = (now - timedelta(hours=seen_within_hours)).isoformat()
+    out = []
+    for r in db.query("SELECT a.*, o.url, o.affiliate_url, o.store, o.image, o.price AS now_price, "
+                      "o.currency AS now_currency, o.price_verified AS now_verified, o.availability, o.last_fetched_at "
+                      "FROM deal_alerts a JOIN offers o ON o.id=a.offer_id "
+                      "WHERE a.status='published' AND a.published_ref IS NOT NULL ORDER BY a.id"):
+        tg_ref = (json.loads(r["published_ref"] or "null") or {}).get("telegram") or {}
+        if not tg_ref.get("message_id"):
+            continue
+        if not (r["now_verified"] and r["now_price"] is not None and r["now_currency"] == r["currency"]
+                and (r["last_fetched_at"] or "") >= since):
+            continue                                   # not checked lately: say nothing new
+        posted, current = float(r["price"]), float(r["now_price"])
+        if r["availability"] in _GONE:
+            state = "gone"
+        elif current > posted and _changed(current, posted):
+            state = "up"
+        elif current < posted and _changed(current, posted):
+            state = "down"
+        else:
+            state = "ok"
+        shown_state = r["shown_state"] or "ok"
+        shown = float(r["shown_price"]) if r["shown_price"] is not None else posted
+        if state == shown_state and (state in ("ok", "gone") or not _changed(current, shown)):
+            continue                                   # the post already says this
+        when = israel_time(r["last_fetched_at"])
+        money = short_money(current, r["currency"])
+        note = {"up": f"⚠️ עדכון {when}: המחיר עלה ל-{money}, כלומר המבצע הסתיים.",
+                "down": f"🔄 עדכון {when}: המחיר ירד עוד, ל-{money}.",
+                "gone": f"⚠️ עדכון {when}: המוצר אזל במלאי בחנות.",
+                "ok": None}[state]
+        content = {**json.loads(r["content_json"] or "{}"), "update": note}
+        if not note:
+            content.pop("update")
+        out.append({"id": r["id"], "title": r["title"], "ref": tg_ref, "state": state, "price": current, "note": note,
+                    "payload": {"title": r["title"], "url": r["url"], "affiliate_url": r["affiliate_url"],
+                                "image": r["image"], "content": content,
+                                "page_url": page_url_for(r["id"]) if page_url_for else ""}})
+    return out
+
+
+def mark_post_updated(db: Database, alert_id: int, state: str, price: float, now: Optional[datetime] = None) -> None:
+    with db.tx() as c:
+        c.execute("UPDATE deal_alerts SET shown_state=?, shown_price=?, post_updated_at=? WHERE id=?",
+                  (state, price, (now or datetime.now(timezone.utc)).replace(microsecond=0).isoformat(), alert_id))
+
+
 def _recheck_claims(db: Database, offer_id: int, content: dict) -> dict:
     """A deal approved before the 90-day rule was fixed may still carry "lowest in 90 days": check it again
     against the history at publish time, and say "lowest since <first check>" instead when it is shorter."""

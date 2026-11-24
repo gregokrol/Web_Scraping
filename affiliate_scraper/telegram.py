@@ -103,6 +103,8 @@ def friendly_post(content: dict) -> str:
             say += (f", במקום {short_money(f['was'], cur)} שהחנות מציגה "
                     f"({pct + ', ' if pct else ''}בדקנו מול היסטוריית המחיר)")
     lines = [f"<b>{e(content.get('title', ''))}</b>", "", e(say + ".")]
+    if content.get("update"):             # the price changed since the post (alerts.post_updates): said first
+        lines = [f"<b>{e(content['update'])}</b>", "", *lines]
     if f.get("lowest90"):
         lines.append("הכי זול שראינו שם ב-90 יום.")
     elif f.get("since"):
@@ -151,13 +153,15 @@ def format_post(content: dict, max_len: int) -> str:
         return "\n".join([head, *[f"• {e(c)}" for c in items], *footer])
 
     head = f"🔥 <b>{e(title)}</b>"
+    if content.get("update"):
+        head = f"<b>{e(content['update'])}</b>\n\n" + head
     text = build(head, claims)
     while len(text) > max_len and claims:
         claims.pop()  # claims are ordered most-important (price) first
         text = build(head, claims)
     if len(text) > max_len:  # extremely long title: shorten it, keep link + disclosure
         keep = max(10, len(title) - (len(text) - max_len) - 1)
-        text = build(f"🔥 <b>{e(title[:keep])}…</b>", [])
+        text = build(head.replace(f"<b>{e(title)}</b>", f"<b>{e(title[:keep])}…</b>"), [])
     return text
 
 

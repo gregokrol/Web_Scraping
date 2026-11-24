@@ -896,6 +896,8 @@ def _run_once(args) -> int:
                 except PublishError as exc:
                     _err(f"Notification problem: {exc}")
     channel_drops = auto_channel_posts(cfg, db, tg, channel_drops)
+    # a published deal whose price changed (up, down, out of stock, back): its channel post says so
+    update_posts(cfg, db, tg, (lambda aid: page_url(site_cfg, aid)) if site_on else None)
     # a product posted again cheaper in a store's channel: told to you right away, once
     if channel_drops and tg and tg.admin_chat:
         from .channels import drop_text, mark_drops_told
@@ -2112,6 +2114,43 @@ def auto_channel_posts(cfg: dict, db: Database, tg, channel_drops: list[dict]) -
     return channel_drops
 
 
+MAX_POST_UPDATES = 20           # channel posts rewritten in one run (a store's price change can touch many)
+
+
+def update_posts(cfg: dict, db: Database, tg, page_url_for=None, limit: int = MAX_POST_UPDATES) -> list[dict]:
+    """Rewrite the channel posts whose price changed since they were posted (alerts.post_updates): a line on top
+    says the price went up (the deal is over), went down, or the product is out of stock - and goes again when
+    the price is back. Your rule ("post_updates": {"enabled": false} in automation.json turns it off).
+    Never while the agent manager runs. Returns the updates done; you get one message about them."""
+    from .alerts import mark_post_updated, post_updates
+    from .telegram import agent_run
+    from .webhook import PublishError
+    if agent_run() or not (tg and tg.channel) or not (cfg.get("post_updates") or {}).get("enabled", True):
+        return []
+    rules = cfg.get("deals") or {}
+    todo = post_updates(db, page_url_for, seen_within_hours=float(rules.get("seen_within_hours", 36)))
+    done = []
+    for t in todo[:limit]:
+        try:
+            tg.edit_deal(t["ref"].get("chat_id") or tg.channel, t["ref"]["message_id"], t["payload"])
+        except PublishError as exc:
+            if "not found" not in str(exc).lower():      # a deleted post: remembered, so it is not tried every run
+                _err(f"Post update #{t['id']}: {exc}")
+                continue
+        mark_post_updated(db, t["id"], t["state"], t["price"])
+        done.append(t)
+        _err(f"Channel post #{t['id']} updated ({t['state']}): {t['title'][:60]}")
+    if done and tg.admin_chat:
+        lines = [f"🔄 עדכנתי {len(done)} פוסטים בערוץ, כי המחיר השתנה:"]
+        lines += [f"#{t['id']} {t['title'][:50]}: " + (t["note"] or "חזר למחיר שבפוסט, העדכון הוסר.")
+                  for t in done]
+        try:
+            tg.notify_admin("\n".join(lines))
+        except PublishError:
+            pass
+    return done
+
+
 def publish_claim(db: Database, claim_id: int, tg, publish: bool, auto: bool = False) -> str:
     """Post a channel price: to the public channel (publish) or as a preview to you. Returns what happened."""
     from .channels import ensure_schema, post_text
@@ -2665,6 +2704,42 @@ def _fix_posts_run(args) -> int:
         return 0 if not failed else 1
     finally:
         db.close()
+
+
+def _post_updates_build(ap) -> None:
+    ap.add_argument("--config", default="automation.json")
+    ap.add_argument("--apply", action="store_true", help="rewrite the posts in the channel now (else: only a list)")
+
+
+def _post_updates_run(args) -> int:
+    """The channel posts whose price changed: a list, or --apply to rewrite them now (the run does it by itself)."""
+    from .alerts import post_updates
+    from .site import SiteConfig, page_url
+    from .telegram import TelegramPublisher
+    cfg = load_automation(args.config) if Path(args.config).exists() else {}
+    site = cfg.get("site") or {}
+    site_cfg = SiteConfig.from_dict(site)
+    url_for = (lambda aid: page_url(site_cfg, aid)) if site.get("enabled") else None
+    db = Database(cfg.get("db", DEFAULT_DB))
+    try:
+        if args.apply:
+            done = update_posts({**cfg, "post_updates": {"enabled": True}}, db, TelegramPublisher(), url_for,
+                                limit=100)
+            print(f"{len(done)} post(s) updated.")
+            return 0
+        todo = post_updates(db, url_for, seen_within_hours=float((cfg.get("deals") or {}).get("seen_within_hours", 36)))
+        for t in todo:
+            print(f"#{t['id']} (message {t['ref']['message_id']}, {t['state']}): {t['title'][:60]}\n   "
+                  + (t["note"] or "back at the posted price - the update line goes"))
+        print(f"\n{len(todo)} post(s) to update." + (" The next run does it, or: py main.py post-updates --apply"
+                                                       if todo else ""))
+        return 0
+    finally:
+        db.close()
+
+
+cli.register_subcommand("post-updates", "Channel posts whose price changed since they were posted (list / --apply)",
+                        _post_updates_build, _post_updates_run)
 
 
 cli.register_subcommand("fix-posts", "Rewrite channel posts that say 'lowest in 90 days' without 90 days of history",
