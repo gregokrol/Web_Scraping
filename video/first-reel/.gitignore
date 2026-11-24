@@ -2,3 +2,4 @@
 renders/*
 !renders/mechir-emet-reel-v3.mp4
 node_modules/
+!renders/mechir-emet-reel-v3-music.mp4
