@@ -312,6 +312,26 @@ def publish_approved(db: Database, url, session=None, auto_approve: bool = False
     return {"published": sent, "failed": failed, "ids": published_ids}
 
 
+def posts_to_fix(db: Database, page_url_for=None) -> list[dict]:
+    """Published deals whose channel post says "lowest in 90 days" without a full 90-day history (posted before
+    that rule was fixed): [{id, title, ref, payload}] with the corrected content, for TelegramPublisher.edit_deal."""
+    out = []
+    for r in db.query("SELECT a.*, o.url, o.affiliate_url, o.store, o.image FROM deal_alerts a JOIN offers o "
+                      "ON o.id=a.offer_id WHERE a.status='published' AND a.published_ref IS NOT NULL ORDER BY a.id"):
+        content = json.loads(r["content_json"] or "{}")
+        fixed = _recheck_claims(db, r["offer_id"], content)
+        if fixed == content:
+            continue
+        tg_ref = (json.loads(r["published_ref"] or "null") or {}).get("telegram") or {}
+        if not tg_ref.get("message_id"):
+            continue
+        out.append({"id": r["id"], "title": r["title"], "ref": tg_ref, "content": fixed,
+                    "payload": {"title": r["title"], "url": r["url"], "affiliate_url": r["affiliate_url"],
+                                "image": r["image"], "content": fixed,
+                                "page_url": page_url_for(r["id"]) if page_url_for else ""}})
+    return out
+
+
 def _recheck_claims(db: Database, offer_id: int, content: dict) -> dict:
     """A deal approved before the 90-day rule was fixed may still carry "lowest in 90 days": check it again
     against the history at publish time, and say "lowest since <first check>" instead when it is shorter."""

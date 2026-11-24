@@ -2528,3 +2528,56 @@ def _reel_run(args) -> int:
 
 cli.register_subcommand("reel", "A HyperFrames reel in video/<name>: new, check, snapshot, render (needs Node.js)",
                         _reel_build, _reel_run)
+
+
+# ---------------------------------------------------------------- fix posts already in the channel
+def _fix_posts_build(ap) -> None:
+    ap.add_argument("--apply", action="store_true", help="edit the posts in the PUBLIC channel (default: only list them)")
+    ap.add_argument("--config", default="automation.json")
+
+
+def _fix_posts_run(args) -> int:
+    """Posts published before the 90-day rule was fixed still say "lowest in 90 days": list them, or with
+    --apply rewrite each one in place ("lowest since <date>", or the line removed). Your decision to run it."""
+    import json as _json
+    from .alerts import posts_to_fix
+    from .site import SiteConfig, page_url
+    from .telegram import TelegramPublisher
+    from .webhook import PublishError
+    cfg = load_automation(args.config) if Path(args.config).exists() else {}
+    site = cfg.get("site") or {}
+    site_cfg = SiteConfig.from_dict(site)
+    db = Database(cfg.get("db", DEFAULT_DB))
+    try:
+        todo = posts_to_fix(db, (lambda aid: page_url(site_cfg, aid)) if site.get("enabled") else None)
+        if not todo:
+            print("No post needs fixing.")
+            return 0
+        for t in todo:
+            print(f"#{t['id']} (message {t['ref']['message_id']}): {t['title'][:70]}")
+        if not args.apply:
+            print(f"\n{len(todo)} post(s) say 'lowest in 90 days' without 90 days of history. "
+                  "To rewrite them in the channel: py main.py fix-posts --apply")
+            return 0
+        tg = TelegramPublisher()
+        done = failed = 0
+        for t in todo:
+            try:
+                how = tg.edit_deal(t["ref"].get("chat_id") or tg.channel, t["ref"]["message_id"], t["payload"])
+            except PublishError as exc:
+                _err(f"#{t['id']}: {exc}")
+                failed += 1
+                continue
+            with db.tx() as c:            # the saved text matches the channel now, so it is not fixed twice
+                c.execute("UPDATE deal_alerts SET content_json=? WHERE id=?",
+                          (_json.dumps(t["content"], ensure_ascii=False), t["id"]))
+            print(f"#{t['id']}: fixed ({how})")
+            done += 1
+        print(f"\n{done} fixed, {failed} failed.")
+        return 0 if not failed else 1
+    finally:
+        db.close()
+
+
+cli.register_subcommand("fix-posts", "Rewrite channel posts that say 'lowest in 90 days' without 90 days of history",
+                        _fix_posts_build, _fix_posts_run)

@@ -143,8 +143,8 @@ class TelegramPublisher:
              http_timeout: float = 20) -> dict:
         if not self.token:
             raise TelegramError("set TELEGRAM_BOT_TOKEN (from @BotFather)")
-        if agent_run() and method in CHANNEL_WRITES and self.channel and \
-                str(payload.get("chat_id", "")).lower() == str(self.channel).lower():
+        if agent_run() and method in CHANNEL_WRITES and \
+                str(payload.get("chat_id", "")).lower() != str(self.admin_chat or "").lower():
             # the agent manager prepares, the owner publishes: no post, pin, edit or delete in the public channel
             raise TelegramError("publishing to the channel is blocked while the agent manager runs - "
                                 "the owner publishes (approval buttons / py main.py publish)")
@@ -178,9 +178,9 @@ class TelegramPublisher:
         raise TelegramError("Telegram: retries exhausted")
 
     # ------------------------------------------------------------------ public
-    def post_deal(self, payload: dict) -> dict:
-        if not self.channel:
-            raise TelegramError("set TELEGRAM_CHANNEL (e.g. @my_channel) and make the bot an admin of it")
+    @staticmethod
+    def _deal_message(payload: dict) -> tuple[dict, Optional[dict]]:
+        """The post's content (with the store link and the page link) and its buttons."""
         content = payload.get("content") or {}
         link = payload.get("affiliate_url") or payload.get("url") or content.get("link", "")
         content = {**content, "link": link}
@@ -190,7 +190,34 @@ class TelegramPublisher:
         row = [{"text": content.get("cta") or "🛒", "url": link}] if link.startswith("http") else []
         if page.startswith("https://"):
             row.append({"text": "📈 היסטוריית מחיר", "url": page})
-        button = {"inline_keyboard": [row]} if row else None
+        return content, ({"inline_keyboard": [row]} if row else None)
+
+    def edit_deal(self, chat_id, message_id: int, payload: dict) -> str:
+        """Rewrite a deal post already in the channel (same buttons). Returns 'caption', 'text' or 'unchanged'."""
+        content, button = self._deal_message(payload)
+        base = {"chat_id": chat_id, "message_id": int(message_id), "parse_mode": "HTML",
+                **({"reply_markup": button} if button else {})}
+        try:
+            self._api("editMessageCaption", {**base, "caption": format_post(content, CAPTION_LIMIT)}, retries=1)
+            return "caption"
+        except TelegramError as exc:
+            msg = str(exc).lower()
+            if "not modified" in msg:
+                return "unchanged"
+            if "no caption" not in msg and "no text" not in msg:
+                raise
+        try:                                      # a text post (no photo)
+            self._api("editMessageText", {**base, "text": format_post(content, MESSAGE_LIMIT)}, retries=1)
+            return "text"
+        except TelegramError as exc:
+            if "not modified" in str(exc).lower():
+                return "unchanged"
+            raise
+
+    def post_deal(self, payload: dict) -> dict:
+        if not self.channel:
+            raise TelegramError("set TELEGRAM_CHANNEL (e.g. @my_channel) and make the bot an admin of it")
+        content, button = self._deal_message(payload)
         image = payload.get("image") or ""
         if image.startswith("https://"):
             msg = {"chat_id": self.channel, "photo": image, "caption": format_post(content, CAPTION_LIMIT),
