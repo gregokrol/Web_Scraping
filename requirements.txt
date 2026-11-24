@@ -6,3 +6,5 @@ fastapi>=0.110
 uvicorn>=0.29
 # logo watermark on channel photos
 pillow>=10.0
+# Israel time in channel posts on Windows (Python has no time-zone data there by itself)
+tzdata; sys_platform == "win32"

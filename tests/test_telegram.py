@@ -51,7 +51,23 @@ def test_format_post_html_escaped_and_complete():
     text = format_post(c, 4096)
     assert "<b>Kettle &lt;b&gt;hack&lt;/b&gt; &amp; co</b>" in text
     assert 'href="https://a.example/k?ref=me"' in text and "גילוי נאות" in text
-    assert "המחיר הנמוך ביותר ב-90 הימים האחרונים" in text
+    assert "הכי זול שראינו שם ב-90 יום." in text and "₪90 ב-Shop A." in text     # the short post
+    assert "UTC" not in text and "•" not in text
+    legacy = {k: v for k, v in c.items() if k != "facts"}                          # a deal saved before
+    assert "המחיר הנמוך ביותר ב-90 הימים האחרונים" in format_post(legacy, 4096)
+
+
+def test_short_post_says_only_the_verified_facts():
+    from affiliate_scraper.content import build_content
+    offer = {**OFFER, "price": 1399.0, "eilat_price": 1185.59, "store": "באג", "last_fetched_at": "2026-11-23T07:03:00+00:00"}
+    c = build_content(offer, {"lowest_90d": False, "lowest_since": "2026-11-09"}, None,
+                      {"drop_pct": 30.0, "from": 1999.0}, lang="he")
+    text = format_post(c, 1024)
+    assert "₪1,399 בבאג, במקום ₪1,999 שראינו שם קודם (30% פחות)." in text
+    assert "הכי זול שראינו שם מאז 9.11." in text and "באילת: ₪1,185.59." in text
+    assert "בדקנו ב-23.11, 09:03." in text and "לבאג ›" in text and "גילוי נאות" in text
+    plain = format_post(build_content({**offer, "eilat_price": None}, {}, lang="he"), 1024)
+    assert "במקום" not in plain and "הכי זול" not in plain        # nothing that was not verified
 
 
 def test_long_caption_drops_claims_never_disclosure_or_link():
@@ -281,3 +297,15 @@ def test_auto_mode_posts_without_approval_and_reports_to_you(tmp_path, local_sit
     db = Database(tmp_path / "a.db")
     assert db.query("SELECT status FROM deal_alerts")[0]["status"] == "withdrawn"
     db.close()
+
+
+def test_short_post_says_where_the_earlier_price_comes_from_and_the_shipping():
+    from affiliate_scraper.content import build_content
+    offer = {**OFFER, "price": 80.0, "list_price": 106.0, "shipping_cost": 39.0, "store": "חנות ב",
+             "last_fetched_at": "2026-11-23T07:03:00+00:00"}
+    c = build_content(offer, {}, {"n_compared": 3, "median_price": 100.0, "partial_reasons": "shipping_unknown"}, None,
+                      {"status": "verified", "claimed_pct": 24.5}, lang="he")
+    text = format_post(c, 1024)
+    assert "שראינו שם קודם" not in text                              # the store's "was" price, not one we saw
+    assert "במקום ₪106 שהחנות מציגה (בדקנו מול היסטוריית המחיר)" in text
+    assert "משלוח: ₪39." in text and "(לא כולל משלוח)" in text and "מהמחיר האמצעי" in text

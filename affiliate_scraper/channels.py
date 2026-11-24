@@ -324,20 +324,22 @@ def drop_text(db: Database, r: dict) -> str:
 
 
 def post_text(db: Database, r: dict, disclosure: str, auto: bool = False) -> str:
-    """The public post for a channel price - stated as the store's price, never as a verified one.
-    ``auto`` (posted without the owner's look): no word-matched "checked by us" lines, a calm icon."""
+    """The public post for a channel price, short and plain - always said to be the store's own price, never a
+    verified one. ``auto`` (posted without the owner's look): no word-matched "checked by us" lines."""
+    from .content import CHANNEL_DISCLOSURE, DISCLOSURE, short_money
     store = store_name(r["channel"])
-    lines = [f"{'📉' if auto else '🔥'} {r['title'][:120]}",
-             f"• ₪{r['price']:,.2f} לפי ערוץ {store} ({_date(r['posted_at'])}). לא נבדק אצלנו בדף המוצר."]
+    say = f"{short_money(r['price'])} לפי הערוץ של {store} ({_date(r['posted_at'])}), לא נבדק אצלנו בדף המוצר"
     if r.get("prev_price"):
-        lines.append(f"• בפוסט הקודם של {store} ({_date(r['prev_posted_at'])}): ₪{r['prev_price']:,.2f}")
+        say += f". בפוסט הקודם שלהם ({_date(r['prev_posted_at'])}) זה היה {short_money(r['prev_price'])}"
     elif r.get("was_price"):
-        lines.append(f"• במקום ₪{r['was_price']:,.2f}, לפי {store}")
+        say += f". הם כתבו שזה במקום {short_money(r['was_price'])}"
+    lines = [r["title"][:120], "", say + "."]
     if r.get("coupon"):
-        lines.append(f"• 🎟️ קופון לפי ערוץ {store}: {r['coupon']} (התנאים לפי החנות)")
+        lines.append(f"יש גם קופון שהם כתבו: {r['coupon']} (התנאים לפי החנות).")
     for m in ([] if auto else verified_matches(db, r["title"])):
-        lines.append(f"• נבדק אצלנו: {m['store'] or m['domain']} ₪{m['price']:,.2f}")
-    lines += ["", disclosure]
+        lines.append(f"נבדק אצלנו: {m['store'] or m['domain']} {short_money(m['price'])}")
+    disc = CHANNEL_DISCLOSURE if (not disclosure or disclosure == DISCLOSURE["he"]) else disclosure
+    lines += ["", disc]
     return "\n".join(lines)
 
 

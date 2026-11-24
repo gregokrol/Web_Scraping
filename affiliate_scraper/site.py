@@ -145,8 +145,8 @@ def price_chart_svg(points: list[tuple[str, float]], currency: str) -> str:
                    f'{e(_money(p, currency))}</title></circle>' for (x, y), (dt, p) in zip(xy, pts))
     lx, ly = xy[-1]
     return (f'<svg class="chart" viewBox="0 0 {W} {H}" role="img" aria-label="היסטוריית מחיר" dir="ltr">'
-            '<defs><linearGradient id="ga" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#22d3ee" '
-            'stop-opacity=".45"/><stop offset="1" stop-color="#22d3ee" stop-opacity="0"/></linearGradient></defs>'
+            '<defs><linearGradient id="ga" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0f1f45" '
+            'stop-opacity=".12"/><stop offset="1" stop-color="#0f1f45" stop-opacity="0"/></linearGradient></defs>'
             f'<line x1="{P}" y1="{H - P}" x2="{W - P}" y2="{H - P}" class="axis"/>'
             f'<text x="6" y="{Y(hi - pad) - 6:.0f}" text-anchor="start">{e(_money(hi - pad, currency))}</text>'
             + (f'<text x="6" y="{Y(lo + pad) + 18:.0f}" text-anchor="start">{e(_money(lo + pad, currency))}</text>'
@@ -158,140 +158,125 @@ def price_chart_svg(points: list[tuple[str, float]], currency: str) -> str:
 
 
 CSS = """
-:root{color-scheme:dark;--bg:#060b18;--bg2:#0a1430;--card:#0f1b38;--card2:#142449;--text:#f2f6ff;--muted:#9db0d4;
---line:#22345e;--yellow:#ffd21f;--yellow2:#ffb800;--cyan:#22d3ee;--blue:#2f7bff;--red:#ff3d47;--green:#22c55e;--tg:#2aabee;
---glow:0 0 0 1px rgba(34,211,238,.25),0 10px 40px -10px rgba(34,211,238,.45)}
+:root{color-scheme:light;--bg:#f4f5f7;--bg2:#eceef2;--card:#ffffff;--card2:#ffffff;--text:#0f1b3d;--muted:#5a6377;
+--line:#dfe3ea;--navy:#0f1f45;--yellow:#ffcc1a;--yellow2:#ffcc1a;--cyan:#1673c4;--blue:#1673c4;--red:#d92d35;--green:#17773a;
+--tg:#1a6fa8;--glow:none}
 *{box-sizing:border-box}html{scroll-behavior:smooth}
-body{margin:0;font-family:"Rubik",system-ui,"Segoe UI",Arial,sans-serif;color:var(--text);line-height:1.55;
-background:radial-gradient(900px 500px at 85% -10%,rgba(47,123,255,.28),transparent 60%),
-radial-gradient(700px 420px at 0% 10%,rgba(34,211,238,.16),transparent 60%),var(--bg);background-attachment:fixed}
-a{color:var(--cyan)}img{max-width:100%}
+body{margin:0;font-family:"Rubik",system-ui,"Segoe UI",Arial,sans-serif;color:var(--text);line-height:1.55;background:var(--bg)}
+a{color:var(--blue)}img{max-width:100%}
 .wrap{max-width:1160px;margin:0 auto;padding:0 16px}
-header{position:sticky;top:0;z-index:20;background:rgba(6,11,24,.78);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
-.top{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:68px;flex-wrap:wrap}
-.hsearch{flex:1 1 220px;max-width:340px}.hsearch input{width:100%;box-sizing:border-box;padding:10px 14px;border-radius:12px;
-border:1px solid var(--line);background:rgba(255,255,255,.06);color:var(--text);font:inherit;font-size:15px}
-.hsearch input:focus{outline:2px solid var(--yellow);outline-offset:1px}
-.brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--text);font-weight:800;font-size:21px}
-.brand img{width:46px;height:46px;border-radius:50%;box-shadow:0 0 18px rgba(34,211,238,.55)}
+header{position:sticky;top:0;z-index:20;background:var(--navy);color:#fff;border-bottom:4px solid var(--yellow)}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:64px;flex-wrap:wrap}
+.hsearch{flex:1 1 220px;max-width:340px}.hsearch input{width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;
+border:0;background:#fff;color:var(--text);font:inherit;font-size:15px}
+.hsearch input:focus{outline:3px solid var(--yellow);outline-offset:0}
+.brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:#fff;font-weight:800;font-size:21px}
+.brand img{width:44px;height:44px;border-radius:50%}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;font:inherit;font-weight:700;text-decoration:none;
-border-radius:14px;padding:12px 18px;transition:transform .15s ease,box-shadow .2s ease,filter .2s}
-.btn:hover{transform:translateY(-2px);filter:brightness(1.08)}
-.btn-tg{background:linear-gradient(135deg,#2aabee,#1c7fd8);color:#fff;box-shadow:0 8px 24px -8px rgba(42,171,238,.8)}
-.btn-ghost{border:1px solid var(--line);color:var(--text);background:rgba(255,255,255,.03)}
-.btn-buy{position:relative;overflow:hidden;width:100%;font-size:19px;padding:16px;color:#1a1300;
-background:linear-gradient(135deg,var(--yellow),var(--yellow2));box-shadow:0 12px 34px -10px rgba(255,200,0,.85)}
-.btn-buy::after{content:"";position:absolute;inset:0;transform:translateX(120%);
-background:linear-gradient(100deg,transparent 30%,rgba(255,255,255,.55) 50%,transparent 70%);animation:shine 3.2s ease-in-out infinite}
-@keyframes shine{0%,60%{transform:translateX(120%)}100%{transform:translateX(-120%)}}
-.hero{padding:56px 0 26px;text-align:center}
-.hero h1{margin:0 0 10px;font-size:clamp(32px,5.6vw,58px);line-height:1.1;font-weight:800;letter-spacing:-.5px}
-.hl{background:linear-gradient(135deg,var(--yellow),#fff3a6 40%,var(--yellow2));-webkit-background-clip:text;background-clip:text;color:transparent;
-text-shadow:0 0 30px rgba(255,210,31,.25)}
-.hero p{margin:0 auto 22px;max-width:640px;color:var(--muted);font-size:18px}
-.cta-row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
-.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;max-width:720px;margin:30px auto 0}
-.stat{background:linear-gradient(180deg,var(--card2),var(--card));border:1px solid var(--line);border-radius:16px;padding:14px}
-.stat b{display:block;font-size:30px;font-weight:800;color:var(--yellow);font-variant-numeric:tabular-nums}
-.stat span{color:var(--muted);font-size:14px}
-.trust{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin:22px 0 6px}
-.trust span{border:1px solid var(--line);background:rgba(34,197,94,.08);color:#bff5d2;border-radius:99px;padding:6px 12px;font-size:14px}
-h2.section{font-size:26px;margin:34px 0 14px;font-weight:800}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:16px;margin:0 0 20px}
-.card{position:relative;display:flex;flex-direction:column;text-decoration:none;color:var(--text);border-radius:20px;overflow:hidden;
-background:linear-gradient(180deg,var(--card2),var(--card));border:1px solid var(--line);transition:transform .18s ease,box-shadow .25s ease,border-color .25s}
-.card:hover{transform:translateY(-5px);box-shadow:var(--glow);border-color:rgba(34,211,238,.6)}
-.thumb{position:relative;background:#fff;aspect-ratio:1/1;display:flex;align-items:center;justify-content:center}
+border-radius:8px;padding:11px 16px;border:0;cursor:pointer}
+.btn:hover{filter:brightness(.95)}
+.btn-tg{background:var(--tg);color:#fff}
+.btn-ghost{border:1px solid var(--line);color:var(--text);background:#fff}
+.btn-buy{width:100%;font-size:19px;padding:15px;color:var(--navy);background:var(--yellow)}
+.hero{padding:34px 0 10px}
+.hero h1{margin:0 0 8px;font-size:clamp(28px,4.6vw,44px);line-height:1.15;font-weight:800;letter-spacing:-.3px;max-width:760px}
+.hl{color:var(--navy);box-shadow:inset 0 -.32em 0 var(--yellow)}
+.hero p{margin:0 0 18px;max-width:620px;color:var(--muted);font-size:18px}
+.cta-row{display:flex;gap:10px;flex-wrap:wrap}
+.stats{display:flex;gap:6px 18px;flex-wrap:wrap;margin:18px 0 0;color:var(--muted);font-size:15px}
+.stat{display:inline}.stat b{color:var(--text);font-weight:800;font-variant-numeric:tabular-nums;margin-inline-end:4px}
+.stat span{color:var(--muted)}
+.trust{display:none}
+h2.section{font-size:24px;margin:30px 0 12px;font-weight:800}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;margin:0 0 20px}
+.card{position:relative;display:flex;flex-direction:column;text-decoration:none;color:var(--text);border-radius:12px;overflow:hidden;
+background:var(--card);border:1px solid var(--line)}
+.card:hover{border-color:var(--navy)}
+.thumb{position:relative;background:#fff;aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;border-bottom:1px solid var(--line)}
 .thumb img{width:100%;height:100%;object-fit:contain;padding:14px}
-.ribbon{position:absolute;top:12px;right:12px;background:var(--red);color:#fff;font-weight:700;font-size:13px;border-radius:10px;
-padding:5px 10px;box-shadow:0 6px 16px -6px rgba(255,61,71,.9)}
-.ribbon.low{background:linear-gradient(135deg,#7c3aed,#2f7bff)}
-.save{position:absolute;bottom:-18px;left:14px;width:64px;height:64px;border-radius:50%;display:flex;flex-direction:column;
-align-items:center;justify-content:center;background:radial-gradient(circle at 30% 30%,#fff3a6,var(--yellow) 45%,var(--yellow2));
-color:#1a1300;font-weight:800;font-size:18px;line-height:1;box-shadow:0 8px 22px -6px rgba(255,200,0,.9);border:3px solid var(--card2)}
-.save small{font-size:10px;font-weight:700}
-.new{position:absolute;top:12px;left:12px;background:var(--green);color:#03210f;font-weight:800;font-size:12px;border-radius:8px;padding:4px 8px}
-.card .b{padding:22px 16px 16px;display:flex;flex-direction:column;gap:6px;flex:1}
-.card .t{font-weight:700;font-size:16px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.9em}
+.ribbon{position:absolute;top:10px;right:10px;background:var(--navy);color:#fff;font-weight:700;font-size:13px;border-radius:6px;padding:4px 9px}
+.ribbon.low{background:var(--navy);color:var(--yellow)}
+.save{position:absolute;bottom:10px;left:10px;display:flex;align-items:baseline;gap:4px;background:var(--red);color:#fff;
+font-weight:800;font-size:17px;line-height:1;border-radius:6px;padding:6px 8px}
+.save small{font-size:12px;font-weight:600}
+.new{position:absolute;top:10px;left:10px;background:var(--green);color:#fff;font-weight:700;font-size:12px;border-radius:6px;padding:4px 8px}
+.card .b{padding:12px 14px 14px;display:flex;flex-direction:column;gap:4px;flex:1}
+.card .t{font-weight:600;font-size:16px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.9em}
 .pr{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
-.price{font-size:26px;font-weight:800;color:#fff;font-variant-numeric:tabular-nums}
+.price{font-size:24px;font-weight:800;color:var(--text);font-variant-numeric:tabular-nums}
 .was{color:var(--muted);text-decoration:line-through;font-size:15px}
-.eilat{margin:4px 0 0;color:var(--muted);font-size:15px}.eilat b{color:var(--text);font-size:18px}
+.eilat{margin:4px 0 0;color:var(--muted);font-size:15px}.eilat b{color:var(--text);font-size:17px}
 .meta{color:var(--muted);font-size:13px;margin-top:auto}
-.ended{opacity:.55}.ended .ribbon{background:#4b5563}
-.warn{background:rgba(255,184,0,.1);border:1px solid rgba(255,184,0,.4);color:#ffe39a;border-radius:12px;padding:10px 12px;font-size:14px}
-.empty{text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:18px;padding:36px}
-.crumbs{margin:20px 0 6px;font-size:14px}.crumbs a{color:var(--muted)}
-.deal{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:26px;margin:10px 0 24px;align-items:start}
+.ended{opacity:.6}.ended .ribbon{background:#6b7280;color:#fff}
+.warn{background:#fff7d6;border:1px solid #f0d36a;color:#5c4500;border-radius:8px;padding:10px 12px;font-size:14px}
+.empty{text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:12px;padding:32px;background:#fff}
+.crumbs{margin:18px 0 6px;font-size:14px}.crumbs a{color:var(--muted)}
+.deal{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:24px;margin:10px 0 24px;align-items:start}
 @media (max-width:820px){.deal{grid-template-columns:1fr}}
-.gallery{position:sticky;top:90px;border-radius:24px;overflow:hidden;background:#fff;box-shadow:var(--glow)}
+.gallery{position:sticky;top:84px;border-radius:12px;overflow:hidden;background:#fff;border:1px solid var(--line)}
 .gallery img{width:100%;max-height:520px;object-fit:contain;padding:22px;display:block}
 @media (max-width:820px){.gallery{position:relative;top:0}.gallery img{max-height:280px;padding:14px}}
-.kind{display:inline-block;background:rgba(255,61,71,.15);color:#ffb3b8;border:1px solid rgba(255,61,71,.45);border-radius:99px;
-padding:4px 12px;font-weight:700;font-size:14px}
-.deal h1{font-size:clamp(24px,3.4vw,36px);line-height:1.2;margin:12px 0}
-.bigprice{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:6px 0 4px}
-.bigprice .price{font-size:46px}
-.chip{background:linear-gradient(135deg,var(--yellow),var(--yellow2));color:#1a1300;font-weight:800;border-radius:12px;padding:6px 12px;font-size:18px}
-.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin:12px 0 20px}
-.tile{display:flex;flex-direction:column;gap:4px;padding:16px;border-radius:16px;background:var(--card);border:1px solid var(--line);
-color:var(--text);text-decoration:none}.tile:hover{border-color:var(--yellow)}.tile small{color:var(--muted)}
+.kind{display:inline-block;background:var(--navy);color:var(--yellow);border-radius:6px;padding:4px 10px;font-weight:700;font-size:14px}
+.deal h1{font-size:clamp(22px,3.2vw,32px);line-height:1.25;margin:10px 0}
+.bigprice{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:6px 0 4px}
+.bigprice .price{font-size:42px}
+.chip{background:var(--red);color:#fff;font-weight:800;border-radius:6px;padding:5px 10px;font-size:17px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin:12px 0 20px}
+.tile{display:flex;flex-direction:column;gap:4px;padding:14px;border-radius:10px;background:#fff;border:1px solid var(--line);
+color:var(--text);text-decoration:none}.tile:hover{border-color:var(--navy)}.tile small{color:var(--muted)}
 .prow{display:flex;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line);color:var(--text);text-decoration:none}
-.prow:last-child{border-bottom:0}.pimg{flex:0 0 120px;height:120px;border-radius:14px;background:#fff;overflow:hidden;display:flex;
-align-items:center;justify-content:center;font-size:44px}.pimg img{max-width:100%;max-height:100%;object-fit:contain}
+.prow:last-child{border-bottom:0}.pimg{flex:0 0 110px;height:110px;border-radius:8px;background:#fff;border:1px solid var(--line);overflow:hidden;display:flex;
+align-items:center;justify-content:center;font-size:40px}.pimg img{max-width:100%;max-height:100%;object-fit:contain}
 .pb{display:flex;flex-direction:column;gap:2px;min-width:0}.pb .t{font-weight:600;overflow:hidden;text-overflow:ellipsis}
-@media (max-width:640px){.pimg{flex-basis:96px;height:96px}}
+@media (max-width:640px){.pimg{flex-basis:90px;height:90px}}
 .results-count{color:var(--muted);margin:6px 0 12px}
-.pills{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 16px}.pill{padding:6px 12px;border-radius:999px;border:1px solid var(--line);
-color:var(--text);text-decoration:none;background:var(--card)}.crumbs{color:var(--muted);font-size:14px}.crumbs a{color:var(--muted)}
-.panel{background:linear-gradient(180deg,var(--card2),var(--card));border:1px solid var(--line);border-radius:20px;padding:18px;margin:14px 0}
-.panel h2{margin:0 0 10px;font-size:20px}
+.pills{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 16px}.pill{padding:6px 12px;border-radius:6px;border:1px solid var(--line);
+color:var(--text);text-decoration:none;background:#fff}.crumbs{color:var(--muted);font-size:14px}.crumbs a{color:var(--muted)}
+.panel{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px;margin:14px 0}
+.panel h2{margin:0 0 8px;font-size:19px}
 ul.checks{list-style:none;padding:0;margin:0}
-ul.checks li{position:relative;padding:8px 34px 8px 0;border-bottom:1px solid rgba(255,255,255,.05)}
+ul.checks li{position:relative;padding:7px 28px 7px 0;border-bottom:1px solid var(--line)}
 ul.checks li:last-child{border-bottom:0}
-ul.checks li::before{content:"✓";position:absolute;right:0;top:7px;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;
-justify-content:center;background:rgba(34,197,94,.18);color:var(--green);font-weight:800}
+ul.checks li::before{content:"✓";position:absolute;right:2px;top:7px;color:var(--green);font-weight:800}
 .share{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
-.share a,.share button{flex:1;min-width:120px;text-align:center;border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--text);
-font:inherit;font-weight:600;border-radius:12px;padding:10px;text-decoration:none;cursor:pointer}
-.share a:hover,.share button:hover{border-color:var(--cyan)}
-.tgbox{display:flex;align-items:center;gap:14px;background:linear-gradient(135deg,rgba(42,171,238,.2),rgba(47,123,255,.12));
-border:1px solid rgba(42,171,238,.5);border-radius:20px;padding:16px;margin:14px 0}
-.tgbox img{width:56px;height:56px;border-radius:50%}.tgbox b{display:block;font-size:17px}.tgbox span{color:var(--muted);font-size:14px}
+.share a,.share button{flex:1;min-width:120px;text-align:center;border:1px solid var(--line);background:#fff;color:var(--text);
+font:inherit;font-weight:600;border-radius:8px;padding:10px;text-decoration:none;cursor:pointer}
+.share a:hover,.share button:hover{border-color:var(--navy)}
+.tgbox{display:flex;align-items:center;gap:14px;background:var(--navy);color:#fff;border-radius:12px;padding:14px;margin:14px 0}
+.tgbox img{width:52px;height:52px;border-radius:50%}.tgbox b{display:block;font-size:17px}.tgbox span{color:#c9d2e6;font-size:14px}
 .tgbox .btn{margin-inline-start:auto;white-space:nowrap}
 @media (max-width:560px){.tgbox{flex-wrap:wrap}.tgbox .btn{width:100%}}
-svg.chart{width:100%;height:auto;direction:ltr}svg.chart .line{fill:none;stroke:var(--cyan);stroke-width:3;filter:drop-shadow(0 0 6px rgba(34,211,238,.7))}
-svg.chart .area{fill:url(#ga)}svg.chart circle{fill:var(--cyan)}svg.chart circle.now{fill:var(--yellow);stroke:#fff;stroke-width:2}
+svg.chart{width:100%;height:auto;direction:ltr}svg.chart .line{fill:none;stroke:var(--navy);stroke-width:2.5}
+svg.chart .area{fill:url(#ga)}svg.chart circle{fill:var(--navy)}svg.chart circle.now{fill:var(--yellow);stroke:var(--navy);stroke-width:2}
 svg.chart .axis{stroke:var(--line)}svg.chart text{fill:var(--muted);font-size:12px}
 table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1px solid var(--line);text-align:right}
 th{color:var(--muted);font-size:13px;font-weight:600}
 td.n{direction:ltr;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
-tr.best td{background:rgba(34,197,94,.08)}tr.best td:first-child{font-weight:700}
-.besttag{background:var(--green);color:#03210f;border-radius:8px;padding:2px 7px;font-size:12px;font-weight:800;margin-inline-start:6px}
+tr.best td{background:#eaf6ee}tr.best td:first-child{font-weight:700}
+.besttag{background:var(--green);color:#fff;border-radius:6px;padding:2px 7px;font-size:12px;font-weight:700;margin-inline-start:6px}
 .sticky{display:none}
 @media (max-width:820px){.sticky{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:30;gap:12px;align-items:center;padding:10px 14px;
-background:rgba(6,11,24,.92);backdrop-filter:blur(12px);border-top:1px solid var(--line)}
+background:#fff;border-top:1px solid var(--line)}
 .sticky .price{font-size:22px}.sticky .btn-buy{width:auto;flex:1;font-size:17px;padding:12px}body.has-sticky{padding-bottom:82px}}
-footer{color:var(--muted);font-size:13px;border-top:1px solid var(--line);margin-top:40px;padding:20px 0;background:rgba(0,0,0,.2)}
-footer a{color:var(--muted)}
+footer{color:#c9d2e6;font-size:13px;margin-top:40px;padding:20px 0;background:var(--navy)}
+footer a{color:#fff}
 .ico{width:18px;height:18px;flex:none}
-.nav{display:flex;gap:6px;margin-inline-start:auto;margin-inline-end:10px}
-.nav a{color:var(--muted);text-decoration:none;font-weight:600;padding:8px 10px;border-radius:10px;white-space:nowrap}
-.nav a:hover{color:var(--text);background:rgba(255,255,255,.06)}
-@media (max-width:640px){.hsearch{order:3;flex-basis:100%;max-width:none;margin:0 0 10px}.nav a:nth-child(3){display:none}.nav a{padding:8px 6px}.brand span{display:none}.top .btn-tg{padding:10px 12px;font-size:14px}}
-.back{display:inline-flex;align-items:center;gap:6px;color:var(--text);text-decoration:none;font-weight:700;border:1px solid var(--line);
-background:rgba(255,255,255,.04);border-radius:12px;padding:8px 14px}
-.back:hover{border-color:var(--cyan)}
+.nav{display:flex;gap:4px;margin-inline-start:auto;margin-inline-end:10px}
+.nav a{color:#dfe6f5;text-decoration:none;font-weight:600;padding:8px 10px;border-radius:6px;white-space:nowrap}
+.nav a:hover{color:#fff;background:rgba(255,255,255,.1)}
+@media (max-width:640px){.hsearch{order:3;flex-basis:100%;max-width:none;margin:0 0 10px}.nav a:nth-child(3){display:none}.nav a{padding:8px 6px}.brand span{display:none}.top .btn-tg{padding:9px 11px;font-size:14px}}
+.back{display:inline-flex;align-items:center;gap:6px;color:var(--text);text-decoration:none;font-weight:600;border:1px solid var(--line);
+background:#fff;border-radius:8px;padding:7px 12px}
+.back:hover{border-color:var(--navy)}
 .toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 10px}
-.searchbox{flex:1;min-width:240px;display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);
-border-radius:14px;padding:0 14px}
-.searchbox:focus-within{border-color:var(--cyan);box-shadow:var(--glow)}
-.searchbox input{flex:1;background:transparent;border:0;outline:0;color:var(--text);font:inherit;font-size:16px;padding:13px 0}
-#sort,#ssort{background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:14px;padding:0 14px;font:inherit;min-height:48px}
-.chips{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}
-.chipf{background:rgba(255,255,255,.04);border:1px solid var(--line);color:var(--text);border-radius:99px;padding:7px 14px;font:inherit;
-font-weight:600;cursor:pointer}
-.chipf.on{background:linear-gradient(135deg,var(--yellow),var(--yellow2));color:#1a1300;border-color:transparent}
+.searchbox{flex:1;min-width:240px;display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--line);
+border-radius:8px;padding:0 12px}
+.searchbox:focus-within{border-color:var(--navy)}
+.searchbox input{flex:1;background:transparent;border:0;outline:0;color:var(--text);font:inherit;font-size:16px;padding:12px 0}
+#sort,#ssort{background:#fff;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:0 12px;font:inherit;min-height:46px}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 16px}
+.chipf{background:#fff;border:1px solid var(--line);color:var(--text);border-radius:6px;padding:6px 12px;font:inherit;font-weight:600;cursor:pointer}
+.chipf.on{background:var(--navy);color:#fff;border-color:var(--navy)}
 .grid>.empty,.empty{grid-column:1/-1}
 .empty b{display:block;color:var(--text);font-size:20px;margin-bottom:6px}
 .card[hidden]{display:none}
@@ -338,8 +323,8 @@ def _layout(cfg: SiteConfig, title: str, description: str, body: str, path: str,
 <body class="{e(body_class)}">
 <header><div class="wrap top">
 <a class="brand" href="{root}index.html"><img src="{root}logo.png" alt="">{e(cfg.title)}</a>
-<nav class="nav"><a href="{root}index.html#deals">🔥 עסקאות</a><a href="{root}stores/index.html">🏬 לפי חנות</a><a href="{root}how-we-check.html">איך אנחנו בודקים</a></nav>
-<form class="hsearch" action="{root}search.html" role="search"><input type="search" name="q" placeholder="🔍 חיפוש מוצר" aria-label="חיפוש מוצר" enterkeyhint="search"></form>
+<nav class="nav"><a href="{root}index.html#deals">עסקאות</a><a href="{root}stores/index.html">לפי חנות</a><a href="{root}how-we-check.html">איך אנחנו בודקים</a></nav>
+<form class="hsearch" action="{root}search.html" role="search"><input type="search" name="q" placeholder="חיפוש מוצר" aria-label="חיפוש מוצר" enterkeyhint="search"></form>
 {tg}
 </div></header>
 <main class="wrap">
@@ -395,14 +380,14 @@ LISTING_JS = """<script>
 })();
 </script>"""
 
-KIND_LABEL = {"price_drop": "📉 ירידת מחיר", "price_change": "📉 ירידת מחיר", "lowest_90d": "🏆 הנמוך ב-90 יום", "top_deal": "🔥 עסקה משתלמת"}
+KIND_LABEL = {"price_drop": "ירידת מחיר", "price_change": "ירידת מחיר", "lowest_90d": "הנמוך ב-90 יום", "top_deal": "שווה בדיקה"}
 
 
 def _low_label(d: dict) -> str:
     if d.get("lowest90"):
-        return "🏆 הנמוך ב-90 יום"
+        return "הנמוך ב-90 יום"
     if d.get("lowest_since"):
-        return f"🏆 הנמוך מאז {short_date(d['lowest_since'])}"
+        return f"הנמוך מאז {short_date(d['lowest_since'])}"
     kind = "top_deal" if d.get("kind") == "lowest_90d" else d.get("kind")   # an old "90 days" alert
     return KIND_LABEL.get(kind, "")
 
@@ -513,7 +498,7 @@ def _deal_page(db: Database, d: dict, cfg: SiteConfig) -> str:
     hist = db.query("SELECT observed_at, price FROM price_history WHERE offer_id=? AND price_verified=1 AND currency=? "
                     "ORDER BY observed_at", (d["offer_id"], d["currency"]))
     chart = price_chart_svg([(h["observed_at"], h["price"]) for h in hist], d["currency"])
-    chart_html = (f'<div class="panel"><h2>📈 היסטוריית המחיר</h2>{chart}'
+    chart_html = (f'<div class="panel"><h2>היסטוריית המחיר</h2>{chart}'
                   f'<p class="meta">מבוסס על {len(hist)} בדיקות מחיר מאומתות. הנקודה הצהובה היא המחיר האחרון.</p></div>'
                   if chart else "")
     from .alerts import store_prices
@@ -527,14 +512,14 @@ def _deal_page(db: Database, d: dict, cfg: SiteConfig) -> str:
             rows += (f'<tr class="{"best" if i == 0 else ""}"><td>{e(o["store"])}{tag}</td>'
                      f'<td class="n">{e(_money(o["price"], o["currency"]))}</td><td class="n">{e(ship)}</td>'
                      f'<td class="n meta">{e(_when(o["last_fetched_at"]))}</td></tr>')
-        compare = (f'<div class="panel"><h2>⚖️ אותו מוצר בחנויות אחרות</h2><table><tr><th>חנות</th><th>מחיר</th>'
+        compare = (f'<div class="panel"><h2>אותו מוצר בחנויות אחרות</h2><table><tr><th>חנות</th><th>מחיר</th>'
                    f'<th>משלוח</th><th>נבדק</th></tr>{rows}</table></div>')
     warn = ""
     if d["ended"]:
-        warn = ('<p class="warn">⚠️ המחיר עלה מאז שהעסקה פורסמה, כלומר העסקה הסתיימה. '
+        warn = ('<p class="warn">המחיר עלה מאז שהעסקה פורסמה, כלומר העסקה הסתיימה. '
                 f'המחיר האחרון שנבדק: {e(_money(d["current_price"], d["currency"]))}.</p>')
     elif d["stale"]:
-        warn = '<p class="warn">⚠️ המחיר נבדק לפני יותר מ-48 שעות ועשוי להשתנות. בדקו את המחיר המעודכן באתר החנות.</p>'
+        warn = '<p class="warn">המחיר נבדק לפני יותר מ-48 שעות ועשוי להשתנות. בדקו את המחיר המעודכן באתר החנות.</p>'
     img = f'<img src="{e(_safe_url(d["image"]))}" alt="{e(d["title"])}" referrerpolicy="no-referrer">' if d.get("image") else ""
     label = "העסקה הסתיימה" if d["ended"] else _low_label(d)
     chip = f'<span class="chip">חיסכון {d["savings_pct"]}%</span>' if d["savings_pct"] and not d["ended"] else ""
@@ -544,20 +529,20 @@ def _deal_page(db: Database, d: dict, cfg: SiteConfig) -> str:
     if url:
         msg = f'{d["title"]} ב-{_money(d["price"], d["currency"])} - נבדק במחיר אמת'
         share = (f'<div class="share"><a href="https://wa.me/?text={quote(msg + " " + url)}" target="_blank" rel="noopener">'
-                 f'💬 שתפו בוואטסאפ</a><a href="https://t.me/share/url?url={quote(url)}&text={quote(msg)}" target="_blank" '
-                 f'rel="noopener">{TG_ICON} שתפו בטלגרם</a><button type="button" data-copy="{e(url)}">🔗 העתיקו קישור</button></div>')
+                 f'וואטסאפ</a><a href="https://t.me/share/url?url={quote(url)}&text={quote(msg)}" target="_blank" '
+                 f'rel="noopener">{TG_ICON} טלגרם</a><button type="button" data-copy="{e(url)}">העתקת קישור</button></div>')
     tgbox = (f'<div class="tgbox"><img src="../logo.png" alt=""><div><b>רוצים לקבל עסקאות כאלה ראשונים?</b>'
              f'<span>כל עסקה נבדקת לפני שהיא מגיעה אליכם.</span></div>'
              f'<a class="btn btn-tg" href="{e(cfg.telegram_url)}" target="_blank" rel="noopener">{TG_ICON} הצטרפו לערוץ</a></div>'
              if cfg.telegram_url else "")
-    buy_text = f'לרכישה ב-{e(d["store"])} ←'
+    buy_text = f'לרכישה {e(heb("ב", d["store"]))} ←'
     body = (f'<p class="crumbs"><a class="back" href="../index.html#deals">→ חזרה לכל העסקאות</a>'
             f'<span class="muted"> · {e(d["store"])}</span></p>'
             f'<div class="deal"><div class="gallery">{img}</div><div>'
             f'<span class="kind">{e(label)}</span>'
             f'<h1>{e(d["title"])}</h1>'
             f'<div class="bigprice"><span class="price">{e(_money(d["price"], d["currency"]))}</span>{chip}</div>{was}{eilat}'
-            f'<p class="meta">ב-{e(d["store"])} · המחיר נבדק ב-{e(_when(d["checked_at"]))}{_ago_tag(d["checked_at"], "", paren=True)}</p>{warn}'
+            f'<p class="meta">{e(heb("ב", d["store"]))} · המחיר נבדק ב-{e(_when(d["checked_at"]))}{_ago_tag(d["checked_at"], "", paren=True)}</p>{warn}'
             f'<div class="panel"><h2>למה זו עסקה</h2><ul class="checks">{claims}</ul>'
             f'<p class="meta">כל טענה כאן מבוססת על בדיקה: מחיר מאומת, היסטוריית מחירים או השוואה בין חנויות.</p></div>'
             f'<a class="btn btn-buy" href="{e(link)}" target="_blank" rel="sponsored nofollow noopener">{buy_text}</a>'
@@ -609,7 +594,7 @@ def _claimed_row(p: dict) -> str:
             if p.get("was_price") else ""))
     match = "".join(f'<span class="meta">נבדק אצלנו: {e(m["store"] or m["domain"])} {e(_money(m["price"], p["currency"]))}</span>'
                     for m in p.get("matches") or [])
-    coupon = (f'<span class="meta">🎟️ קופון לפי החנות: {e(p["coupon"])} (התנאים לפי החנות)</span>'
+    coupon = (f'<span class="meta">קופון לפי החנות: {e(p["coupon"])} (התנאים לפי החנות)</span>'
               if p.get("coupon") else "")
     img = (f'<img src="{e(_safe_url(p["image"]))}" alt="" loading="lazy" referrerpolicy="no-referrer" '
            'onerror="this.replaceWith(document.createTextNode(\'📢\'))">' if p.get("image") else "📢")
@@ -693,21 +678,21 @@ def build_store_pages(db: Database, cfg: SiteConfig, out: Path, now: Optional[da
             claimed = catalog[dom].get("claimed")
             if claimed:
                 pop_items = biggest_stated_discount(cats[c])
-                pop_title = f"📉 {TOP_N} ההנחות הגדולות (לפי החנות)"
+                pop_title = f"{TOP_N} ההנחות הגדולות (לפי החנות)"
                 pop_empty = '<p class="meta">אין בפוסטים מהשבוע האחרון מחיר קודם להשוואה.</p>'
             else:
                 pop_items = most_popular(cats[c])
                 pop_title = f"⭐ {TOP_N} הפופולריים (לפי ביקורות בחנות)"
                 pop_empty = '<p class="meta">החנות לא מציגה מספיק ביקורות בקטגוריה הזאת, ולכן אין כאן דירוג פופולריות.</p>'
             pop = "".join(_product_row(p, "../../", cfg) for p in pop_items) if pop_items else pop_empty
-            note = (f'<p class="warn">📢 המחירים כאן הם מה {e(heb("ש", name))} פרסמה בערוץ הטלגרם שלה בשבוע האחרון. '
+            note = (f'<p class="warn">המחירים כאן הם מה {e(heb("ש", name))} פרסמה בערוץ הטלגרם שלה בשבוע האחרון. '
                     'הם לא נבדקו אצלנו בדף המוצר. בדקו את המחיר באתר החנות לפני רכישה.</p>' if claimed else "")
             other = "".join(f'<a class="pill" href="{oc}.html">{oe} {e(on)}</a>'
                             for oc, on, oe, _ in CATEGORIES if oc != c and cats.get(oc))
             body = (f'<p class="crumbs"><a href="../../index.html">ראשי</a> › <a href="../index.html">לפי חנות</a> › '
                     f'<a href="../{slug}.html">{e(name)}</a> › {e(cname)}</p>'
                     f'<h1>{emoji} {e(cname)} {e(heb("ב", name))}</h1>{note}'
-                    f'<div class="panel"><h2>💰 {TOP_N} הזולים</h2>{low}</div>'
+                    f'<div class="panel"><h2>{TOP_N} הזולים</h2>{low}</div>'
                     f'<div class="panel"><h2>{pop_title}</h2>{pop}</div>'
                     + (f'<p class="meta">עוד קטגוריות {e(heb("ב", name))}:</p><div class="pills">{other}</div>' if other else "")
                     + ('<p class="meta">המחירים לפי ערוץ החנות ולא נבדקו אצלנו. המחיר הקובע הוא באתר החנות.</p>' if claimed else
@@ -775,7 +760,7 @@ def build_search(db: Database, cfg: SiteConfig, out: Path, now: Optional[datetim
                       "i": _safe_url(it["image"]) if it["image"] else "", "c": 1 if it["claimed"] else 0,
                       "d": 1 if it["deal_id"] else 0, "r": 1 if ours else 0, "w": _when(it["checked"]).split(" ")[0]})
     (out / "search.json").write_text(json.dumps(items, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    body = ('<p class="crumbs"><a href="index.html">ראשי</a> › חיפוש</p><h1>🔍 חיפוש מוצר</h1>'
+    body = ('<p class="crumbs"><a href="index.html">ראשי</a> › חיפוש</p><h1>חיפוש מוצר</h1>'
             '<div class="toolbar"><label class="searchbox">🔎<input id="sq" type="search" '
             'placeholder="למשל: PS5, אוזניות JBL, מחשב נייד" aria-label="חיפוש מוצר" autofocus></label> '
             '<select id="ssort" aria-label="מיון">'
@@ -820,13 +805,12 @@ def build_site(db: Database, cfg: SiteConfig, now: Optional[datetime] = None) ->
     n_checks = db.query("SELECT COUNT(*) n FROM price_history WHERE price_verified=1")[0]["n"]
     tg_btn = (f'<a class="btn btn-tg" href="{e(cfg.telegram_url)}" target="_blank" rel="noopener">{TG_ICON} הצטרפו לערוץ בטלגרם</a>'
               if cfg.telegram_url else "")
-    hero = (f'<section class="hero"><h1><span class="hl">{e(cfg.title)}</span><br>רק הנחות שבדקנו באמת</h1>'
-            f'<p>כל עסקה נבדקת מול היסטוריית המחיר שלה ומול חנויות אחרות, ורק אז מגיעה אליכם. בלי מבצעים מנופחים.</p>'
-            f'<div class="cta-row">{tg_btn}<a class="btn btn-ghost" href="how-we-check.html">איך אנחנו בודקים?</a></div>'
-            f'<div class="stats"><div class="stat"><b>{len(deals):,}</b><span>עסקאות שפורסמו</span></div>'
-            f'<div class="stat"><b>{n_stores:,}</b><span>חנויות בהשוואה</span></div>'
-            f'<div class="stat"><b>{n_checks:,}</b><span>בדיקות מחיר</span></div></div>'
-            f'<div class="trust"><span>✓ נבדק מול היסטוריית המחיר</span><span>✓ מושווה בין חנויות</span><span>✓ מאושר ידנית</span></div>'
+    hero = (f'<section class="hero"><h1>בדקנו אם <span class="hl">המבצע</span> באמת מבצע.</h1>'
+            f'<p>כל עסקה כאן נבדקה מול המחיר שלה קודם באותה חנות, ואיפה שאפשר גם מול חנויות אחרות. מה שלא עבר את הבדיקה, לא עלה.</p>'
+            f'<div class="cta-row">{tg_btn}<a class="btn btn-ghost" href="how-we-check.html">איך בודקים</a></div>'
+            f'<div class="stats"><div class="stat"><b>{len(deals):,}</b><span>{"עסקה שעלתה" if len(deals) == 1 else "עסקאות שעלו"}</span></div>'
+            f'<div class="stat"><b>{n_stores:,}</b><span>חנויות שמשווים</span></div>'
+            f'<div class="stat"><b>{n_checks:,}</b><span>בדיקות מחיר עד היום</span></div></div>'
             f'</section>')
     stores = sorted({d["store"] for d in recent + older if d.get("store")})
     chips = "".join(f'<button type="button" class="chipf" data-store="{e(st)}">{e(st)}</button>' for st in stores)
@@ -844,7 +828,7 @@ def build_site(db: Database, cfg: SiteConfig, now: Optional[datetime] = None) ->
         cards = f'<div class="empty"><b>עסקאות חדשות יופיעו כאן בקרוב.</b><p>אנחנו בודקים מחירים כל יום.</p>{empty_tg}</div>'
     (out / "index.html").write_text(_layout(cfg, f"{cfg.title} | עסקאות שנבדקו באמת",
                                             "עסקאות ודילים בישראל שנבדקו מול היסטוריית המחיר ומול חנויות אחרות.",
-                                            f'{hero}<h2 class="section" id="deals">🔥 העסקאות האחרונות</h2>{toolbar}'
+                                            f'{hero}<h2 class="section" id="deals">עלו לאחרונה</h2>{toolbar}'
                                             f'<div class="grid" id="grid">{cards}</div>{older_html}', "index.html",
                                             tail=LISTING_JS if (recent or older) else ""), encoding="utf-8")
     (out / "404.html").write_text(_layout(cfg, f"העמוד לא נמצא | {cfg.title}", "העמוד לא נמצא.",

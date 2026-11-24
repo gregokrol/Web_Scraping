@@ -6,8 +6,8 @@
 <script src="../assets/vendor/gsap.min.js"></script>
 <style>
 #p-root{position:absolute;inset:0;width:1080px;height:1920px;overflow:hidden;direction:rtl;font-family:"Rubik",sans-serif;color:var(--ink);
-background:radial-gradient(120% 70% at 85% 0%,var(--bg2) 0%,#0a1430 48%,var(--bg) 100%)}
-.shot{position:absolute;left:50%;border-radius:36px;box-shadow:0 30px 80px rgba(0,0,0,.55),0 0 0 2px rgba(255,255,255,.08);overflow:hidden;transform-origin:50% 50%}
+background:var(--bg)}
+.shot{position:absolute;left:50%;border-radius:16px;border:4px solid #ffffff;overflow:hidden;transform-origin:50% 50%}
 #hero{width:920px;top:760px;margin-left:-460px}
 #chart{opacity:0;visibility:hidden;width:920px;top:900px;margin-left:-460px}
 #post{opacity:0;visibility:hidden;width:940px;top:760px;margin-left:-470px}
@@ -18,6 +18,7 @@ background:radial-gradient(120% 70% at 85% 0%,var(--bg2) 0%,#0a1430 48%,var(--bg
 </head>
 <body>
 <div id="p-root" data-composition-id="proofs" data-width="1080" data-height="1920">
+  <div class="bar"></div>
   <!-- REAL screens of the live website (deal 43 and the home page, captured 24.11.2026): the live deal page and home page of מחיר אמת (Sonos Beam Gen 2 at Bug, 23.11.2026) -->
   <div class="shot" id="hero"><img src="../assets/deal-price.png" alt=""/></div>
   <div class="shot" id="chart"><img src="../assets/deal-chart.png" alt=""/></div>
@@ -35,7 +36,7 @@ background:radial-gradient(120% 70% at 85% 0%,var(--bg2) 0%,#0a1430 48%,var(--bg
     tl.from("#a .w",{y:50,opacity:0,duration:.35,ease:"power3.out",stagger:.09},0.15);
     tl.to("#hero",{scale:1.06,duration:2.6,ease:"power2.inOut"},0.9);
     // proof 2: the page steps back, the price history comes in
-    tl.to("#hero",{opacity:.35,filter:"blur(6px)",duration:.45},3.4);
+    tl.to("#hero",{opacity:0,duration:.35},3.4);
     tl.to("#a",{opacity:0,y:-30,duration:.3},3.4);
     tl.fromTo("#chart",{autoAlpha:0,x:-1100,rotation:-6},{autoAlpha:1,x:0,rotation:0,duration:.85,ease:"expo.out"},3.5);
     tl.set("#b",{opacity:1},3.6);

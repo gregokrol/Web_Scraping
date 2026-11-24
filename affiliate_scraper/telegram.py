@@ -85,8 +85,57 @@ def token_problem(token: str) -> Optional[str]:
     return f"the part after ':' looks incomplete ({len(tail)} characters, expected about 35) - copy it again"
 
 
+def friendly_post(content: dict) -> str:
+    """The short Hebrew channel post, like a friend telling you: what, how much, why it is worth it, when checked.
+    Written only from the verified facts (content["facts"], build_content) - nothing added."""
+    from .content import DISCLOSURE, SHORT_DISCLOSURE, heb_prefix, israel_time, short_date, short_money
+    e = html.escape
+    f = content["facts"]
+    cur = f.get("currency") or "ILS"
+    store = f.get("store") or content.get("store") or ""
+    price = f.get("price")
+    say = short_money(price, cur) + (f" {heb_prefix('ב', store)}" if store else "")
+    if f.get("was") and price is not None and f["was"] > price:
+        if f.get("was_source", "history") == "history":
+            say += f", במקום {short_money(f['was'], cur)} שראינו שם קודם"
+        else:                     # the store's own "was" price - checked against the history, never seen as such
+            say += f", במקום {short_money(f['was'], cur)} שהחנות מציגה (בדקנו מול היסטוריית המחיר)"
+        if f.get("pct"):
+            say += f" ({f['pct']}% פחות)"
+    lines = [f"<b>{e(content.get('title', ''))}</b>", "", e(say + ".")]
+    if f.get("lowest90"):
+        lines.append("הכי זול שראינו שם ב-90 יום.")
+    elif f.get("since"):
+        lines.append(f"הכי זול שראינו שם מאז {e(short_date(f['since']))}.")
+    if f.get("below"):
+        note = " (לא כולל משלוח)" if f["below"].get("excl_ship") else ""
+        lines.append(f"זול ב-{f['below']['pct']}% מהמחיר האמצעי ב-{f['below']['n']} חנויות שבדקנו{note}.")
+    extra = []
+    if f.get("eilat") and price and f["eilat"] < price:
+        extra.append(f"באילת: {short_money(f['eilat'], cur)}.")
+    if f.get("free_ship"):
+        extra.append("משלוח חינם.")
+    elif f.get("ship_cost"):
+        extra.append(f"משלוח: {short_money(f['ship_cost'], cur)}.")
+    if extra:
+        lines.append(" ".join(extra))
+    when = israel_time(f.get("checked_at") or "")
+    if when:
+        lines.append(f"בדקנו ב-{when}.")
+    links = [f'<a href="{e(content.get("link", ""), quote=True)}">{e(heb_prefix("ל", store) if store else "לחנות")} ›</a>']
+    if content.get("page_url", "").startswith("https://"):
+        links.append(f'<a href="{e(content["page_url"], quote=True)}">גרף המחיר ›</a>')
+    disc = content.get("disclosure") or ""
+    disc = SHORT_DISCLOSURE if (not disc or disc == DISCLOSURE["he"]) else disc
+    return "\n".join([*lines, "", "   ".join(links), "", f"<i>{e(disc)}</i>"])
+
+
 def format_post(content: dict, max_len: int) -> str:
     """Telegram-HTML post from build_content() output. Long posts drop claims, never the disclosure or link."""
+    if content.get("facts") and content.get("lang", "he") == "he":
+        text = friendly_post(content)
+        if len(text) <= max_len:
+            return text
     e = html.escape
     title = content.get("title", "")
     claims = [c["text"] for c in content.get("claims", [])]

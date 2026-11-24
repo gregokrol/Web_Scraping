@@ -188,7 +188,7 @@ def test_publish_claim_posts_the_stores_price_as_such(tmp_path):
     assert publish_claim(db, cid, tg, publish=True).startswith("✅ פורסם בערוץ")
     (c1, preview, _), (c2, public, buttons) = sent
     assert c1 == "42" and c2 == "@deals"
-    assert "לפי ערוץ KSP" in public and "לא נבדק אצלנו" in public and "גילוי נאות" in public
+    assert "לפי הערוץ של KSP" in public and "לא נבדק אצלנו" in public and "גילוי נאות" in public
     assert buttons == [("לפרטים ורכישה ›", "https://shop.example/link/wh500")]
 
 
@@ -326,7 +326,7 @@ def test_auto_post_text_is_calm_and_claims_nothing_unchecked(tmp_path):
     tg = FakeChannelTG()
     auto_channel_posts(SMART, db, tg, drops)
     [(_, text)] = tg.posts
-    assert text.startswith("📉") and "נבדק אצלנו:" not in text and "לא נבדק אצלנו" in text and "גילוי נאות" in text
+    assert not text.startswith(("🔥", "📉")) and "נבדק אצלנו:" not in text and "לא נבדק אצלנו" in text and "גילוי נאות" in text
 
 
 def test_channels_auto_switch(tmp_path, monkeypatch, capsys):
@@ -367,7 +367,7 @@ def test_coupon_reaches_the_post_the_owner_and_the_website(tmp_path):
     [r] = [dict(x) for x in db.query("SELECT * FROM channel_claims")]
     assert r["coupon"] == "קוד קופון TG50 - ₪50 הנחה ברכישה מהטלגרם"
     text = post_text(db, r, "גילוי נאות")
-    assert "🎟️ קופון לפי ערוץ" in text and "TG50" in text and "התנאים לפי החנות" in text
+    assert "קופון שהם כתבו" in text and "TG50" in text and "התנאים לפי החנות" in text
     assert "₪199" not in text                                  # no "price after coupon" is worked out
     _drop(db, 100, "עכבר גיימינג Acme M3", 200, 150)
     assert "קופון" not in drop_text(db, new_drops(db)[0])      # no coupon in that post -> nothing said
@@ -386,3 +386,19 @@ def test_coupon_line_is_not_the_product_name_and_a_removed_coupon_goes(tmp_path)
     save_claims(db, parse_channel_html(f"<html><body>{edited}</body></html>", "ShopIL"))
     [r] = db.query("SELECT coupon FROM channel_claims")
     assert r["coupon"] == ""
+
+
+def test_channel_post_says_not_checked_on_the_stores_price_line(tmp_path):
+    from affiliate_scraper.channels import post_text
+    db = Database(tmp_path / "c.db")
+    p = validate_product(Product(url="https://shop.example/k8", name="מקלדת מכנית Acme K8", price=199.0,
+                                 currency="ILS", availability="InStock", source="json-ld", source_type="json-ld"))
+    db.save_products([p])
+    page = "<html><body>" + post(7, ["מקלדת מכנית Acme K8", "ב-₪249", "במקום", "₪299"]) + "</body></html>"
+    save_claims(db, parse_channel_html(page, "ShopIL"))
+    [r] = [dict(x) for x in db.query("SELECT * FROM channel_claims")]
+    lines = post_text(db, r, "").splitlines()
+    price_line = next(ln for ln in lines if "לפי הערוץ של" in ln)
+    assert "לא נבדק אצלנו" in price_line                                  # on the store's own price line
+    assert lines.index(price_line) < next(i for i, ln in enumerate(lines) if ln.startswith("נבדק אצלנו:"))
+    assert "נכון לזמן הפרסום בערוץ" in lines[-1] and "לזמן הבדיקה" not in lines[-1]

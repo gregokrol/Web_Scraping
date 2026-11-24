@@ -16,6 +16,7 @@ disclosure is always included.
 from __future__ import annotations
 
 import html
+import re
 from typing import Optional
 
 def short_date(iso: str) -> str:
@@ -54,6 +55,44 @@ def _money(value: Optional[float], currency: str) -> str:
         return ""
     symbol = {"ILS": "₪", "USD": "$", "EUR": "€", "GBP": "£"}.get(currency, "")
     return f"{symbol}{value:,.2f}" if symbol else f"{value:,.2f} {currency}"
+
+
+def heb_prefix(prefix: str, name: str) -> str:
+    """A Hebrew prefix letter before a name: "בבאג", but "ב-KSP" (a hyphen before Latin letters or digits)."""
+    name = (name or "").strip()
+    return f"{prefix}-{name}" if re.match(r"[A-Za-z0-9]", name) else f"{prefix}{name}"
+
+
+def short_money(value: Optional[float], currency: str = "ILS") -> str:
+    """₪1,399 (no .00 on whole shekels), ₪49.90 otherwise."""
+    if value is None:
+        return ""
+    symbol = {"ILS": "₪", "USD": "$", "EUR": "€", "GBP": "£"}.get(currency, "")
+    num = f"{value:,.0f}" if abs(value - round(value)) < 0.005 else f"{value:,.2f}"
+    return f"{symbol}{num}" if symbol else f"{num} {currency}"
+
+
+def israel_time(iso: str) -> str:
+    """'2026-11-23T07:03:00+00:00' -> '23.11, 09:03' (Israel time)."""
+    from datetime import datetime, timedelta, timezone
+    try:
+        dt = datetime.fromisoformat((iso or "").replace("Z", "+00:00"))
+    except ValueError:
+        return ""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    try:
+        from zoneinfo import ZoneInfo
+        local = dt.astimezone(ZoneInfo("Asia/Jerusalem"))
+    except Exception:                       # Windows without tzdata: Israel standard time
+        local = dt.astimezone(timezone(timedelta(hours=2)))
+    return f"{local.day}.{local.month}, {local:%H:%M}"
+
+
+SHORT_DISCLOSURE = ("גילוי נאות: חלק מהקישורים הם קישורי שותפים, ואנחנו עשויים לקבל עמלה, בלי תוספת מחיר לך. "
+                    "המחיר נכון לזמן הבדיקה.")
+CHANNEL_DISCLOSURE = ("גילוי נאות: חלק מהקישורים הם קישורי שותפים, ואנחנו עשויים לקבל עמלה, בלי תוספת מחיר לך. "
+                      "המחיר נכון לזמן הפרסום בערוץ של החנות.")
 
 
 def build_content(offer: dict, history: Optional[dict] = None, comparison: Optional[dict] = None,
@@ -113,5 +152,22 @@ def build_content(offer: dict, history: Optional[dict] = None, comparison: Optio
                 + f"<li>{e(t['store'].format(store=store))}</li></ul>"
                 + f'<a href="{e(link)}" rel="sponsored nofollow noopener" target="_blank">{e(t["cta"])}</a>'
                 + f'<p class="disclosure">{e(disc)}</p></div>')
+    # the same facts, as data: the short channel post (telegram.format_post) is written from these
+    was = (price_drop or {}).get("from") or (offer.get("list_price") if discount_check and
+                                            discount_check.get("status") == "verified" else None)
+    pct = (round(price_drop["drop_pct"]) if price_drop else
+           round(discount_check["claimed_pct"]) if was and discount_check else None)
+    was_source = "history" if (price_drop or {}).get("from") else ("store_list" if was else None)
+    below = next(({"pct": int(c["text"].split("%")[0]), "n": comparison["n_compared"],
+                   "excl_ship": t["excl_ship"] in c["text"]} for c in claims
+                  if c["basis"] == "market_comparison"), None) if comparison else None
+    facts = {"price": offer.get("price"), "currency": cur, "checked_at": offer.get("last_fetched_at") or "",
+             "store": store, "eilat": next((offer["eilat_price"] for c in claims if c["basis"] == "eilat_price"), None),
+             "was": was, "was_source": was_source, "pct": pct, "below": below,
+             "lowest90": any(c["basis"] == "price_history_90d" for c in claims),
+             "since": (history or {}).get("lowest_since") if any(c["basis"] == "price_history_since" for c in claims)
+             else None,
+             "free_ship": offer.get("shipping_cost") == 0,
+             "ship_cost": offer.get("shipping_cost") if offer.get("shipping_cost") else None}
     return {"title": title, "telegram": telegram, "markdown": markdown, "html": html_out, "claims": claims,
-            "link": link, "lang": lang, "store": store, "disclosure": disc, "cta": t["cta"]}
+            "link": link, "lang": lang, "store": store, "disclosure": disc, "cta": t["cta"], "facts": facts}

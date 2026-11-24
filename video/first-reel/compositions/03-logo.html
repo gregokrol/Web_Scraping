@@ -6,16 +6,17 @@
 <script src="../assets/vendor/gsap.min.js"></script>
 <style>
 #l-root{position:absolute;inset:0;width:1080px;height:1920px;overflow:hidden;direction:rtl;font-family:"Rubik",sans-serif;color:var(--ink);
-background:radial-gradient(120% 70% at 85% 0%,var(--bg2) 0%,#0a1430 48%,var(--bg) 100%)}
-#logo{position:absolute;left:374px;top:290px;width:260px;border-radius:50%;box-shadow:0 0 90px rgba(34,211,238,.55)}
+background:var(--bg)}
+#logo{position:absolute;left:374px;top:290px;width:260px;border-radius:50%}
 #name{position:absolute;top:570px;right:192px;left:120px;text-align:center;font-weight:800;font-size:110px}
 #slogan{position:absolute;top:715px;right:192px;left:120px;text-align:center;font-weight:700;font-size:48px;color:var(--yellow)}
-#tg{position:absolute;top:800px;left:290px;background:#1a6fb0;color:#fff;font-weight:700;font-size:44px;border-radius:28px;padding:16px 40px;direction:ltr;white-space:nowrap}
+#tg{position:absolute;top:800px;left:290px;background:#ffcc1a;color:#0f1f45;font-weight:700;font-size:44px;border-radius:12px;padding:16px 40px;direction:ltr;white-space:nowrap}
 #disc{position:absolute;top:940px;right:300px;left:120px;text-align:center;font-weight:500;font-size:30px;color:var(--muted);line-height:1.4}
 </style>
 </head>
 <body>
 <div id="l-root" data-composition-id="logo" data-width="1080" data-height="1920">
+  <div class="bar"></div>
   <img id="logo" src="../assets/logo.png" alt=""/>
   <div id="name">מחיר אמת</div>
   <div id="slogan">מחיר שנבדק, לא מבצע מזויף.</div>
@@ -26,7 +27,7 @@ background:radial-gradient(120% 70% at 85% 0%,var(--bg2) 0%,#0a1430 48%,var(--bg
     var tl=gsap.timeline({paused:true});
     tl.from("#logo",{scale:.2,opacity:0,rotation:-25,duration:.7,ease:"back.out(1.8)"},0.05);
     tl.from("#name",{y:60,opacity:0,duration:.45,ease:"power3.out"},0.55);
-    tl.fromTo("#slogan",{opacity:0,filter:"blur(14px)"},{opacity:1,filter:"blur(0px)",duration:.6,ease:"power2.out"},0.95);
+    tl.from("#slogan",{y:30,opacity:0,duration:.45,ease:"power3.out"},0.95);
     tl.from("#tg",{y:40,opacity:0,duration:.4,ease:"power3.out"},0.85);
     tl.from("#disc",{opacity:0,duration:.4},1.0);
     window.__timelines=window.__timelines||{}; window.__timelines["logo"]=tl;

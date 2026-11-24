@@ -350,7 +350,10 @@ def _recheck_claims(db: Database, offer_id: int, content: dict) -> dict:
         elif since:
             fixed.append({"text": T["he" if lang_he else "en"]["lowest_since"].format(since=short_date(since)),
                           "basis": "price_history_since"})
-    return {**content, "claims": fixed}
+    out = {**content, "claims": fixed}
+    if content.get("facts"):
+        out["facts"] = {**content["facts"], "lowest90": False, "since": since}
+    return out
 
 
 def smart_approve(db: Database, min_savings_pct: float = 15.0, per_store_per_day: int = 2,
