@@ -603,3 +603,34 @@ def test_the_same_product_in_another_colour_is_not_a_second_deal(tmp_path):
     made = detect_deals(db, DealRules())
     assert len(made) == 1
     assert detect_deals(db, DealRules()) == []
+
+
+def test_store_scan_slows_down_after_429_but_still_runs(tmp_path):
+    from affiliate_scraper.commands import automation_scrape_jobs
+    (tmp_path / "sources.json").write_text(json.dumps({"stores": [
+        {"domain": "shop.example", "start_urls": ["https://shop.example/sale"], "discover": "links"}]}), encoding="utf-8")
+    cfg = {"sources_config": str(tmp_path / "sources.json"), "delay": 3}
+    [normal] = automation_scrape_jobs(cfg)
+    [slow] = automation_scrape_jobs(cfg, {"shop.example": 80})
+    assert normal[len(normal) - 1 - normal[::-1].index("--delay") + 1] == "3"
+    assert slow[len(slow) - 1 - slow[::-1].index("--delay") + 1] == "15"       # 5x slower, not skipped
+
+
+def test_slowdown_uses_the_stores_own_delay_and_dry_run_creates_no_db(tmp_path):
+    from affiliate_scraper.commands import automation_scrape_jobs, recent_429
+    (tmp_path / "sources.json").write_text(json.dumps({"stores": [
+        {"domain": "shop.example", "start_urls": ["https://shop.example/sale"], "discover": "links", "delay": 10}]}),
+        encoding="utf-8")
+    cfg = {"sources_config": str(tmp_path / "sources.json"), "delay": 3, "db": str(tmp_path / "none.db")}
+    [slow] = automation_scrape_jobs(cfg, {"shop.example": 5})
+    assert slow[len(slow) - 1 - slow[::-1].index("--delay") + 1] == "50"        # 5 x its own 10 s
+    assert recent_429(cfg) == {} and not (tmp_path / "none.db").exists()       # reads only, creates nothing
+
+
+def test_health_says_a_429_store_is_slowed_down(tmp_path):
+    from affiliate_scraper.health import run_health
+    db = Database(tmp_path / "h.db")
+    db.finish_run(db.start_run("run", 1), 1, [{"url": "https://shop.example/a", "kind": "http_429"}] * 2
+                  + [{"url": "https://other.example/a", "kind": "http_403"}])
+    text = " ".join(str(x) for x in run_health(db, {}, check_site=False).values() if isinstance(x, list))
+    assert "סורקת אותה לאט יותר" in text and "מורידים קצב או מוותרים" in text   # 403 keeps the old advice

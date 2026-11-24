@@ -422,8 +422,9 @@ def load_automation(path: str) -> dict:
     return cfg
 
 
-def automation_scrape_jobs(cfg: dict) -> list[list[str]]:
-    """Build one scrape argv per store / target group (each becomes a crawl_run)."""
+def automation_scrape_jobs(cfg: dict, limited: Optional[dict] = None) -> list[list[str]]:
+    """Build one scrape argv per store / target group (each becomes a crawl_run). ``limited``: stores that said
+    429 lately - scanned too, only more slowly (slow_delay)."""
     common = _common_args(cfg)
     jobs = []
     if cfg.get("sources_config") and Path(cfg["sources_config"]).exists():
@@ -432,7 +433,9 @@ def automation_scrape_jobs(cfg: dict) -> list[list[str]]:
             if not s.enabled:
                 continue
             if s.type == "feed" and s.feed_url:
-                jobs.append(["--feed", s.feed_url, "--name", f"auto_{s.domain}", *common])
+                slow = slow_delay(cfg, s.domain, limited, s.delay)
+                jobs.append(["--feed", s.feed_url, "--name", f"auto_{s.domain}", *common,
+                             *(["--delay", f"{slow:g}"] if slow else [])])
             elif s.start_urls:
                 argv = [*s.start_urls, "--discover", s.discover or "none", "--name", f"auto_{s.domain}", *common]
                 if s.include:
@@ -442,6 +445,9 @@ def automation_scrape_jobs(cfg: dict) -> list[list[str]]:
                 # per-store politeness and limits (later options override the common ones)
                 if s.delay is not None:
                     argv += ["--delay", str(s.delay)]
+                slow = slow_delay(cfg, s.domain, limited, s.delay)
+                if slow:
+                    argv += ["--delay", f"{slow:g}"]
                 if s.max_pages:
                     argv += ["--max-pages", str(int(s.max_pages))]
                 if s.max_listing_pages:
@@ -546,23 +552,56 @@ def search_stores(cfg: dict, only: Optional[list[str]] = None, affiliate_only: b
     return stores
 
 
+def recent_429(cfg: dict) -> dict:
+    """{domain: count} of "429 too many requests" answers in the last 3 days (rate_limit.hours) - long enough that
+    a store does not flip between a slow day and a fast day that brings the 429 back. Reads an existing
+    database only - a dry run or a first run creates nothing."""
+    path = Path(cfg.get("db", DEFAULT_DB))
+    if not path.exists():
+        return {}
+    from .health import rate_limited_hosts
+    db = Database(str(path))
+    try:
+        return rate_limited_hosts(db, hours=float((cfg.get("rate_limit") or {}).get("hours", 72)))
+    finally:
+        db.close()
+
+
+def slow_delay(cfg: dict, domain: str, limited: Optional[dict] = None,
+               store_delay: Optional[float] = None) -> Optional[float]:
+    """The delay between requests for a store that said "429 too many requests" lately: much slower
+    (``rate_limit.slow_factor`` x the normal delay, at least ``rate_limit.min_delay`` seconds). None = normal."""
+    if not limited:
+        return None
+    bare = lambda d: (d or "").lower().removeprefix("www.")  # noqa: E731
+    if bare(domain) not in {bare(d) for d in limited}:
+        return None
+    rl = cfg.get("rate_limit") or {}
+    base = float(store_delay if store_delay is not None else cfg.get("delay", 3))   # this store's own delay
+    return max(base * float(rl.get("slow_factor", 5)), float(rl.get("min_delay", 15)))
+
+
 def search_jobs(cfg: dict, query: str, per_store: int = SEARCH_PER_STORE,
-                only: Optional[list[str]] = None, affiliate_only: bool = False) -> list[tuple[str, list[str]]]:
-    """One scrape argv per store: its own search page -> the first ``per_store`` result products."""
+                only: Optional[list[str]] = None, affiliate_only: bool = False,
+                limited: Optional[dict] = None) -> list[tuple[str, list[str]]]:
+    """One scrape argv per store: its own search page -> the first ``per_store`` result products.
+    ``limited``: stores that said 429 lately (health.rate_limited_hosts) - searched too, only more slowly."""
     q = quote_plus(clean_query(query))
     jobs = []
     for s in search_stores(cfg, only, affiliate_only):
+        slow = slow_delay(cfg, s.domain, limited, s.delay)
+        slow_args = ["--delay", f"{slow:g}"] if slow else []          # the last --delay wins
         if s.search_sitemap:
             # the store's robots.txt forbids its search page: look for the words in its product sitemaps
             argv = [s.search_sitemap, "--discover", "sitemap", f"--match={clean_query(query)}",
-                    "--name", f"search_{s.domain}", *_common_args(cfg), "--max-pages", str(int(per_store))]
+                    "--name", f"search_{s.domain}", *_common_args(cfg), *slow_args, "--max-pages", str(int(per_store))]
             include = s.search_include or s.include
             if include:
                 argv.append(f"--include={include}")
             jobs.append((s.domain, argv))
             continue
         argv = [s.search_url.replace("{q}", q), "--discover", "links", "--name", f"search_{s.domain}",
-                *_common_args(cfg), "--max-pages", str(int(per_store)), "--max-listing-pages", "1"]
+                *_common_args(cfg), *slow_args, "--max-pages", str(int(per_store)), "--max-listing-pages", "1"]
         # with result-card selector the cards ARE the products; else the product-URL regex decides
         include = s.search_include or ("." if s.search_selector else s.include)
         if include:
@@ -601,7 +640,11 @@ def _search_run(args) -> int:
     if not 1 <= args.parallel <= 16:
         _err("error: --parallel must be 1-16")
         return 2
-    jobs = search_jobs(cfg, query, args.per_store, args.store or None, args.affiliate_only)
+    limited = recent_429(cfg)       # stores that said "429 too many requests" lately: still searched, only slower
+    jobs = search_jobs(cfg, query, args.per_store, args.store or None, args.affiliate_only, limited)
+    slowed = [d for d, j in jobs if "--delay" in j[j.index("--delay") + 2:]]
+    if slowed:
+        _err("slower (said 429 'too many requests' lately): " + ", ".join(slowed))
     if not jobs:
         src = cfg.get("sources_config") or "sources.json"
         if args.affiliate_only and search_stores(cfg, args.store or None):
@@ -700,7 +743,8 @@ def _run_run(args) -> int:
     except (OSError, ValueError) as exc:
         _err(f"error: cannot read {args.config}: {exc}")
         return 2
-    jobs = automation_scrape_jobs(cfg)
+    limited = recent_429(cfg)       # stores that said "429 too many requests" lately: still scanned, only slower
+    jobs = automation_scrape_jobs(cfg, limited)
     searches = [str(q) for q in cfg.get("searches", []) if str(q).strip()]
     if not jobs and not searches:
         _err("error: nothing to do - add searches (menu 19), stores (sources_config) or targets/feeds "

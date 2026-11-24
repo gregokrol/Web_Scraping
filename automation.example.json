@@ -52,6 +52,8 @@
   },
   "telegram_channels": [],
   "_comment_channels": "Stores' public Telegram channels read as LEADS (store-stated prices, never verified deals): py main.py channels add KSPcoil payngoil",
+  "rate_limit": {"hours": 72, "slow_factor": 5, "min_delay": 15},
+  "_comment_rate_limit": "A store that answered 429 'too many requests' in the last 72 h is still scanned, only slower: 5x its delay, at least 15 s between pages.",
   "channels_auto": {"enabled": false, "min_drop_pct": 20, "per_day": 1, "niche_only": true, "max_age_hours": 48, "max_prev_age_days": 30},
   "_comment_channels_auto": "OFF until you run: py main.py channels auto on. Then, with automatic or smart approval: a product the store's OWN channel posted again at least 20% cheaper (niche only, posted in the last 48 h) goes to your channel by itself, at most 1 a day, worded as the store's price ('not checked by us'). Everything else from the channels waits for your button."
 }

@@ -341,3 +341,24 @@ def test_search_reads_a_sitemap_store(sitemap_store, tmp_path, capsys):
     assert [(r["title"], r["price"]) for r in rows] == [("מקרר Samsung RF50", 4990.0)]   # the best match only
     assert site.count("/product/samsung-tv-55/") == 0
     assert "1 product(s) in 1 of 1 store(s)" in capsys.readouterr().err
+
+
+def test_a_store_that_said_429_is_searched_slower_not_skipped(tmp_path):
+    from affiliate_scraper.commands import search_jobs, slow_delay
+    from affiliate_scraper.health import rate_limited_hosts
+    (tmp_path / "sources.json").write_text(json.dumps({"stores": [
+        {"domain": "www.a.example", "search_url": "https://www.a.example/s?q={q}", "include": "/p/"},
+        {"domain": "b.example", "search_url": "https://b.example/s?q={q}", "include": "/p/"}]}), encoding="utf-8")
+    db = Database(str(tmp_path / "d.db"))
+    db.finish_run(db.start_run("search", 1), 0, [{"url": "https://www.a.example:443/s?q=x", "kind": "http_429"}])
+    limited = rate_limited_hosts(db)
+    db.close()
+    assert limited == {"www.a.example": 1}
+    cfg = {"sources_config": str(tmp_path / "sources.json"), "delay": 3}
+    jobs = dict(search_jobs(cfg, "puzzle", limited=limited))
+    assert set(jobs) == {"www.a.example", "b.example"}                     # nobody is skipped
+
+    def last_delay(argv):
+        return argv[len(argv) - 1 - argv[::-1].index("--delay") + 1]
+    assert last_delay(jobs["www.a.example"]) == "15" and last_delay(jobs["b.example"]) == "3"
+    assert slow_delay({"delay": 4, "rate_limit": {"slow_factor": 6}}, "a.example", limited) == 24

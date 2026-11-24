@@ -66,7 +66,9 @@ def run_health(db: Database, cfg: dict, tg=None, now: Optional[datetime] = None,
                 dom = (e.get("url") or "").split("/")[2] if "://" in (e.get("url") or "") else "?"
                 errs[(dom, e.get("kind") or "error")] += 1
     for (dom, kind), n in errs.most_common(6):
-        note = " - החנות מגבילה גישה. לא עוקפים: מורידים קצב או מוותרים על החנות" if kind in BLOCK_KINDS else ""
+        note = (" - החנות ביקשה להאט. המערכת כבר סורקת אותה לאט יותר, כל עוד היו ממנה 429 ב-3 הימים האחרונים. לא עוקפים"
+                if kind == "http_429" else
+                " - החנות מגבילה גישה. לא עוקפים: מורידים קצב או מוותרים על החנות" if kind in BLOCK_KINDS else "")
         warnings.append(f"{dom}: {n} שגיאות {kind}{note}")
 
     # 3. stores that used to answer and went quiet
@@ -154,3 +156,18 @@ def mark_sent(db: Database, now: Optional[datetime] = None, key: str = "health_s
     with db.tx() as c:
         c.execute("INSERT INTO meta(key, value) VALUES (?, ?) "
                   "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, now.isoformat()))
+
+
+def rate_limited_hosts(db, hours: float = 24, min_errors: int = 1, now=None) -> dict[str, int]:
+    """Stores that answered "429 too many requests" at least ``min_errors`` times in the last ``hours``:
+    {domain: count}. They are still scanned, only more slowly (commands.slow_delay) - we respect the limit and
+    never try to get around it."""
+    from datetime import datetime, timedelta, timezone
+    now = now or datetime.now(timezone.utc)
+    since = (now - timedelta(hours=hours)).isoformat()
+    n: Counter = Counter()
+    for r in db.query("SELECT errors_json FROM crawl_runs WHERE started_at >= ?", (since,)):
+        for e in json.loads(r["errors_json"] or "[]"):
+            if isinstance(e, dict) and e.get("kind") == "http_429" and "://" in (e.get("url") or ""):
+                n[e["url"].split("/")[2].split(":")[0].lower()] += 1
+    return {d: c for d, c in n.items() if c >= min_errors}
