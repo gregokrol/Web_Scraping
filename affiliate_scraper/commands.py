@@ -2398,7 +2398,7 @@ def _send_to_owner(paths: list, caption: str, album: bool = False) -> int:
 
 def _profile_pic_build(ap) -> None:
     ap.add_argument("--logo", default="video/first-reel/assets/logo.png", help="the round logo (PNG)")
-    ap.add_argument("--out", default="brand", help="folder for the pictures (default %(default)s)")
+    ap.add_argument("--out", default="output/profile-pics", help="folder for the pictures (default %(default)s; brand/ keeps the approved ones)")
     ap.add_argument("--telegram", action="store_true", help="send them to your private chat")
 
 
