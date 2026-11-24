@@ -212,10 +212,31 @@ def detect_deals(db: Database, rules: DealRules, now: Optional[datetime] = None)
     return created
 
 
+def _colorless(title: str) -> str:
+    """The title without colour words: 'Sonos Beam (Gen 2) שחור' and '... לבן' are one product for the channel."""
+    from .attributes import _color_re
+    return re.sub(r"[\s\-|,/()]+", " ", _color_re.sub(" ", (title or "").lower())).strip()
+
+
+def _sibling_offer_ids(db: Database, offer: dict) -> list[int]:
+    """The same product at the same store on another page (another colour, or a second link to it)."""
+    ids = {offer["id"]}
+    if offer.get("group_id"):
+        ids |= {r["id"] for r in db.query("SELECT id FROM offers WHERE group_id=? AND domain=?",
+                                         (offer["group_id"], offer.get("domain")))}
+    key = _colorless(offer.get("title") or "")
+    if key:
+        ids |= {r["id"] for r in db.query("SELECT id, title FROM offers WHERE domain=? AND id<>?",
+                                         (offer.get("domain"), offer["id"])) if _colorless(r["title"]) == key}
+    return sorted(ids)
+
+
 def _is_duplicate(db: Database, offer: dict, kind: str, rules: DealRules, now: datetime) -> bool:
     since = (now - timedelta(days=rules.cooldown_days)).replace(microsecond=0).isoformat()
-    rows = db.query("SELECT price FROM deal_alerts WHERE offer_id=? AND created_at >= ? AND status <> 'rejected'",
-                    (offer["id"], since))
+    ids = _sibling_offer_ids(db, offer)
+    marks = ",".join("?" * len(ids))
+    rows = db.query(f"SELECT price FROM deal_alerts WHERE offer_id IN ({marks}) AND currency=? AND created_at >= ? "
+                    "AND status <> 'rejected'", (*ids, offer.get("currency"), since))
     if not rows:
         rejected_same = db.query("SELECT 1 FROM deal_alerts WHERE offer_id=? AND status='rejected' AND price<=?",
                                  (offer["id"], offer["price"]))

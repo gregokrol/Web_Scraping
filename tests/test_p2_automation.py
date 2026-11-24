@@ -585,3 +585,21 @@ def test_approval_command_smart_mode(tmp_path, capsys, monkeypatch):
     assert cfg["auto_publish"]["min_savings_pct"] == 20 and cfg["auto_publish"]["per_store_per_day"] == 1
     assert main(["approval", "manual"]) == 0
     assert json.loads((tmp_path / "automation.json").read_text(encoding="utf-8"))["auto_publish"]["enabled"] is False
+
+
+def test_the_same_product_in_another_colour_is_not_a_second_deal(tmp_path):
+    # Sonos Beam black + white at the same store, same price drop -> ONE post, not two (deals #42/#43)
+    db, oid = seed_db(tmp_path)
+    now = datetime.now(timezone.utc)
+    db.conn.execute("UPDATE offers SET title='Acme Kettle Black' WHERE id=?", (oid,))
+    p = validate_product(Product(url="https://a.example/k-white", name="Acme Kettle White", price=90.0, currency="ILS",
+                                 availability="InStock", source="json-ld", source_type="json-ld", shipping_cost=0))
+    p.deal_score, p.deal_status = 80.0, "ok"
+    db.save_products([p])
+    oid2 = db.offer_id(p.url)
+    db.conn.executemany("INSERT INTO price_history(offer_id, observed_at, price, currency, price_verified) VALUES (?,?,?,?,1)",
+                        [(oid2, (now - timedelta(days=30 - 10 * i)).isoformat(), 120, "ILS") for i in range(3)])
+    db.conn.commit()
+    made = detect_deals(db, DealRules())
+    assert len(made) == 1
+    assert detect_deals(db, DealRules()) == []
