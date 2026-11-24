@@ -101,3 +101,27 @@ def test_fix_posts_command_lists_then_applies(tmp_path, monkeypatch, capsys):
     assert [(c, m) for c, m, _ in edits] == [(-1001, 51)]
     assert main(["fix-posts", "--apply"]) == 0 and len(edits) == 1   # fixed once, not again
     assert "No post needs fixing" in capsys.readouterr().out
+
+
+def test_a_failed_edit_is_counted_and_keeps_the_saved_text(tmp_path, monkeypatch, capsys):
+    from affiliate_scraper import telegram
+    from affiliate_scraper.cli import main
+    from affiliate_scraper.db import Database
+    db, oid = seed_db(tmp_path)
+    published(db, oid)
+    db.close()
+    (tmp_path / "automation.json").write_text(json.dumps({"db": str(tmp_path / "a.db")}), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    class DownTG:
+        channel = "@deals_il"
+
+        def edit_deal(self, *a):
+            raise TelegramError("Telegram editMessageCaption failed: 400 message to edit not found")
+
+    monkeypatch.setattr(telegram, "TelegramPublisher", DownTG)
+    assert main(["fix-posts", "--apply"]) == 1
+    assert "0 fixed, 1 failed" in capsys.readouterr().out
+    db = Database(tmp_path / "a.db")
+    [r] = db.query("SELECT content_json FROM deal_alerts")
+    assert "90 הימים" in r["content_json"]                    # not marked fixed - the next run tries again
