@@ -402,3 +402,90 @@ def test_channel_post_says_not_checked_on_the_stores_price_line(tmp_path):
     assert "לא נבדק אצלנו" in price_line                                  # on the store's own price line
     assert lines.index(price_line) < next(i for i, ln in enumerate(lines) if ln.startswith("נבדק אצלנו:"))
     assert "נכון לזמן הפרסום בערוץ" in lines[-1] and "לזמן הבדיקה" not in lines[-1]
+
+
+# ---------------------------------------------------------------- channels_auto: NEW posts with a stated discount
+def _new(db, pid, title, price, was, hours_ago=2, channel="ShopIL"):
+    from datetime import datetime, timedelta, timezone
+    when = (datetime.now(timezone.utc) - timedelta(hours=hours_ago)).isoformat()
+    p = post(pid, [title, f"ב-₪{price:,}", "במקום", f"₪{was:,}"], when=when)
+    save_claims(db, parse_channel_html(f"<html><body>{p}</body></html>", channel))
+
+
+def test_new_posts_with_a_big_stated_discount_are_posted_three_a_day(tmp_path):
+    from affiliate_scraper.commands import auto_channel_posts
+    db = Database(tmp_path / "c.db")
+    _new(db, 1, "מקלדת מכנית Acme K8", 150, 300)               # -50%
+    _new(db, 2, "עכבר גיימינג Acme M3", 140, 200)              # -30%
+    _new(db, 3, "מסך גיימינג Acme G27", 700, 1000)             # -30%
+    _new(db, 4, "אוזניות גיימינג Acme H5", 150, 250)           # -40%, but the 4th today
+    tg = FakeChannelTG()
+    assert auto_channel_posts(SMART, db, tg, []) == []
+    assert len(tg.posts) == 3 and all(cid == "@deals_il" for cid, _ in tg.posts)
+    assert tg.posts[0][1].startswith("מקלדת מכנית Acme K8")      # the biggest stated discount first
+    assert not any("Acme M3" in t for _, t in tg.posts)          # 30%: the 40% and the other 30% (newer) won
+    for _, text in tg.posts:
+        assert "לא נבדק אצלנו" in text and "הם כתבו שזה במקום" in text and "נבדק אצלנו:" not in text
+    assert len(tg.notes) == 3 and all("פוסט חדש" in n and "לא נבדק אצלנו" in n for n in tg.notes)
+    tg = FakeChannelTG()
+    auto_channel_posts(SMART, db, tg, [])
+    assert tg.posts == []                                        # the day's 3 are used
+
+
+@pytest.mark.parametrize("title,price,was,hours,why", [
+    ("מקלדת מכנית Acme K8", 250, 300, 2, "the store says only -17%"),
+    ("שמיכת תינוק Acme Soft", 100, 300, 2, "not the niche"),
+    ("מקלדת מכנית Acme K8", 150, 300, 72, "an old post"),
+    ("מארז וייפ גיימינג Acme V2", 100, 300, 2, "forbidden product"),
+])
+def test_what_new_post_is_not_posted_by_itself(tmp_path, title, price, was, hours, why):
+    from affiliate_scraper.commands import auto_channel_posts
+    db = Database(tmp_path / "c.db")
+    _new(db, 1, title, price, was, hours_ago=hours)
+    tg = FakeChannelTG()
+    auto_channel_posts(SMART, db, tg, [])
+    assert tg.posts == [], why
+
+
+def test_new_posts_need_the_rule_smart_approval_and_no_agent(tmp_path, monkeypatch):
+    from affiliate_scraper.commands import auto_channel_posts, publish_claim
+    db = Database(tmp_path / "c.db")
+    _new(db, 1, "מקלדת מכנית Acme K8", 150, 300)
+    for cfg in ({}, {"channels_auto": {"enabled": True}},                       # manual approval
+                {**SMART, "channels_auto": {"enabled": False}},
+                {**SMART, "channels_auto": {"enabled": True, "new_posts": False}}):   # drops only
+        tg = FakeChannelTG()
+        auto_channel_posts(cfg, db, tg, [])
+        assert tg.posts == [], cfg
+    monkeypatch.setenv("MECHIR_AGENT_RUN", "1")
+    tg = FakeChannelTG()
+    auto_channel_posts(SMART, db, tg, [])
+    assert tg.posts == []
+    monkeypatch.delenv("MECHIR_AGENT_RUN")
+    # you posted it yourself (button) -> the same product is not posted again this week, also from a new post
+    [row] = db.query("SELECT id FROM channel_claims")
+    publish_claim(db, row["id"], FakeChannelTG(), publish=True)
+    _new(db, 2, "מקלדת מכנית Acme K8", 150, 300, hours_ago=1)
+    tg = FakeChannelTG()
+    auto_channel_posts(SMART, db, tg, [])
+    assert tg.posts == []
+
+
+def test_a_drop_and_new_posts_have_separate_daily_limits(tmp_path):
+    from affiliate_scraper.channels import new_drops
+    from affiliate_scraper.commands import auto_channel_posts
+    db = Database(tmp_path / "c.db")
+    _drop(db, 1, "מקלדת מכנית Acme K8", 250, 150)              # a drop: posted under per_day (1)
+    _new(db, 50, "מסך גיימינג Acme G27", 700, 1000)            # a new post: under new_per_day (3)
+    tg = FakeChannelTG()
+    assert auto_channel_posts(SMART, db, tg, new_drops(db)) == []
+    assert len(tg.posts) == 2
+    assert any("בפוסט הקודם שלהם" in t for _, t in tg.posts) and any("הם כתבו שזה במקום" in t for _, t in tg.posts)
+
+
+def test_channels_auto_status_tells_about_new_posts(tmp_path, monkeypatch, capsys):
+    (tmp_path / "automation.json").write_text(json.dumps({"auto_publish": {"enabled": True}}), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    assert main(["channels", "auto", "on"]) == 0
+    out = capsys.readouterr().out
+    assert "New posts too" in out and "25%+" in out and "3 a day" in out

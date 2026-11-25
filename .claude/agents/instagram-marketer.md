@@ -84,3 +84,13 @@ model: sonnet
 ## סקילים שיווקיים בפרויקט
 אפשר להיעזר ב-`social`, `copywriting`, `copy-editing`, `content-strategy`, `video`, `community-marketing`, `referrals`, `launch`, `customer-research`, `marketing-ideas`, `trend-research` ו-`youtube-research`, כולם ב-`.claude/skills/`.
 **`MARKETING.md` גובר עליהם.** אם סקיל ממליץ על דחיפות, מחסור או FOMO, לא עושים את זה.
+
+## סקילים לעיצוב ותנועה (רילס, קרוסלות, תמונות)
+מותקנים אצל הבעלים ב-`~/.claude/skills/<שם>/SKILL.md` (מקור: github.com/emilkowalski/skills, רישיון MIT). קוראים רק את מה שצריך למשימה. אם הקובץ לא קיים, ממשיכים בלעדיו וכותבים את זה בדוח.
+- `choreograph`: סדר הכניסה של כמה אלמנטים בסצנה (מי זז, באיזה סדר, כמה חפיפה). לכל סצנה בריל.
+- `animate`: עקומות, משכים ויציאות לאנימציה בודדת.
+- `animation-performance`: רק `transform` ו-`opacity`, כדי שהריל לא יקפוץ בזמן הרינדור.
+- `apple-design`: טיפוגרפיה (ריווח אותיות ושורות לפי גודל) ותנועה רכה בלי קפיצות מיותרות.
+- `emil-design-eng`: ליטוש ופרטים קטנים בעיצוב.
+
+הסקילים כתובים לאתרים ול-React. ברילס (HyperFrames ו-GSAP) לוקחים מהם את העקרונות והערכים (עקומה, משך, השהיה בין אלמנטים), ולא מוסיפים ספריות או קוד חדש. `MARKETING.md` ו-`RULES.md` גוברים עליהם.

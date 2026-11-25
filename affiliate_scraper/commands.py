@@ -546,7 +546,8 @@ def search_stores(cfg: dict, only: Optional[list[str]] = None, affiliate_only: b
     if not src or not Path(src).exists():
         return []
     stores = [s for s in load_stores(src)
-              if s.enabled and (s.search_url or s.search_sitemap) and (not only or s.domain in only)]
+              if s.enabled and s.search is not False and (s.search_url or s.search_sitemap)
+              and (not only or s.domain in only)]
     if affiliate_only:
         joined = joined_programs(cfg.get("db", DEFAULT_DB))
         stores = [s for s in stores if affiliate_info(s, joined)["has_program"]]
@@ -1492,8 +1493,9 @@ cli.register_subcommand("health", "Self-check: runs, store errors, published dea
 
 # ---------------------------------------------------------------- stores (sources.json)
 def _stores_build(ap) -> None:
-    ap.add_argument("action", choices=["list", "daily-off", "daily-on", "sale-add", "sale-remove", "find-sales", "update",
-                                       "disable", "enable", "permit", "unpermit"])
+    ap.add_argument("action", choices=["list", "daily-off", "daily-on", "search-off", "search-on", "sale-add",
+                                       "sale-remove", "find-sales", "update", "disable", "enable", "permit",
+                                       "unpermit"])
     ap.add_argument("domains", nargs="*", help="Store domains, or 'all'. sale-add: a store's sale page URL(s)")
     ap.add_argument("--sources", default=None, help="Default: sources_config from automation.json, else sources.json")
     ap.add_argument("--config", default="automation.json")
@@ -1527,6 +1529,8 @@ def _stores_run(args) -> int:
             if sales:
                 scan += f", sale: {sales}"
             search = "search: yes" if (st.get("search_url") or st.get("search_sitemap")) else "search: no"
+            if search == "search: yes" and st.get("search") is False:
+                search = "search: off"
             off_all = "  [DISABLED]" if st.get("enabled") is False else ""
             print(f"  {st.get('domain', '?'):24} {scan:28} {search}{off_all}")
         print("\nDaily scan = the store pages read in every run. Search = used by the automatic searches (menu 19).")
@@ -1577,6 +1581,16 @@ def _stores_run(args) -> int:
         elif args.action == "daily-on" and st.get("_start_urls_off"):
             st["start_urls"] = [*(st.get("start_urls") or []), *st.pop("_start_urls_off")]
             print(f"daily scan on: {st['domain']}")
+            changed += 1
+        elif args.action == "search-off" and (st.get("search_url") or st.get("search_sitemap")) \
+                and st.get("search") is not False:
+            # the search address stays saved (search-on brings it back); daily and sale pages stay on
+            st["search"] = False
+            print(f"search off: {st['domain']}" + (" (sale pages stay on)" if sales else ""))
+            changed += 1
+        elif args.action == "search-on" and st.get("search") is False:
+            st.pop("search")
+            print(f"search on: {st['domain']}")
             changed += 1
     known = {str(st.get("domain", "")).lower() for st in stores}
     for d in want - known - {"all"}:
@@ -1784,7 +1798,7 @@ def _stores_sale(args, path: Path, data: dict) -> int:
     return 0 if changed or args.action == "sale-remove" else 1
 
 
-cli.register_subcommand("stores", "Show the stores and turn their daily page scan off / on (sources.json)",
+cli.register_subcommand("stores", "Show the stores and turn their daily page scan / searches off / on (sources.json)",
                         _stores_build, _stores_run)
 
 
@@ -2099,32 +2113,44 @@ def fetch_channels(cfg: dict, db: Database, delay: float = 3.0) -> int:
 def auto_channel_posts(cfg: dict, db: Database, tg, channel_drops: list[dict]) -> list[dict]:
     """A big drop in a store's own Telegram channel may be posted by itself (the ``channels_auto`` rule) - only
     when you chose automatic or smart approval; with manual approval every channel post waits for your button.
-    Returns the drops that still need your decision."""
+    A NEW post of a store's channel with a big stated discount ("₪X instead of ₪Y") may be posted too, under
+    its own daily limit (channels.auto_new_post_candidates). Returns the drops that still need your decision."""
     from .telegram import agent_run
     from .webhook import PublishError
     if agent_run():
         return channel_drops                    # the agent manager never posts in the public channel
     not_manual = cfg.get("require_approval", True) is False or bool((cfg.get("auto_publish") or {}).get("enabled"))
-    if not (channel_drops and tg and tg.channel and not_manual):
+    if not (tg and tg.channel and not_manual):
         return channel_drops
-    from .channels import auto_post_candidates, auto_rules, mark_auto_posted, store_name
-    for r in auto_post_candidates(db, channel_drops, auto_rules(cfg.get("channels_auto"))):
+    from .channels import auto_new_post_candidates, auto_post_candidates, auto_rules, mark_auto_posted, store_name
+    rules = auto_rules(cfg.get("channels_auto"))
+
+    def post(r: dict, pct: int, why: str) -> bool:
         try:
             publish_claim(db, r["id"], tg, publish=True, auto=True)
         except (PublishError, ValueError) as exc:
             _err(f"Channel auto-post problem: {exc}")
-            break
+            return False
         mark_auto_posted(db, [r["id"]])
-        channel_drops = [d for d in channel_drops if d["id"] != r["id"]]
-        pct = round((r["prev_price"] - r["price"]) / r["prev_price"] * 100)
         _err(f"Posted from the {store_name(r['channel'])} channel by itself: {r['title'][:60]} (-{pct}%)")
         if tg.admin_chat:
             try:
-                tg.notify_admin(f"📢 פורסם בערוץ לבד (כלל ערוצי החנויות: ירידה של {pct}%, לפי ערוץ "
+                tg.notify_admin(f"📢 פורסם בערוץ לבד (כלל ערוצי החנויות: {why}, לפי ערוץ "
                                 f"{store_name(r['channel'])}):\n{r['title'][:100]}\n"
                                 "המחיר לא נבדק אצלנו. אם זה לא מתאים, מחק את הפוסט בערוץ.")
             except PublishError:
                 pass
+        return True
+
+    for r in auto_post_candidates(db, channel_drops, rules) if channel_drops else []:
+        pct = round((r["prev_price"] - r["price"]) / r["prev_price"] * 100)
+        if not post(r, pct, f"ירידה של {pct}%"):
+            return channel_drops
+        channel_drops = [d for d in channel_drops if d["id"] != r["id"]]
+    for r in auto_new_post_candidates(db, rules):
+        pct = round((r["was_price"] - r["price"]) / r["was_price"] * 100)
+        if not post(r, pct, f"פוסט חדש, החנות כתבה {pct}% הנחה"):
+            break
     return channel_drops
 
 
@@ -2170,6 +2196,9 @@ def _channels_auto(args, path: Path, cfg: dict) -> int:
         print(f"channels auto: ON - a {rules['min_drop_pct']:g}%+ drop in a store's own channel (niche only, "
               f"vs its post from the last {rules['max_prev_age_days']:g} days) is posted by itself, at most "
               f"{rules['per_day']} a day, worded as the store's price."
+              + (f"\nNew posts too: the store states {rules['min_claim_pct']:g}%+ off (\"instead of\"), niche only, "
+                 f"at most {rules['new_per_day']} a day, worded as the store's own claim, not checked by us."
+                 if rules.get("new_posts") else "\nNew posts: off (only drops).")
               + ("" if not_manual else "\nNOTE: approval is MANUAL, so nothing is posted by itself until you "
                                        "run: py main.py approval smart"))
     else:

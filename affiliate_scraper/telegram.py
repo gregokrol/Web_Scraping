@@ -316,6 +316,27 @@ class TelegramPublisher:
             payload["offset"] = offset
         return self._api("getUpdates", payload, retries=0, http_timeout=wait + 15) or []
 
+    def download_file(self, file_id: str, max_bytes: int = 10 * 1024 * 1024) -> bytes:
+        """A file someone sent to the bot (getFile, then the file's URL) - refused above ``max_bytes``."""
+        info = self._api("getFile", {"file_id": file_id})
+        path = str(info.get("file_path") or "")
+        if not path:
+            raise TelegramError("Telegram getFile returned no file_path")
+        if int(info.get("file_size") or 0) > max_bytes:
+            raise TelegramError(f"file too large ({int(info['file_size']) // 1024} KB, limit {max_bytes // 1024} KB)")
+        data = bytearray()
+        try:
+            with self.session.get(f"{API_BASE()}/file/bot{self.token}/{path}", stream=True, timeout=60) as resp:
+                if resp.status_code != 200:
+                    raise TelegramError(f"Telegram file download failed: HTTP {resp.status_code}")
+                for chunk in resp.iter_content(64 * 1024):
+                    data += chunk
+                    if len(data) > max_bytes:
+                        raise TelegramError(f"file too large (limit {max_bytes // 1024} KB)")
+        except requests.RequestException as exc:
+            raise TelegramError(f"Telegram unreachable: {str(exc).replace(self.token, '***')}") from None
+        return bytes(data)
+
     def send_long(self, chat_id, text: str, limit: int = 3900) -> None:
         """Send a long text as several messages, split at line breaks."""
         chunk = ""
