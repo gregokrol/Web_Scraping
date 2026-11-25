@@ -707,3 +707,35 @@ def test_stores_search_off_and_on_keeps_the_search_page_and_the_sale_pages(tmp_p
     data = json.loads((tmp_path / "sources.json").read_text(encoding="utf-8"))
     assert "search" not in data["stores"][0]
     assert [d for d, _ in search_jobs(cfg, "lego")] == ["a.example", "b.example"]
+
+
+def test_run_rotation_edge_cases(tmp_path, monkeypatch):
+    from affiliate_scraper import cli as cli_mod
+    from affiliate_scraper.commands import _set_work_offset, _work_offset
+    db = Database(tmp_path / "m.db")
+    assert _work_offset(db, 3) == 0
+    _set_work_offset(db, 5)
+    assert _work_offset(db, 3) == 2                 # the list got shorter: stays in range
+    db.conn.execute("UPDATE meta SET value='x' WHERE key='run_work_offset'")
+    db.conn.commit()
+    assert _work_offset(db, 3) == 0                 # a broken value starts from the beginning
+    db.close()
+    did = []
+    real_main = cli_mod.main
+
+    def fake_main(argv):
+        if argv and argv[0] == "search":
+            did.append(argv[1])
+            if argv[1] == "bad":
+                raise RuntimeError("store page changed")
+            return 0
+        return real_main(argv)
+    monkeypatch.setattr(cli_mod, "main", fake_main)
+    cfg = tmp_path / "automation.json"
+    cfg.write_text(json.dumps({"db": str(tmp_path / "m.db"), "searches": ["bad", "two", "three"],
+                               "run_budget_minutes": "soon"}), encoding="utf-8")
+    assert real_main(["run", "--config", str(cfg)]) == 0
+    assert did == ["bad", "two", "three"]          # a failing search does not stop the rest; bad budget -> default
+    db = Database(tmp_path / "m.db")
+    assert _work_offset(db, 3) == 0                # a full run starts the next one from the top
+    db.close()

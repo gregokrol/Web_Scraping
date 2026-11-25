@@ -52,6 +52,8 @@
   },
   "telegram_channels": [],
   "_comment_channels": "Stores' public Telegram channels read as LEADS (store-stated prices, never verified deals): py main.py channels add KSPcoil payngoil",
+  "run_budget_minutes": 120,
+  "_comment_run_budget": "A run stops collecting after this many minutes (the page set it is in finishes first), still makes deals / website / report, and the next run continues where it stopped. 0 = no limit.",
   "rate_limit": {"hours": 72, "slow_factor": 5, "min_delay": 15},
   "_comment_rate_limit": "A store that answered 429 'too many requests' in the last 72 h is still scanned, only slower: 5x its delay, at least 15 s between pages.",
   "channels_auto": {"enabled": false, "min_drop_pct": 20, "per_day": 1, "niche_only": true, "max_age_hours": 48, "max_prev_age_days": 30},
