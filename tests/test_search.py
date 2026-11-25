@@ -392,3 +392,62 @@ def test_a_429_of_the_search_slows_the_search_only_not_the_sale_pages(tmp_path):
     assert last_delay(sale["a.example"]) == "3" and last_delay(sale["b.example"]) == "15"
     search = dict(search_jobs(cfg, "puzzle", limited=recent_429(cfg, "search")))
     assert last_delay(search["a.example"]) == "15" and last_delay(search["b.example"]) == "3"
+
+
+def test_a_store_whose_search_said_429_pauses_and_later_starts_from_that_word(two_stores, capsys):
+    """Store B's search page says 429 on the 2nd word: no more searches there in this run (no knocking again on a
+    store that said stop), the other store goes on; next time B starts from that word, then goes round again."""
+    from datetime import datetime, timedelta, timezone
+    tmp, site = two_stores
+    cfg = json.loads((tmp / "automation.json").read_text(encoding="utf-8"))
+    cfg["searches"] = ["puzzle 1000", "lego set", "doll house"]
+    (tmp / "automation.json").write_text(json.dumps(cfg), encoding="utf-8")
+    for w in ("lego+set", "doll+house"):
+        site.add(f"/a/search?q={w}", "<p>nothing</p>")
+        site.add(f"/b/?s={w}", "<p>nothing</p>")
+    site.add("/b/?s=lego+set", "slow down", status=429, headers={"Retry-After": "0"})
+    conf = ["--config", str(tmp / "automation.json")]
+
+    def meta(key):
+        db = Database(str(tmp / "d.db"))
+        row = db.query("SELECT value FROM meta WHERE key=?", (key,))
+        db.close()
+        return row[0]["value"] if row else None
+
+    assert main(["search", "puzzle 1000", *conf]) == 0
+    assert meta("search_next:localhost") == "lego set"                         # B moves on word by word
+    assert main(["search", "lego set", *conf]) == 0
+    err = capsys.readouterr().err
+    assert "search paused (said 429 'too many requests'): localhost" in err and "180 min" in err
+    assert meta("search_next:localhost") == "lego set"                         # it got nothing for it: again next time
+    assert main(["search", "doll house", *conf]) == 0
+    assert site.count("/b/?s=doll+house") == 0 and site.count("/a/search?q=doll+house") == 1   # A goes on
+    assert "not searched now: localhost - paused until" in capsys.readouterr().err
+
+    # the next run (the pause is over): B waits for its word, then searches it and the rest, and goes round again
+    db = Database(str(tmp / "d.db"))
+    with db.tx() as c:
+        c.execute("UPDATE meta SET value=? WHERE key='search_pause:localhost'",
+                  ((datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat(),))
+    db.close()
+    site.add("/b/?s=lego+set", "<p>nothing</p>")
+    hits = site.count("/b/?s=puzzle+1000")
+    assert main(["search", "puzzle 1000", *conf]) == 0
+    assert site.count("/b/?s=puzzle+1000") == hits                              # not its turn yet
+    assert "its turn starts at 'lego set' this time" in capsys.readouterr().err
+    assert main(["search", "lego set", *conf]) == 0 and main(["search", "doll house", *conf]) == 0
+    err = capsys.readouterr().err
+    assert site.count("/b/?s=doll+house") == 1 and meta("search_next:localhost") is None, err   # round done
+
+
+def test_when_every_store_waits_the_search_says_so_and_is_no_error(two_stores, capsys):
+    from datetime import datetime, timedelta, timezone
+    tmp, site = two_stores
+    db = Database(str(tmp / "d.db"))
+    until = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    with db.tx() as c:
+        c.executemany("INSERT INTO meta(key, value) VALUES (?, ?)",
+                      [("search_pause:127.0.0.1", until), ("search_pause:localhost", until)])
+    db.close()
+    assert main(["search", "puzzle", "1000", "--config", str(tmp / "automation.json")]) == 0
+    assert "Nothing to search now" in capsys.readouterr().err and site.count("/a/search?q=puzzle+1000") == 0

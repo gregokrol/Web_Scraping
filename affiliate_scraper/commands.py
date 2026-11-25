@@ -648,6 +648,26 @@ def _search_run(args) -> int:
     slowed = [d for d, j in jobs if "--delay" in j[j.index("--delay") + 2:]]
     if slowed:
         _err("slower (said 429 'too many requests' lately): " + ", ".join(slowed))
+    # a store whose search page said 429 is not searched again until its pause ends, and then starts from the word
+    # it stopped at (searchturns.py) - for every store, nothing to set up. Reads an existing database only.
+    words = [clean_query(str(w)) for w in cfg.get("searches", []) if str(w).strip()]
+    waiting = []
+    before_id = 0                       # the crawl runs of THIS search are the ones after it
+    if jobs and Path(cfg.get("db", DEFAULT_DB)).exists():
+        from .searchturns import last_run_id, skip_reason
+        tdb = Database(cfg.get("db", DEFAULT_DB))
+        try:
+            reasons = {d: skip_reason(tdb, d, query, words) for d, _ in jobs}
+            before_id = last_run_id(tdb)
+        finally:
+            tdb.close()
+        waiting = [(d, why) for d, why in reasons.items() if why]
+        jobs = [(d, j) for d, j in jobs if not reasons[d]]
+        for d, why in waiting:
+            _err(f"not searched now: {d} - {why}")
+    if not jobs and waiting:
+        _err("Nothing to search now: every store's search is paused or waits for its turn.")
+        return 0
     if not jobs:
         src = cfg.get("sources_config") or "sources.json"
         if args.affiliate_only and search_stores(cfg, args.store or None):
@@ -686,6 +706,11 @@ def _search_run(args) -> int:
     since = _seconds_floor(started)
     db = Database(cfg.get("db", DEFAULT_DB))
     try:
+        from .searchturns import after_search, pause_minutes
+        stopped = after_search(db, query, words, [d for d, _ in jobs], before_id, pause_minutes(cfg))
+        if stopped:
+            _err(f"search paused (said 429 'too many requests'): {', '.join(stopped)} - not searched again for "
+                 f"{pause_minutes(cfg):g} min, and next time it starts from this word")
         compare_across_stores(db, cfg, since=since, with_known_matches=True)
         rows = db.query("SELECT domain, title, url, price, currency, group_id FROM offers WHERE last_seen >= ? "
                         f"AND domain IN ({','.join('?' * len(jobs))}) ORDER BY price IS NULL, price",
