@@ -434,7 +434,7 @@ def photo_msg(file_id, caption=None, chat_id=42, chat_type="private", group=None
 
 
 def wait_task(lst):
-    for _ in range(100):
+    for _ in range(200):          # up to 10 s for the task to start (an album waits album_wait first)
         if lst.busy:
             lst.busy.join(5)
             return
@@ -477,7 +477,7 @@ def test_an_album_is_one_task_with_all_its_photos(tmp_path):
     ran = []
     tg = PhotoTG({"a": JPEG, "b": PNG, "c": JPEG})
     lst = Listener(tg, tmp_path, "42", runner=lambda task, d: ran.append(task) or "ok", out_dir=tmp_path / "o")
-    lst.album_wait = 0.5          # long enough that a busy test machine does not split the album
+    lst.album_wait = 2.0          # long enough that a busy test machine (full suite) does not split it
     lst.handle(photo_msg("a", group="G1"))
     lst.handle(photo_msg("b", caption="/manager שלוש תמונות", group="G1"))   # the caption on one photo only
     lst.handle(photo_msg("c", group="G1"))

@@ -451,3 +451,50 @@ def test_when_every_store_waits_the_search_says_so_and_is_no_error(two_stores, c
     db.close()
     assert main(["search", "puzzle", "1000", "--config", str(tmp / "automation.json")]) == 0
     assert "Nothing to search now" in capsys.readouterr().err and site.count("/a/search?q=puzzle+1000") == 0
+
+
+def _cat_stores(tmp_path):
+    (tmp_path / "sources.json").write_text(json.dumps({"stores": [
+        {"domain": "tech.example", "search_url": "https://tech.example/search?q={q}", "include": "/p/"},
+        {"domain": "baby.example", "search_url": "https://baby.example/search?q={q}", "include": "/p/",
+         "search_categories": ["baby"]},
+        {"domain": "home.example", "search_url": "https://home.example/search?q={q}", "include": "/p/",
+         "search_categories": ["general", "home"]}]}), encoding="utf-8")
+    cfg = {"sources_config": str(tmp_path / "sources.json"), "delay": 3, "db": str(tmp_path / "none.db"),
+           "searches": ["PlayStation 5"], "category_searches": {"baby": ["עגלת תינוק"], "home": ["מצעים"]}}
+    (tmp_path / "automation.json").write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
+    return cfg
+
+
+def test_a_categorys_words_go_only_to_the_stores_of_that_category(tmp_path):
+    """A baby store gets the baby words, not "PlayStation 5"; a gaming store not "עגלת תינוק"."""
+    cfg = _cat_stores(tmp_path)
+    assert [d for d, _ in search_jobs(cfg, "PlayStation 5")] == ["tech.example", "home.example"]
+    assert [d for d, _ in search_jobs(cfg, "עגלת תינוק", category="baby")] == ["baby.example"]
+    assert [d for d, _ in search_jobs(cfg, "מצעים", category="home")] == ["home.example"]
+    with pytest.raises(ValueError, match="search_categories"):
+        StoreConfig.from_dict({"domain": "x.example", "search_categories": ["babies"]})
+
+
+def test_the_run_searches_each_category_in_its_stores_only(tmp_path, capsys):
+    _cat_stores(tmp_path)
+    assert main(["run", "--config", str(tmp_path / "automation.json"), "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "would search all stores for: PlayStation 5" in out
+    assert "would search the baby stores for: עגלת תינוק" in out and "would search the home stores for: מצעים" in out
+    assert "would search baby.example: https://baby.example/search?q=" in out
+    assert "would search tech.example: https://tech.example/search?q=PlayStation" in out
+    assert "would search baby.example: https://baby.example/search?q=PlayStation" not in out
+    assert "would search tech.example: https://tech.example/search?q=%D7%A2" not in out          # no baby words
+
+
+def test_category_words_are_kept_apart_in_the_settings(tmp_path):
+    cfg = _cat_stores(tmp_path)
+    conf = ["--config", str(tmp_path / "automation.json")]
+    assert main(["searches", "add", "מוניטור תינוק", "--category", "baby", *conf]) == 0
+    assert main(["searches", "add-preset", "home", "--category", "home", *conf]) == 0
+    saved = json.loads((tmp_path / "automation.json").read_text(encoding="utf-8"))
+    assert saved["searches"] == cfg["searches"]                                   # the general words untouched
+    assert saved["category_searches"]["baby"] == ["עגלת תינוק", "מוניטור תינוק"]
+    assert "סט סירים" in saved["category_searches"]["home"]
+    assert main(["searches", "add", "x", "--category", "babies", *conf]) == 2

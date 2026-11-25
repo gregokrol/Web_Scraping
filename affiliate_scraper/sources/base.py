@@ -55,6 +55,10 @@ class StoreConfig:
     # False = not used by the searches (`py main.py stores search-off`), e.g. a store that answers 429 to many
     # search requests but reads its sale pages fine - search_url stays saved, `search-on` brings it back
     search: bool = True
+    # which search words this store gets: "general" = the general `searches` of automation.json, a category slug
+    # of catalog.CATEGORIES (e.g. "baby", "home") = that category's words (`category_searches`). Empty = general
+    # only - so a baby store gets the baby words, not "PlayStation 5", and a gaming store not "עגלת תינוק"
+    search_categories: list[str] = field(default_factory=list)
     # CSS selector for the product cards on the daily-scan pages (start_urls), for a store whose product
     # addresses have no fixed shape - only links inside these cards are products
     link_selector: str = ""
@@ -119,6 +123,12 @@ class StoreConfig:
                 raise ValueError(f"store {d['domain']}: affiliate.url must be an http(s) URL")
             if aff.get("checked") and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(aff["checked"])):
                 raise ValueError(f"store {d['domain']}: affiliate.checked is a date, YYYY-MM-DD")
+        cats = d.get("search_categories")
+        if cats not in (None, []):
+            from ..catalog import CAT_BY_SLUG
+            if not isinstance(cats, list) or any(c != "general" and c not in CAT_BY_SLUG for c in cats):
+                raise ValueError(f"store {d['domain']}: search_categories is a list of: general, "
+                                 + ", ".join(CAT_BY_SLUG))
         known ={f for f in cls.__dataclass_fields__}
         return cls(**{k: v for k, v in d.items() if k in known})
 

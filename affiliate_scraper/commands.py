@@ -537,7 +537,15 @@ def affiliate_domains(stores: list, joined: list[str]) -> list[str]:
                   | {j.lower().removeprefix("www.") for j in joined})
 
 
-def search_stores(cfg: dict, only: Optional[list[str]] = None, affiliate_only: bool = False) -> list:
+def gets_words(store, category: str = "") -> bool:
+    """Which search words a store gets: a category's words (``category_searches``) only where its
+    ``search_categories`` names that category; the general ``searches`` where it names none, or "general"."""
+    cats = store.search_categories or []
+    return category in cats if category else (not cats or "general" in cats)
+
+
+def search_stores(cfg: dict, only: Optional[list[str]] = None, affiliate_only: bool = False,
+                  category: str = "") -> list:
     """Enabled stores from the automation's sources_config that have a search_url.
 
     ``affiliate_only`` keeps the stores with an affiliate program (see :func:`affiliate_info`)."""
@@ -547,7 +555,7 @@ def search_stores(cfg: dict, only: Optional[list[str]] = None, affiliate_only: b
         return []
     stores = [s for s in load_stores(src)
               if s.enabled and s.search is not False and (s.search_url or s.search_sitemap)
-              and (not only or s.domain in only)]
+              and (not only or s.domain in only) and gets_words(s, category)]
     if affiliate_only:
         joined = joined_programs(cfg.get("db", DEFAULT_DB))
         stores = [s for s in stores if affiliate_info(s, joined)["has_program"]]
@@ -586,12 +594,12 @@ def slow_delay(cfg: dict, domain: str, limited: Optional[dict] = None,
 
 def search_jobs(cfg: dict, query: str, per_store: int = SEARCH_PER_STORE,
                 only: Optional[list[str]] = None, affiliate_only: bool = False,
-                limited: Optional[dict] = None) -> list[tuple[str, list[str]]]:
+                limited: Optional[dict] = None, category: str = "") -> list[tuple[str, list[str]]]:
     """One scrape argv per store: its own search page -> the first ``per_store`` result products.
     ``limited``: stores that said 429 lately (health.rate_limited_hosts) - searched too, only more slowly."""
     q = quote_plus(clean_query(query))
     jobs = []
-    for s in search_stores(cfg, only, affiliate_only):
+    for s in search_stores(cfg, only, affiliate_only, category):
         slow = slow_delay(cfg, s.domain, limited, s.delay)
         slow_args = ["--delay", f"{slow:g}"] if slow else []          # the last --delay wins
         if s.search_sitemap:
@@ -627,6 +635,8 @@ def _search_build(ap) -> None:
                     help="Stores searched at the same time (default %(default)s; the delay between requests is per "
                          "store, so each store still sees one request every few seconds; 1 = one after another)")
     ap.add_argument("--dry-run", action="store_true", help="Show which search pages would be read")
+    ap.add_argument("--category", default="", help="Search only the stores whose search_categories name this "
+                                                     "category (e.g. baby), as the run does for category_searches")
     ap.add_argument("-v", "--verbose", action="count", default=0)
 
 
@@ -644,13 +654,15 @@ def _search_run(args) -> int:
         _err("error: --parallel must be 1-16")
         return 2
     limited = recent_429(cfg, "search")    # stores whose SEARCH said "429 too many requests" lately: searched slower
-    jobs = search_jobs(cfg, query, args.per_store, args.store or None, args.affiliate_only, limited)
+    category = getattr(args, "category", "") or ""
+    jobs = search_jobs(cfg, query, args.per_store, args.store or None, args.affiliate_only, limited, category)
     slowed = [d for d, j in jobs if "--delay" in j[j.index("--delay") + 2:]]
     if slowed:
         _err("slower (said 429 'too many requests' lately): " + ", ".join(slowed))
     # a store whose search page said 429 is not searched again until its pause ends, and then starts from the word
     # it stopped at (searchturns.py) - for every store, nothing to set up. Reads an existing database only.
-    words = [clean_query(str(w)) for w in cfg.get("searches", []) if str(w).strip()]
+    listed = (cfg.get("category_searches") or {}).get(category, []) if category else cfg.get("searches", [])
+    words = [clean_query(str(w)) for w in listed if str(w).strip()]
     waiting = []
     before_id = 0                       # the crawl runs of THIS search are the ones after it
     if jobs and Path(cfg.get("db", DEFAULT_DB)).exists():
@@ -667,6 +679,10 @@ def _search_run(args) -> int:
             _err(f"not searched now: {d} - {why}")
     if not jobs and waiting:
         _err("Nothing to search now: every store's search is paused or waits for its turn.")
+        return 0
+    if not jobs and category:
+        _err(f"No store gets the {category!r} searches - add {category!r} to a store's search_categories "
+             f"in {cfg.get('sources_config') or 'sources.json'}.")
         return 0
     if not jobs:
         src = cfg.get("sources_config") or "sources.json"
@@ -813,7 +829,10 @@ def _run_once(args) -> int:
     if limited:
         _err("sale pages slower (said 429 'too many requests' lately): " + ", ".join(sorted(limited)))
     searches = [str(q) for q in cfg.get("searches", []) if str(q).strip()]
-    if not jobs and not searches:
+    # a category's words go only to the stores of that category (sources.json search_categories)
+    cat_searches = [(str(c), str(q)) for c, ws in (cfg.get("category_searches") or {}).items()
+                    for q in (ws or []) if str(q).strip()]
+    if not jobs and not searches and not cat_searches:
         _err("error: nothing to do - add searches (menu 19), stores (sources_config) or targets/feeds "
              "to the automation config")
         return 2
@@ -824,6 +843,9 @@ def _run_once(args) -> int:
         for q in searches:
             print(f"would search all stores for: {q}")
             cli.main(["search", q, "--config", args.config, "--dry-run"])
+        for c, q in cat_searches:
+            print(f"would search the {c} stores for: {q}")
+            cli.main(["search", q, "--config", args.config, "--category", c, "--dry-run"])
         return 0
 
     started = datetime.now(timezone.utc).isoformat()
@@ -832,7 +854,8 @@ def _run_once(args) -> int:
     # searchable store, so new products are found without product links). A run has a time budget: when it is
     # used up the run stops collecting, still finishes deals / website / report, and the NEXT run starts where
     # this one stopped - so every store and search gets its turn, and a run never goes on for half a day.
-    work = [("scrape", j) for j in jobs] + [("search", q) for q in searches]
+    work = ([("scrape", j) for j in jobs] + [("search", ("", q)) for q in searches]
+            + [("search", (c, q)) for c, q in cat_searches])
     try:
         budget_min = float(cfg.get("run_budget_minutes", RUN_BUDGET_MINUTES))
     except (TypeError, ValueError):
@@ -852,10 +875,12 @@ def _run_once(args) -> int:
                     _err("\n=== scrape: " + " ".join(item[:3]) + (" ..." if len(item) > 3 else ""))
                     codes.append(cli.scrape_main([*item, *(["-v"] * args.verbose)]))
                 else:
-                    _err(f"\n=== search: {item}")
-                    codes.append(cli.main(["search", item, "--config", args.config, *(["-v"] * args.verbose)]))
+                    cat, q = item
+                    _err(f"\n=== search: {q}" + (f" ({cat})" if cat else ""))
+                    codes.append(cli.main(["search", q, "--config", args.config, *(["--category", cat] if cat else []),
+                                           *(["-v"] * args.verbose)]))
             except (Exception, SystemExit) as exc:     # one broken store / search must not stop the others
-                _err(f"error in {kind} {item if kind == 'search' else item[0]}: {exc}")
+                _err(f"error in {kind} {item[1] if kind == 'search' else item[0]}: {exc}")
                 codes.append(1)
             done += 1
             # saved after EVERY item: a run cut off (computer off, sleep) continues after the last finished one
@@ -1209,6 +1234,8 @@ def _searches_build(ap) -> None:
     ap.add_argument("action", choices=["add", "remove", "list", "presets", "add-preset"])
     ap.add_argument("words", nargs="*", help="Search words, e.g. \"puzzle 1000\" (quote several words)")
     ap.add_argument("--config", default="automation.json")
+    ap.add_argument("--category", default="", help="The words of one category (e.g. baby): searched only in the "
+                                                     "stores whose search_categories name it (sources.json)")
 
 
 def _searches_run(args) -> int:
@@ -1224,7 +1251,13 @@ def _searches_run(args) -> int:
     except (OSError, ValueError) as exc:
         _err(f"error: {path} is not valid JSON ({exc})")
         return 2
-    searches = [str(q) for q in cfg.get("searches", [])]
+    cat = (args.category or "").lower()
+    if cat:
+        from .catalog import CAT_BY_SLUG
+        if cat not in CAT_BY_SLUG:
+            _err(f"error: --category is one of: {', '.join(CAT_BY_SLUG)}")
+            return 2
+    searches = [str(q) for q in ((cfg.get("category_searches") or {}).get(cat, []) if cat else cfg.get("searches", []))]
     if args.action == "presets":
         for name, words in SEARCH_PRESETS.items():
             print(f"{name:12} {', '.join(words)}")
@@ -1268,9 +1301,14 @@ def _searches_run(args) -> int:
         print(f"added: {q}")
         changed += 1
     if changed:
-        cfg["searches"] = searches
+        if cat:
+            cfg.setdefault("category_searches", {})[cat] = searches
+        else:
+            cfg["searches"] = searches
         path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"{len(searches)} automatic search(es) in {path} - each run searches every store for them")
+        print(f"{len(searches)} automatic search(es) in {path} - "
+              + (f"each run searches the {cat} stores (search_categories) for them" if cat
+                 else "each run searches every store for them"))
     return 0
 
 

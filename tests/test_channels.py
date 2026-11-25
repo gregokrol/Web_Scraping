@@ -261,7 +261,7 @@ def test_big_niche_drop_is_posted_by_itself_once_a_day(tmp_path):
 
 @pytest.mark.parametrize("title,old,new,hours,why", [
     ("מקלדת מכנית Acme K8", 250, 230, 2, "only -8%"),
-    ("שמיכת תינוק Acme Soft", 250, 150, 2, "not the niche"),
+    ("חולצת טריקו Acme Soft", 250, 150, 2, "not the niche"),
     ("מקלדת מכנית Acme K8", 250, 150, 72, "an old post"),
     ("מארז וייפ גיימינג Acme V2", 250, 150, 2, "forbidden product"),
 ])
@@ -441,7 +441,7 @@ def test_new_posts_with_a_big_stated_discount_are_posted_three_a_day(tmp_path):
 
 @pytest.mark.parametrize("title,price,was,hours,why", [
     ("מקלדת מכנית Acme K8", 250, 300, 2, "the store says only -17%"),
-    ("שמיכת תינוק Acme Soft", 100, 300, 2, "not the niche"),
+    ("חולצת טריקו Acme Soft", 100, 300, 2, "not the niche"),
     ("מקלדת מכנית Acme K8", 150, 300, 72, "an old post"),
     ("מארז וייפ גיימינג Acme V2", 100, 300, 2, "forbidden product"),
 ])

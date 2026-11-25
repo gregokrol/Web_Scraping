@@ -54,7 +54,7 @@ CATEGORIES = [
 ]
 CAT_BY_SLUG = {c[0]: c for c in CATEGORIES}
 # the owner's niche (docs/agents/AUDIENCE.md): the channel leads stay in it; the website shows every category
-NICHE = {"gaming", "computers", "mobile", "appliances", "home"}
+NICHE = {"gaming", "computers", "mobile", "appliances", "home", "baby"}      # baby: the owner's choice, 25.11.2026
 TOP_N = 5
 MIN_REVIEWED = 3               # a "popular" list needs at least this many products with reviews
 
