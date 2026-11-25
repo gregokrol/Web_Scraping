@@ -418,7 +418,7 @@ def test_a_store_whose_search_said_429_pauses_and_later_starts_from_that_word(tw
     assert meta("search_next:localhost") == "lego set"                         # B moves on word by word
     assert main(["search", "lego set", *conf]) == 0
     err = capsys.readouterr().err
-    assert "search paused (said 429 'too many requests'): localhost" in err and "180 min" in err
+    assert "search paused (said 429 'too many requests'): localhost for 15 min" in err
     assert meta("search_next:localhost") == "lego set"                         # it got nothing for it: again next time
     assert main(["search", "doll house", *conf]) == 0
     assert site.count("/b/?s=doll+house") == 0 and site.count("/a/search?q=doll+house") == 1   # A goes on
@@ -438,6 +438,38 @@ def test_a_store_whose_search_said_429_pauses_and_later_starts_from_that_word(tw
     assert main(["search", "lego set", *conf]) == 0 and main(["search", "doll house", *conf]) == 0
     err = capsys.readouterr().err
     assert site.count("/b/?s=doll+house") == 1 and meta("search_next:localhost") is None, err   # round done
+
+
+def test_the_search_pause_grows_with_each_429_in_a_row_and_starts_over_after_a_search_that_works(tmp_path):
+    """15, 30, 60, 120, then at most 180 min; a search that works - or a long quiet time - starts it from 15 again.
+    (24.11.2026: the stores said 429 on the first search of every run, so one 3 h pause would leave them with
+    nothing, while a short break got iDigital 4 searches in a row.)"""
+    from datetime import datetime, timedelta, timezone
+    from affiliate_scraper.searchturns import after_search, paused_until, pause_max_minutes, pause_minutes
+    db = Database(str(tmp_path / "d.db"))
+    words = ["a", "b", "c"]
+    now = datetime(2026, 11, 25, 8, 0, tzinfo=timezone.utc)
+
+    def search(word, said_429, at):
+        before = db.query("SELECT COALESCE(MAX(id), 0) n FROM crawl_runs")[0]["n"]
+        url = f"https://shop.example/search?q={word}"
+        db.finish_run(db.start_run(f"scrape {url}", 1), 0, [{"url": url, "kind": "http_429"}] if said_429 else [])
+        return after_search(db, word, words, ["shop.example"], before, 15, at, max_minutes=180)
+
+    pauses = []
+    for i in range(6):
+        pauses.append(search("a", True, now)["shop.example"])
+        now += timedelta(minutes=pauses[-1])
+    assert pauses == [15, 30, 60, 120, 180, 180]
+    assert search("b", False, now) == {}                                     # it worked: the next pause is short
+    assert search("c", True, now) == {"shop.example": 15}
+    assert paused_until(db, "www.shop.example", now) == now + timedelta(minutes=15)
+    assert search("a", True, now + timedelta(minutes=20)) == {"shop.example": 30}
+    assert search("b", True, now + timedelta(hours=12)) == {"shop.example": 15}   # the next run starts over
+    db.close()
+    assert pause_minutes({}) == 15 and pause_max_minutes({}) == 180
+    cfg = {"rate_limit": {"search_pause_minutes": 20, "search_pause_max_minutes": 10}}
+    assert pause_minutes(cfg) == 20 and pause_max_minutes(cfg) == 20            # the top is never below the first
 
 
 def test_when_every_store_waits_the_search_says_so_and_is_no_error(two_stores, capsys):

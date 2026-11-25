@@ -722,11 +722,14 @@ def _search_run(args) -> int:
     since = _seconds_floor(started)
     db = Database(cfg.get("db", DEFAULT_DB))
     try:
-        from .searchturns import after_search, pause_minutes
-        stopped = after_search(db, query, words, [d for d, _ in jobs], before_id, pause_minutes(cfg))
+        from .searchturns import after_search, pause_max_minutes, pause_minutes
+        stopped = after_search(db, query, words, [d for d, _ in jobs], before_id, pause_minutes(cfg),
+                               max_minutes=pause_max_minutes(cfg))
         if stopped:
-            _err(f"search paused (said 429 'too many requests'): {', '.join(stopped)} - not searched again for "
-                 f"{pause_minutes(cfg):g} min, and next time it starts from this word")
+            _err("search paused (said 429 'too many requests'): "
+                 + ", ".join(f"{d} for {m:g} min" for d, m in stopped.items())
+                 + f" - each 429 in a row doubles the pause (up to {pause_max_minutes(cfg):g} min), "
+                   "a search that works starts it over")
         compare_across_stores(db, cfg, since=since, with_known_matches=True)
         rows = db.query("SELECT domain, title, url, price, currency, group_id FROM offers WHERE last_seen >= ? "
                         f"AND domain IN ({','.join('?' * len(jobs))}) ORDER BY price IS NULL, price",
