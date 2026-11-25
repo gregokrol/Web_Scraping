@@ -221,3 +221,16 @@ def test_a_channel_rise_and_back_is_not_auto_posted_as_a_deal(tmp_path):
     rules = {**AUTO_DEFAULTS, "enabled": True, "niches": []}
     assert auto_post_candidates(db, new_drops(db), rules, NOW) == [] and auto_new_post_candidates(db, rules, NOW) == []
     assert len(channel_findings(db, RULES)) == 1
+
+
+def test_the_store_is_named_shortly_and_close_prices_are_not_called_identical(tmp_path):
+    from affiliate_scraper.models import store_label
+    assert store_label("משחקים לילדים וצעצועים זה אמיגו. לגו, פליימוביל, מליסה וכל המותגים", "www.amigo.co.il") == "אמיגו"
+    assert store_label("Some Very Long Site Title That Is Not A Store Name At All", "shop.example") == "shop.example"
+    assert store_label("BUG", "bug.co.il") == "BUG"
+    db = Database(tmp_path / "a.db")
+    offer(db, [(30, 59.33), (20, 59.33), (12, 70), (5, 70)], 59.50, 70, url="https://www.amigo.co.il/p/1",
+          store="משחקים לילדים וצעצועים זה אמיגו. לגו, פליימוביל, מליסה וכל המותגים השווים")
+    [f] = candidates(db, rules_from({"min_claim_pct": 10}))
+    assert f["store"] == "אמיגו" and "\nאמיגו מציגה עכשיו ₪59.50" in f["text"]
+    assert "גבוה מהמחיר" in f["text"] and "זהה למחיר" not in f["text"]

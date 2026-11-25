@@ -21,6 +21,20 @@ IN_STOCK = {"InStock", "LimitedAvailability", "OnlineOnly", "InStoreOnly"}
 NOT_IN_STOCK = {"OutOfStock", "SoldOut", "Discontinued", "PreOrder", "PreSale", "BackOrder", "MadeToOrder", "Reserved"}
 
 
+# Short names for stores whose pages give a long site title (og:site_name) instead of the store's name -
+# the channel post says "בחנות אמיגו", not "בחנות משחקים לילדים וצעצועים זה אמיגו. לגו, פליימוביל, ..."
+STORE_LABELS = {"amigo.co.il": "אמיגו", "kravitz.co.il": "קרביץ", "shilav.co.il": "שילב"}
+
+
+def store_label(store: str, domain: str = "") -> str:
+    """The store's short name: a known one by domain, else the page's name unless it is a long title."""
+    d = (domain or "").lower().removeprefix("www.")
+    if d in STORE_LABELS:
+        return STORE_LABELS[d]
+    s = (store or "").strip()
+    return s if s and len(s) <= 30 else (d or s)
+
+
 @dataclass
 class Product:
     """One offer: a product as sold by one store at one point in time."""
@@ -74,8 +88,7 @@ class Product:
             p = urlparse(self.url)
             if p.scheme and p.netloc:
                 self.store_url = f"{p.scheme}://{p.netloc}"
-        if not self.store:
-            self.store = self.domain
+        self.store = store_label(self.store, self.domain)
 
     # ------------------------------------------------------------------ derived
     @property

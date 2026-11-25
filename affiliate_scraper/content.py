@@ -138,7 +138,8 @@ def build_content(offer: dict, history: Optional[dict] = None, comparison: Optio
         claim(t["rating"].format(rating=f"{offer['rating']:.1f}", n=offer["review_count"]), "store_reviews")
 
     title = offer.get("title") or offer.get("name") or ""
-    store = offer.get("store") or ""
+    from .models import store_label
+    store = store_label(offer.get("store") or "", offer.get("domain") or "")
     disc = disclosure or DISCLOSURE[lang]
     lines = [c["text"] for c in claims]
 

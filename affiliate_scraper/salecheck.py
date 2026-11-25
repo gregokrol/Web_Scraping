@@ -64,6 +64,13 @@ def _pct(hi: float, lo: float) -> int:
     return round((hi - lo) / hi * 100) if hi else 0
 
 
+def _compare(today: float, then: float) -> str:
+    """'זהה למחיר' only when equal to the agora; a few agorot apart is said as it is."""
+    if abs(today - then) < 0.01:
+        return "זהה למחיר"
+    return "גבוה מהמחיר" if today > then else "כמעט זהה (פחות מ-1% מתחת) למחיר"
+
+
 def _rise_then_back(points: list[tuple[str, float]], price: float, min_rise_pct: float) -> Optional[dict]:
     """In time order: a point at about ``price`` or less, LATER a point at least min_rise_pct higher.
     -> {low_at, low, high_at, high}: the last low before a rise and the FIRST higher price after it, or None."""
@@ -114,7 +121,8 @@ def offer_finding(db: Database, o: dict, rules: Optional[dict] = None,
         low_at, low = low_before[-1] if low_before else (rows[0]["observed_at"], float(rows[0]["price"]))
     else:
         return None                    # the price IS lower than before, or nothing contradicts the "was"
-    return {"source": "offer", "ref_id": o["id"], "store": o.get("store") or o.get("domain") or "",
+    from .models import store_label
+    return {"source": "offer", "ref_id": o["id"], "store": store_label(o.get("store") or "", o.get("domain") or ""),
             "item": str(o["id"]), "title": o["title"], "price": price, "claimed_was": listed,
             "claimed_pct": claimed, "pattern": pattern, "low_at": low_at, "low": low, "flat": flat,
             "never_listed": never_listed, "highest": highest, "n_checks": len(rows),
@@ -161,8 +169,7 @@ def offer_text(f: dict) -> str:
         lines.append(f"• ב-{_d(f['low_at'])} המחיר שם כבר היה {_money(f['low'])}.")
     if f["never_listed"]:
         lines.append(f"• את {_money(f['claimed_was'])} לא ראינו שם אף פעם. הכי גבוה שראינו: {_money(f['highest'])}.")
-    same = abs(f["price"] - f["low"]) <= SAME * f["price"]
-    lines += ["", f"כלומר המחיר היום {'זהה למחיר' if same else 'לא נמוך מהמחיר'} שראינו שם ב-{_d(f['low_at'])}.",
+    lines += ["", f"כלומר המחיר היום {_compare(f['price'], f['low'])} שראינו שם ב-{_d(f['low_at'])}.",
               "אלה העובדות מהבדיקות שלנו, בלי פרשנות."]
     return "\n".join(lines)
 
@@ -208,13 +215,12 @@ def channel_findings(db: Database, rules: dict, now: Optional[datetime] = None) 
 
 def channel_text(f: dict) -> str:
     p = f["pattern"]
-    same = abs(f["price"] - p["low"]) <= SAME * f["price"]
     return "\n".join([
         f"🔍 בדקנו את המבצע (לפי הפוסטים של {f['store']} בטלגרם): {f['title'][:100]}", "",
         f"היום הם מפרסמים {_money(f['price'])} \"במקום {_money(f['claimed_was'])}\" ({f['claimed_pct']}% הנחה).",
         f"• ב-{_d(p['low_at'])} הם פרסמו אותו ב-{_money(p['low'])}.",
         f"• ב-{_d(p['high_at'])} הם פרסמו אותו ב-{_money(p['high'])}.", "",
-        f"כלומר המחיר היום {'זהה למחיר' if same else 'לא נמוך מהמחיר'} שהם פרסמו ב-{_d(p['low_at'])}.",
+        f"כלומר המחיר היום {_compare(f['price'], p['low'])} שהם פרסמו ב-{_d(p['low_at'])}.",
         "המחירים לפי הפוסטים של החנות עצמה. לא בדקנו אותם בדף המוצר."])
 
 
