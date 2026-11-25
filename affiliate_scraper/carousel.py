@@ -111,7 +111,7 @@ def slides_html(deals: list[dict], telegram_url: str = "", product_images: bool 
     logo, total = _logo_uri(), len(deals) + 2
     out = [_page(f'<div class="slide">{_brand(logo)}<div class="n">1/{total}</div>'
                  f'<h1>{len(deals)} עסקאות<br>שעברו <span class="y">את הבדיקה</span></h1>'
-                 '<div class="sub">מחיר שנבדק, לא מבצע מזויף.<br>בדקנו היסטוריית מחירים והשווינו בין חנויות.</div>'
+                 '<div class="sub">מחיר שנבדק, לא מבצע מזויף.<br>בדקנו את היסטוריית המחיר של כל מוצר.</div>'
                  + _peek(deals) +
                  f'<div class="meta">{e(now.astimezone(timezone(timedelta(hours=2))).strftime("%d.%m.%Y"))} · '
                  'החליקו ← לעסקאות</div></div>')]
@@ -132,7 +132,7 @@ def slides_html(deals: list[dict], telegram_url: str = "", product_images: bool 
     tg = f'<div class="tg">{e(telegram_url.removeprefix("https://"))}</div>' if telegram_url else ""
     out.append(_page(f'<div class="slide">{_brand(logo)}<div class="n">{total}/{total}</div>'
                      '<div class="cta">כל עסקה כזאת, ברגע שהיא נבדקת,<br>בערוץ הטלגרם שלנו</div>'
-                     '<div class="checks">✔ היסטוריית מחיר<br>✔ השוואה בין חנויות<br>✔ בלי מבצעים מזויפים</div>'
+                     '<div class="checks">✔ היסטוריית מחיר<br>✔ מועד בדיקה בכל עסקה<br>✔ בלי מבצעים מזויפים</div>'
                      f'{tg}' + (f'<img class="biglogo" src="{logo}" alt="">' if logo else "")
                      + f'<div class="disc">{e(DISCLOSURE)}</div></div>'))
     return out

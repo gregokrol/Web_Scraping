@@ -370,3 +370,11 @@ def test_publish_rechecks_an_old_90_day_claim(tmp_path):
     out = _recheck_claims(db, oid, content)
     assert [c["basis"] for c in out["claims"]] == ["verified_price", "price_history_since"]
     assert "90" not in out["claims"][1]["text"] and "מאז" in out["claims"][1]["text"]
+
+
+def test_how_we_check_says_what_really_happens():
+    """Not every deal is approved by hand (the smart rules publish a big verified saving by themselves), and a
+    comparison between stores happens only when the same product is found in several (rare)."""
+    from affiliate_scraper.site import HOW_WE_CHECK
+    assert "אישור ידני" not in HOW_WE_CHECK and "4 בדיקות" not in HOW_WE_CHECK
+    assert "כשיש" in HOW_WE_CHECK and "לפי כללים קבועים" in HOW_WE_CHECK

@@ -65,3 +65,14 @@ def test_screens_of_the_real_site(tmp_path, monkeypatch, capsys):
     assert [s.name for s in shots] == ["index-html.png", "search-html-q-ps5.png"]
     assert Image.open(shots[0]).size == (1080, 1920)
     assert main(["screens", "--size", "big"]) == 2
+
+
+def test_the_slides_do_not_promise_a_comparison_between_stores():
+    """Every store has its own products, so a comparison between stores is rare (the owner, 24.11.2026):
+    the cover and the closing slide must not promise one for every deal."""
+    deal = {"title": "Acme Headset", "price": 199.0, "store": "באג", "checked_at": "2026-11-25T06:20:00+00:00",
+            "savings_pct": 20, "prev_price": 249.0}
+    pages = slides_html([deal], telegram_url="https://t.me/example", product_images=False)
+    text = "".join(pages) + caption_text([deal], "https://t.me/example")
+    assert "השוואה בין חנויות" not in text and "השווינו בין חנויות" not in text
+    assert "היסטוריית המחיר" in pages[0] and "מועד בדיקה בכל עסקה" in pages[-1]

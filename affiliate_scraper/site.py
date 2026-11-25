@@ -557,7 +557,9 @@ def _deal_page(db: Database, d: dict, cfg: SiteConfig) -> str:
                "offers": {"@type": "AggregateOffer", "priceCurrency": d["currency"], "lowPrice": min(prices),
                           "highPrice": max(prices), "offerCount": len(prices)}}
     lead = f'חיסכון של {d["savings_pct"]}% · ' if d["savings_pct"] and not d["ended"] else ""
-    desc = f'{lead}{d["title"]} ב-{_money(d["price"], d["currency"])} - נבדק מול היסטוריית המחיר וחנויות אחרות.'
+    # "and other stores" only when the same product was really found in another store (rare: own products)
+    desc = (f'{lead}{d["title"]} ב-{_money(d["price"], d["currency"])} - נבדק מול היסטוריית המחיר'
+            + (' וחנויות אחרות.' if len(others) >= 2 else '.'))
     return _layout(cfg, f'{d["title"]} | {cfg.title}', desc, body, deal_path(d["id"]), depth=1,
                    og_image=d.get("image") or "", json_ld=json_ld, body_class="has-sticky", tail=sticky)
 
@@ -565,12 +567,12 @@ def _deal_page(db: Database, d: dict, cfg: SiteConfig) -> str:
 HOW_WE_CHECK = """
 <p class="crumbs"><a class="back" href="index.html#deals">→ חזרה לכל העסקאות</a></p>
 <div class="hero"><h1>איך אנחנו <span class="hl">בודקים</span> מחירים</h1>
-<p>רוב ה"מבצעים" ברשת מעלים קודם את המחיר ואז "מורידים" אותו. אצלנו כל מוצר עובר 4 בדיקות לפני שהוא מתפרסם.</p></div>
+<p>רוב ה"מבצעים" ברשת מעלים קודם את המחיר ואז "מורידים" אותו. ככה אנחנו בודקים עסקה לפני שהיא מתפרסמת:</p></div>
 <div class="panel"><ul class="checks">
 <li><strong>מחיר מאומת</strong>: המחיר והמטבע נקראים ממקור מובנה של החנות. מחיר ישן מ-24 שעות לא נחשב מאומת.</li>
-<li><strong>היסטוריית מחיר</strong>: משווים למחיר באותה חנות ב-30 וב-90 הימים האחרונים. "הנחה" שלא באמת ירדה מסומנת כמטעה ולא מתפרסמת.</li>
-<li><strong>השוואה בין חנויות</strong>: אותו מוצר בדיוק, לפי ברקוד או דגם. גדלים, צבעים ומצב (חדש/מחודש) שונים לא מושווים.</li>
-<li><strong>אישור ידני</strong>: כל עסקה נבדקת ומאושרת לפני שהיא עולה לאתר ולערוץ.</li>
+<li><strong>היסטוריית מחיר</strong>: משווים למחיר באותה חנות ב-30 וב-90 הימים האחרונים. "הנחה" שלא באמת ירדה מסומנת כמטעה ולא מתפרסמת, ומחיר שרק חזר למחיר שכבר היה ב-60 הימים האחרונים לא נספר כירידה.</li>
+<li><strong>השוואה בין חנויות, כשיש</strong>: כשאותו מוצר בדיוק נמצא אצלנו בכמה חנויות (לפי ברקוד או דגם), מוצגת גם ההשוואה. גדלים, צבעים ומצב (חדש/מחודש) שונים לא מושווים. זה לא קורה בכל עסקה, כי לכל חנות מוצרים משלה.</li>
+<li><strong>אישור</strong>: עסקה מתפרסמת אחרי אישור, או לבד לפי כללים קבועים כשהחיסכון המאומת גבוה.</li>
 </ul>
 <p class="meta">בכל עמוד מופיע מועד הבדיקה. המחיר הקובע הוא תמיד המחיר באתר החנות.</p></div>
 """
@@ -838,7 +840,7 @@ def build_site(db: Database, cfg: SiteConfig, now: Optional[datetime] = None) ->
                                           f'לכל העסקאות</a> <a class="btn" style="width:auto" href="{cfg.base_url or "/"}stores/index.html">'
                                           '🏬 לפי חנות</a></div></div>', "404.html", absolute=True), encoding="utf-8")
     (out / "how-we-check.html").write_text(_layout(cfg, f"איך אנחנו בודקים מחירים | {cfg.title}",
-                                                   "השיטה: מחיר מאומת, היסטוריית מחיר, השוואה בין חנויות ואישור ידני.",
+                                                   "השיטה: מחיר מאומת, היסטוריית מחיר, השוואה בין חנויות כשאותו מוצר נמצא בכמה מהן, וכללי אישור קבועים.",
                                                    HOW_WE_CHECK, "how-we-check.html"), encoding="utf-8")
     build_search(db, cfg, out, now)
     pages = ["index.html", "how-we-check.html", "search.html", *[deal_path(d["id"]) for d in deals],
