@@ -648,3 +648,34 @@ def test_only_one_automation_run_at_a_time(tmp_path, capsys):
         assert not (tmp_path / "x.db").exists()            # it did nothing
     finally:
         held.close()
+
+
+def test_a_run_that_runs_out_of_time_stops_and_the_next_continues(tmp_path, monkeypatch, capsys):
+    import time as _time
+    from affiliate_scraper import cli as cli_mod
+    did = []
+    real_main = cli_mod.main
+
+    def fake_scrape(argv):
+        did.append(("scrape", argv[0]))
+        _time.sleep(0.15)
+        return 0
+
+    def fake_main(argv):
+        if argv and argv[0] == "search":
+            did.append(("search", argv[1]))
+            _time.sleep(0.15)
+            return 0
+        return real_main(argv)
+    monkeypatch.setattr(cli_mod, "scrape_main", fake_scrape)
+    monkeypatch.setattr(cli_mod, "main", fake_main)
+    cfg = tmp_path / "automation.json"
+    cfg.write_text(json.dumps({"db": str(tmp_path / "r.db"), "targets": ["https://a.example/"],
+                               "searches": ["one", "two"], "run_budget_minutes": 0.001}), encoding="utf-8")
+    assert real_main(["run", "--config", str(cfg)]) == 0
+    assert did == [("scrape", "https://a.example/")]                     # out of time after the first item
+    assert "the next run starts with the other 2" in capsys.readouterr().err
+    assert real_main(["run", "--config", str(cfg)]) == 0
+    assert did[1] == ("search", "one")                                    # continues where it stopped
+    assert real_main(["run", "--config", str(cfg)]) == 0
+    assert did[2] == ("search", "two")
