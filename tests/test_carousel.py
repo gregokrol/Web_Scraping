@@ -76,3 +76,9 @@ def test_the_slides_do_not_promise_a_comparison_between_stores():
     text = "".join(pages) + caption_text([deal], "https://t.me/example")
     assert "השוואה בין חנויות" not in text and "השווינו בין חנויות" not in text
     assert "היסטוריית המחיר" in pages[0] and "מועד בדיקה בכל עסקה" in pages[-1]
+
+
+def test_the_caption_has_at_most_5_hashtags_because_instagram_takes_no_more():
+    cap = caption_text(DEALS, "https://t.me/mechiremet")
+    tags = [w for w in cap.split() if w.startswith("#")]
+    assert 1 <= len(tags) <= 5 and "#מחיראמת" in tags

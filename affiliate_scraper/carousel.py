@@ -25,7 +25,8 @@ def heb(prefix: str, name: str) -> str:
 W, H = 1080, 1350
 DISCLOSURE = ("ייתכן שחלק מהקישורים הם קישורי שותפים. רכישה דרכם עשויה לזכות אותנו בעמלה, ללא עלות נוספת. "
               "המחירים נבדקו במועד המצוין ועשויים להשתנות.")
-HASHTAGS = "#מחיראמת #דילים #מבצעים #חיסכון #קניותחכמות #בלאקפריידי #גיימינג #טכנולוגיה"
+# Instagram takes at most 5 hashtags in a post: the 6th stays plain text (seen by the owner, 25.11.2026)
+HASHTAGS = "#מחיראמת #דילים #מבצעים #חיסכון #בלאקפריידי"
 
 CSS = f"""
 *{{box-sizing:border-box;margin:0;padding:0}}
