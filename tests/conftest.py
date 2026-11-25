@@ -125,3 +125,17 @@ def _no_real_credentials(monkeypatch):
     for name in list(os.environ):
         if name.startswith(CREDENTIAL_ENV_PREFIXES):
             monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _not_inside_the_manager(monkeypatch):
+    """The agent manager runs pytest with MECHIR_AGENT_RUN set (it blocks channel writes for the agents).
+    The tests set it themselves where they need it, so the manager's QA gets the same results as a normal run."""
+    monkeypatch.delenv("MECHIR_AGENT_RUN", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _own_run_lock(monkeypatch):
+    """The tests use their own run-lock port: the real scheduled run (port 47824) may be going on meanwhile."""
+    from affiliate_scraper import remote
+    monkeypatch.setattr(remote, "RUN_LOCK_PORT", 47899)
