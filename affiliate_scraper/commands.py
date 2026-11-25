@@ -9,6 +9,7 @@ import argparse
 import csv
 import os
 import json
+import time
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -737,6 +738,26 @@ def compare_across_stores(db: Database, cfg: dict, since: str, with_known_matche
     return comparisons
 
 
+RUN_BUDGET_MINUTES = 120     # + one slow store page set (~25 min) + deals/site: well inside the task's 3 h
+
+
+def _work_offset(db: Database, n: int) -> int:
+    """Where the last run that ran out of time stopped (0 = from the start)."""
+    if n <= 0:
+        return 0
+    row = db.query("SELECT value FROM meta WHERE key='run_work_offset'")
+    try:
+        return int(row[0]["value"]) % n if row else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+def _set_work_offset(db: Database, offset: int) -> None:
+    with db.tx() as c:
+        c.execute("INSERT INTO meta(key, value) VALUES ('run_work_offset', ?) "
+                  "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(offset),))
+
+
 def _run_run(args) -> int:
     from .remote import RUN_LOCK_PORT, single_instance
     lock = None if getattr(args, "dry_run", False) else single_instance(RUN_LOCK_PORT)
@@ -782,14 +803,46 @@ def _run_once(args) -> int:
 
     started = datetime.now(timezone.utc).isoformat()
     codes = []
-    for j in jobs:
-        _err("\n=== scrape: " + " ".join(j[:3]) + (" ..." if len(j) > 3 else ""))
-        codes.append(cli.scrape_main([*j, *(["-v"] * args.verbose)]))
-    # saved searches: every run looks the words up in every searchable store, so new products and prices are
-    # found automatically - no product links needed
-    for q in searches:
-        _err(f"\n=== search: {q}")
-        codes.append(cli.main(["search", q, "--config", args.config, *(["-v"] * args.verbose)]))
+    # one list of work - the stores' pages, then the saved searches (every search looks the words up in every
+    # searchable store, so new products are found without product links). A run has a time budget: when it is
+    # used up the run stops collecting, still finishes deals / website / report, and the NEXT run starts where
+    # this one stopped - so every store and search gets its turn, and a run never goes on for half a day.
+    work = [("scrape", j) for j in jobs] + [("search", q) for q in searches]
+    try:
+        budget_min = float(cfg.get("run_budget_minutes", RUN_BUDGET_MINUTES))
+    except (TypeError, ValueError):
+        _err(f"run_budget_minutes is not a number - using {RUN_BUDGET_MINUTES} minutes")
+        budget_min = float(RUN_BUDGET_MINUTES)
+    meta_db = Database(cfg.get("db", DEFAULT_DB))
+    deadline = time.monotonic() + budget_min * 60 if budget_min > 0 else None
+    try:
+        start_at = _work_offset(meta_db, len(work))
+        order = work[start_at:] + work[:start_at]
+        done = 0
+        for kind, item in order:
+            if done and deadline is not None and time.monotonic() > deadline:
+                break                    # (at least one item every run, so the turn always moves on)
+            try:
+                if kind == "scrape":
+                    _err("\n=== scrape: " + " ".join(item[:3]) + (" ..." if len(item) > 3 else ""))
+                    codes.append(cli.scrape_main([*item, *(["-v"] * args.verbose)]))
+                else:
+                    _err(f"\n=== search: {item}")
+                    codes.append(cli.main(["search", item, "--config", args.config, *(["-v"] * args.verbose)]))
+            except (Exception, SystemExit) as exc:     # one broken store / search must not stop the others
+                _err(f"error in {kind} {item if kind == 'search' else item[0]}: {exc}")
+                codes.append(1)
+            done += 1
+            # saved after EVERY item: a run cut off (computer off, sleep) continues after the last finished one
+            _set_work_offset(meta_db, (start_at + done) % len(work))
+        left = len(work) - done
+        if not left:
+            _set_work_offset(meta_db, 0)
+        if left:
+            _err(f"\nTime budget of {budget_min:g} min used: {done} of {len(work)} store pages / searches done, "
+                 f"the next run starts with the other {left}.")
+    finally:
+        meta_db.close()
 
     db = Database(cfg.get("db", DEFAULT_DB))
     if len(jobs) > 1:
