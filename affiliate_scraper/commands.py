@@ -1319,6 +1319,45 @@ cli.register_subcommand("searches", "Add / remove / list searches that every aut
                         _searches_build, _searches_run)
 
 
+# ===================================================================== facts (for the agents' posts and reports)
+def _facts_build(ap) -> None:
+    ap.add_argument("--config", default="automation.json")
+    ap.add_argument("--subscribers", action="store_true",
+                    help="Also ask Telegram how many people the channel has (and remember one count a day)")
+    ap.add_argument("--json", action="store_true", help="The facts as JSON")
+
+
+def _facts_run(args) -> int:
+    from .facts import collect, text
+    cfg = load_automation(args.config) if Path(args.config).exists() else {}
+    subs = None
+    if args.subscribers:
+        from .telegram import TelegramError, TelegramPublisher
+        tg = TelegramPublisher()
+        if not tg.configured:
+            _err("subscribers: Telegram is not set up (TELEGRAM_BOT_TOKEN, TELEGRAM_CHANNEL) - not counted")
+        else:
+            try:
+                subs = int(tg._api("getChatMemberCount", {"chat_id": tg.channel}))
+            except (TelegramError, ValueError, TypeError) as exc:
+                _err(f"subscribers: could not ask Telegram ({exc}) - not counted")
+    db = Database(cfg.get("db", DEFAULT_DB))
+    try:
+        f = collect(cfg, db, subscribers=subs)
+    finally:
+        db.close()
+    if args.json:
+        print(json.dumps(f, ensure_ascii=False, indent=2))
+    else:
+        sys.stdout.buffer.write((text(f) + "\n").encode("utf-8"))
+        sys.stdout.flush()
+    return 0
+
+
+cli.register_subcommand("facts", "The system's numbers counted now (stores, sale pages, deals, savings, subscribers) - "
+                                 "the only source for numbers in posts and reports", _facts_build, _facts_run)
+
+
 # ===================================================================== website
 def _site_build(ap) -> None:
     ap.add_argument("action", choices=["setup", "build", "preview", "publish"],
