@@ -423,7 +423,7 @@ def test_new_posts_with_a_big_stated_discount_are_posted_three_a_day(tmp_path):
     from affiliate_scraper.commands import auto_channel_posts
     db = Database(tmp_path / "c.db")
     _new(db, 1, "מקלדת מכנית Acme K8", 150, 300)               # -50%
-    _new(db, 2, "עכבר גיימינג Acme M3", 140, 200)              # -30%
+    _new(db, 2, "עכבר גיימינג Acme M3", 140, 200, hours_ago=3) # -30%, older (Windows clock: never the same time)
     _new(db, 3, "מסך גיימינג Acme G27", 700, 1000)             # -30%
     _new(db, 4, "אוזניות גיימינג Acme H5", 150, 250)           # -40%, but the 4th today
     tg = FakeChannelTG()
