@@ -553,17 +553,18 @@ def search_stores(cfg: dict, only: Optional[list[str]] = None, affiliate_only: b
     return stores
 
 
-def recent_429(cfg: dict) -> dict:
+def recent_429(cfg: dict, kind: str = "") -> dict:
     """{domain: count} of "429 too many requests" answers in the last 3 days (rate_limit.hours) - long enough that
-    a store does not flip between a slow day and a fast day that brings the 429 back. Reads an existing
-    database only - a dry run or a first run creates nothing."""
+    a store does not flip between a slow day and a fast day that brings the 429 back. ``kind``: "search" (the
+    429s of its search runs - slows its searches) or "pages" (of its sale-page scans - slows those), "" = all.
+    Reads an existing database only - a dry run or a first run creates nothing."""
     path = Path(cfg.get("db", DEFAULT_DB))
     if not path.exists():
         return {}
     from .health import rate_limited_hosts
     db = Database(str(path))
     try:
-        return rate_limited_hosts(db, hours=float((cfg.get("rate_limit") or {}).get("hours", 72)))
+        return rate_limited_hosts(db, hours=float((cfg.get("rate_limit") or {}).get("hours", 72)), kind=kind)
     finally:
         db.close()
 
@@ -641,7 +642,7 @@ def _search_run(args) -> int:
     if not 1 <= args.parallel <= 16:
         _err("error: --parallel must be 1-16")
         return 2
-    limited = recent_429(cfg)       # stores that said "429 too many requests" lately: still searched, only slower
+    limited = recent_429(cfg, "search")    # stores whose SEARCH said "429 too many requests" lately: searched slower
     jobs = search_jobs(cfg, query, args.per_store, args.store or None, args.affiliate_only, limited)
     slowed = [d for d, j in jobs if "--delay" in j[j.index("--delay") + 2:]]
     if slowed:
@@ -759,8 +760,12 @@ def _run_once(args) -> int:
     except (OSError, ValueError) as exc:
         _err(f"error: cannot read {args.config}: {exc}")
         return 2
-    limited = recent_429(cfg)       # stores that said "429 too many requests" lately: still scanned, only slower
+    # stores whose SALE PAGES said "429 too many requests" lately: still scanned, only slower. A 429 of a store's
+    # search slows its searches only (the search command) - not its sale pages too
+    limited = recent_429(cfg, "pages")
     jobs = automation_scrape_jobs(cfg, limited)
+    if limited:
+        _err("sale pages slower (said 429 'too many requests' lately): " + ", ".join(sorted(limited)))
     searches = [str(q) for q in cfg.get("searches", []) if str(q).strip()]
     if not jobs and not searches:
         _err("error: nothing to do - add searches (menu 19), stores (sources_config) or targets/feeds "

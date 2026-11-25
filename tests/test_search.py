@@ -362,3 +362,33 @@ def test_a_store_that_said_429_is_searched_slower_not_skipped(tmp_path):
         return argv[len(argv) - 1 - argv[::-1].index("--delay") + 1]
     assert last_delay(jobs["www.a.example"]) == "15" and last_delay(jobs["b.example"]) == "3"
     assert slow_delay({"delay": 4, "rate_limit": {"slow_factor": 6}}, "a.example", limited) == 24
+
+
+def test_a_429_of_the_search_slows_the_search_only_not_the_sale_pages(tmp_path):
+    """The 429s came from the stores' searches (23 searches a run), not from their sale pages: a store whose search
+    said 429 is searched slower, but its sale pages keep the normal pace - unless they said 429 themselves."""
+    from affiliate_scraper.commands import automation_scrape_jobs, recent_429, search_jobs
+    (tmp_path / "sources.json").write_text(json.dumps({"stores": [
+        {"domain": "a.example", "search_url": "https://a.example/search?q={q}", "include": "/p/",
+         "start_urls": ["https://a.example/collections/sale"], "discover": "links"},
+        {"domain": "b.example", "search_url": "https://b.example/search?q={q}", "include": "/p/",
+         "start_urls": ["https://b.example/collections/sale"], "discover": "links"}]}), encoding="utf-8")
+    db = Database(str(tmp_path / "d.db"))
+    # a's search run: 429 on the search page and on a product page found by it
+    db.finish_run(db.start_run("scrape https://a.example/search?q=x", 2), 0,
+                  [{"url": "https://a.example/search?q=x", "kind": "http_429"},
+                   {"url": "https://a.example/p/1", "kind": "http_429"}])
+    # b's sale-page scan: a 429 on a product page
+    db.finish_run(db.start_run("scrape https://b.example/collections/sale", 1), 0,
+                  [{"url": "https://b.example/p/9", "kind": "http_429"}])
+    db.close()
+    cfg = {"sources_config": str(tmp_path / "sources.json"), "delay": 3, "db": str(tmp_path / "d.db")}
+    assert recent_429(cfg, "search") == {"a.example": 2} and recent_429(cfg, "pages") == {"b.example": 1}
+    assert recent_429(cfg) == {"a.example": 2, "b.example": 1}
+
+    def last_delay(argv):
+        return argv[len(argv) - 1 - argv[::-1].index("--delay") + 1]
+    sale = {j[0].split("/")[2]: j for j in automation_scrape_jobs(cfg, recent_429(cfg, "pages"))}
+    assert last_delay(sale["a.example"]) == "3" and last_delay(sale["b.example"]) == "15"
+    search = dict(search_jobs(cfg, "puzzle", limited=recent_429(cfg, "search")))
+    assert last_delay(search["a.example"]) == "15" and last_delay(search["b.example"]) == "3"

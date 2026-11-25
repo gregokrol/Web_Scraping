@@ -158,16 +158,34 @@ def mark_sent(db: Database, now: Optional[datetime] = None, key: str = "health_s
                   "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, now.isoformat()))
 
 
-def rate_limited_hosts(db, hours: float = 24, min_errors: int = 1, now=None) -> dict[str, int]:
+_SEARCH_MARKS = ("/search", "search?", "?q=", "&q=", "query=", "keyword=")
+
+
+def is_search_url(url: str) -> bool:
+    return any(m in (url or "").lower() for m in _SEARCH_MARKS)
+
+
+def is_search_run(command: str) -> bool:
+    """A run of a store's search page (``scrape <search url>``), not a scan of its sale pages."""
+    first = next((p for p in (command or "").split() if "://" in p), "")
+    return is_search_url(first)
+
+
+def rate_limited_hosts(db, hours: float = 24, min_errors: int = 1, now=None, kind: str = "") -> dict[str, int]:
     """Stores that answered "429 too many requests" at least ``min_errors`` times in the last ``hours``:
     {domain: count}. They are still scanned, only more slowly (commands.slow_delay) - we respect the limit and
-    never try to get around it."""
+    never try to get around it. ``kind``: "search" counts only the 429s of search runs, "pages" only those of
+    sale-page scans - so a store whose SEARCH said 429 is not slowed on its sale pages too. "" = all."""
     from datetime import datetime, timedelta, timezone
     now = now or datetime.now(timezone.utc)
     since = (now - timedelta(hours=hours)).isoformat()
     n: Counter = Counter()
-    for r in db.query("SELECT errors_json FROM crawl_runs WHERE started_at >= ?", (since,)):
+    for r in db.query("SELECT command, errors_json FROM crawl_runs WHERE started_at >= ?", (since,)):
+        search_run = is_search_run(r["command"])
         for e in json.loads(r["errors_json"] or "[]"):
             if isinstance(e, dict) and e.get("kind") == "http_429" and "://" in (e.get("url") or ""):
+                searching = search_run or is_search_url(e["url"])
+                if (kind == "search" and not searching) or (kind == "pages" and searching):
+                    continue
                 n[e["url"].split("/")[2].split(":")[0].lower()] += 1
     return {d: c for d, c in n.items() if c >= min_errors}
