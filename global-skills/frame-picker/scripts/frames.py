@@ -215,9 +215,10 @@ def main(argv=None) -> int:
         p = out / f"best-{len(chosen) + 1:02d}-at-{c['time']:.2f}s.png"
         try:
             extract(ff, video, c["time"], p)
-        except subprocess.CalledProcessError:
-            pass
-        if not p.is_file() or p.stat().st_size == 0:
+            with Image.open(p) as check:              # a half-written file from a damaged video is not kept
+                check.verify()
+        except (subprocess.CalledProcessError, OSError, SyntaxError):
+            p.unlink(missing_ok=True)
             continue                                  # this moment could not be read: take the next candidate
         c["file"] = str(p)
         chosen.append(c)

@@ -104,12 +104,17 @@ def test_edit_crop_focus_and_bad_values(tmp_path):
 
 @needs_ffmpeg
 def test_damaged_video_does_not_hang(tmp_path):
-    good = _make(tmp_path, "g.ts", "-f", "lavfi", "-i", "testsrc=s=320x240:d=6:r=25", "-pix_fmt", "yuv420p")
+    import random
+    good = _make(tmp_path, "g.ts", "-f", "lavfi", "-i", "testsrc2=s=640x360:d=60:r=25", "-c:v", "libx264",
+                 "-preset", "ultrafast", "-pix_fmt", "yuv420p")
     data = bytearray(good.read_bytes())
-    for k in range(4000, len(data), 997):           # scribble over the file: lots of decoder warnings
-        data[k] = (data[k] + 91) % 256
+    rnd = random.Random(7)
+    for _ in range(4000):                            # scribble over the file: lots of decoder warnings
+        data[rnd.randrange(4000, len(data))] = rnd.randrange(256)
     bad = tmp_path / "bad.ts"
     bad.write_bytes(bytes(data))
+    warn = subprocess.run(["ffmpeg", "-v", "error", "-i", str(bad), "-f", "null", "-"], capture_output=True).stderr
+    assert len(warn) > 65536            # more than a pipe holds: the case that used to hang forever
     res = subprocess.run([sys.executable, str(SKILL / "frames.py"), str(bad), "--out", str(tmp_path / "o")],
                          capture_output=True, text=True, timeout=120)
     assert "Traceback" not in res.stderr                     # finishes (frames or a clear message), never hangs
