@@ -109,17 +109,29 @@ def ask_claude(content: list[dict]) -> dict:
         sys.exit(f"Anthropic API error {exc.status_code}: {exc.message}")
     if response.stop_reason == "refusal":
         sys.exit("Claude declined to judge these images")
+    if response.stop_reason == "max_tokens":
+        sys.exit("the answer was cut off (max_tokens) - try again with fewer frames (--top 3 in frames.py)")
     text = next((b.text for b in response.content if b.type == "text"), "")
-    return json.loads(text)
+    try:
+        answer = json.loads(text)
+    except json.JSONDecodeError:
+        sys.exit("Claude's answer was not the expected JSON - try again")
+    answer["model"] = getattr(response, "model", MODEL)   # a fallback model may have answered
+    return answer
 
 
 def check(answer: dict, n_frames: int) -> dict:
     """The model's JSON, made safe to use: a frame that exists, a focus inside the image, a valid ratio."""
-    best = int(answer.get("best", 1))
+    def num(key, default, kind=float):
+        try:
+            return kind(answer.get(key, default))
+        except (TypeError, ValueError):
+            return default
+    best = num("best", 1, int)
     if not 1 <= best <= n_frames:
         best = 1
-    fx = min(max(float(answer.get("focus_x", 0.5)), 0.0), 1.0)
-    fy = min(max(float(answer.get("focus_y", 0.5)), 0.0), 1.0)
+    fx = min(max(num("focus_x", 0.5), 0.0), 1.0)
+    fy = min(max(num("focus_y", 0.5), 0.0), 1.0)
     aspect = str(answer.get("aspect", "4:5"))
     if not re.fullmatch(r"\d{1,2}:\d{1,2}", aspect):
         aspect = "4:5"
