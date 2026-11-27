@@ -144,3 +144,59 @@ def test_focus_moves_the_crop(tmp_path):
     run("edit_image.py", src, "-o", tmp_path / "right.png", "--aspect", "1:1", "--focus", "1,0.5")
     assert Image.open(tmp_path / "left.png").getpixel((899, 450)) == (0, 0, 0)
     assert Image.open(tmp_path / "right.png").getpixel((899, 450)) == (255, 0, 0)
+
+
+def _load_ai_pick():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("ai_pick", SKILL / "ai_pick.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _frames_folder(tmp_path):
+    d = tmp_path / "frames"
+    d.mkdir()
+    for k, t in enumerate(("1.50", "4.00"), 1):
+        Image.new("RGB", (2000, 1000), (40 * k, 80, 120)).save(d / f"best-0{k}-at-{t}s.png")
+    Image.new("RGB", (800, 300), (20, 20, 20)).save(d / "contact-sheet.jpg")
+    return d
+
+
+def test_ai_pick_request_has_every_frame_scaled_down(tmp_path):
+    import base64
+    import io
+    ai = _load_ai_pick()
+    content = ai.build_content(_frames_folder(tmp_path), "Instagram post", "4:5")
+    images = [c for c in content if c["type"] == "image"]
+    assert len(images) == 3                                            # the sheet + 2 frames
+    big = Image.open(io.BytesIO(base64.b64decode(images[1]["source"]["data"])))
+    assert max(big.size) <= ai.MAX_SIDE and images[1]["source"]["media_type"] == "image/jpeg"
+    texts = " ".join(c["text"] for c in content if c["type"] == "text")
+    assert "Frame 2 (at 4.00 s)" in texts and "Instagram post" in texts and "4:5" in texts
+
+
+def test_ai_answer_is_made_safe_and_applied(tmp_path, monkeypatch):
+    import types
+    ai = _load_ai_pick()
+    assert ai.check({"best": 9, "focus_x": 3, "focus_y": -1, "aspect": "wide"}, 2) == {
+        "best": 1, "focus_x": 1.0, "focus_y": 0.0, "aspect": "4:5"}
+    sent = {}
+
+    class FakeMessages:
+        def create(self, **kw):
+            sent.update(kw)
+            block = types.SimpleNamespace(type="text", text=json.dumps(
+                {"best": 2, "ranking": [2, 1], "reason": "sharper", "problems": [], "aspect": "1:1",
+                 "focus_x": 0.7, "focus_y": 0.5}))
+            return types.SimpleNamespace(stop_reason="end_turn", content=[block])
+
+    fake = types.ModuleType("anthropic")
+    fake.Anthropic = lambda: types.SimpleNamespace(beta=types.SimpleNamespace(messages=FakeMessages()))
+    for name in ("AuthenticationError", "RateLimitError", "APIConnectionError", "APIStatusError"):
+        setattr(fake, name, type(name, (Exception,), {}))
+    monkeypatch.setitem(sys.modules, "anthropic", fake)
+    d = _frames_folder(tmp_path)
+    assert ai.main([str(d), "--apply", str(tmp_path / "final.jpg")]) == 0
+    assert sent["model"] == "claude-opus-5-5" and sent["output_config"]["format"]["type"] == "json_schema"
+    assert Image.open(tmp_path / "final.jpg").size == (1000, 1000)       # frame 2, cropped 1:1
