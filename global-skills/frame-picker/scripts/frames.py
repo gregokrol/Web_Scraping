@@ -20,6 +20,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -69,22 +70,32 @@ def sample_frames(ff: str, video: Path, fps: float, w: int, h: int, start: float
     size = SCORE_W * sh
     sharp, mean, contrast, clipped, step, thumbs = [], [], [], [], [], []
     prev = None
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    while True:
-        buf = proc.stdout.read(size)
-        if len(buf) < size:
-            break
-        f = np.frombuffer(buf, dtype=np.uint8).reshape(sh, SCORE_W)
-        ff32 = f.astype(np.float32)
-        sharp.append(laplacian_var(ff32))
-        mean.append(ff32.mean() / 255)
-        contrast.append(ff32.std() / 255)
-        clipped.append(float(((f < 6) | (f > 249)).mean()))
-        step.append(0.0 if prev is None else float(np.abs(ff32 - prev).mean() / 255))
-        prev = ff32
-        thumbs.append(f[::4, ::4].copy())          # 80 px wide: enough to tell two shots apart
-    err = proc.stderr.read().decode("utf-8", "replace").strip()
-    proc.wait()
+    # ffmpeg's messages go to a file, not a pipe: a damaged video can print megabytes of warnings, and a full
+    # pipe would stop ffmpeg while we wait for its frames (both would wait forever)
+    errfile = tempfile.TemporaryFile()
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=errfile)
+    try:
+        while True:
+            buf = proc.stdout.read(size)
+            if len(buf) < size:
+                break
+            f = np.frombuffer(buf, dtype=np.uint8).reshape(sh, SCORE_W)
+            ff32 = f.astype(np.float32)
+            sharp.append(laplacian_var(ff32))
+            mean.append(ff32.mean() / 255)
+            contrast.append(ff32.std() / 255)
+            clipped.append(float(((f < 6) | (f > 249)).mean()))
+            step.append(0.0 if prev is None else float(np.abs(ff32 - prev).mean() / 255))
+            prev = ff32
+            thumbs.append(f[::4, ::4].copy())          # 80 px wide: enough to tell two shots apart
+        proc.wait()
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+    errfile.seek(0)
+    err = errfile.read()[-2000:].decode("utf-8", "replace").strip()
+    errfile.close()
     n = len(sharp)
     if n == 0:
         sys.exit("no frames could be read" + (f": {err[-300:]}" if err else
@@ -147,7 +158,7 @@ def _ff_path(p: Path) -> str:
 
 def extract(ff: str, video: Path, t: float, out: Path) -> None:
     subprocess.run([ff, "-v", "error", "-y", "-ss", f"{t}", "-i", _ff_path(video), "-frames:v", "1",
-                    _ff_path(out)], check=True)
+                    _ff_path(out)], check=True, capture_output=True)   # a damaged file's warnings stay quiet
 
 
 def contact_sheet(paths: list[Path], labels: list[str], out: Path, cell_w: int = 360) -> None:
@@ -189,19 +200,30 @@ def main(argv=None) -> int:
     if dur and a.start >= dur:
         sys.exit(f"--start {a.start:g} is after the end of the video ({dur:.1f} s)")
     metrics, thumbs, times = sample_frames(ff, video, a.fps, w, h, a.start, a.end)
-    chosen = pick(score_frames(metrics), times, max(1, a.top), a.min_gap, thumbs)
-    if not chosen:
+    # extra candidates: a damaged video can refuse to give one frame at full size - then the next one is used
+    candidates = pick(score_frames(metrics), times, max(1, a.top) * 3, a.min_gap, thumbs)
+    if not candidates:
         sys.exit("no usable frame: the video (or the part asked for) is black or almost black")
     out = Path(a.out) if a.out else video.with_name(video.stem + "-frames")
     out.mkdir(parents=True, exist_ok=True)
     for old in out.glob("best-*-at-*s.png"):         # results of an earlier run in the same folder
         old.unlink()
-    paths = []
-    for rank, c in enumerate(chosen, 1):
-        p = out / f"best-{rank:02d}-at-{c['time']:.2f}s.png"
-        extract(ff, video, c["time"], p)
+    chosen, paths = [], []
+    for c in candidates:
+        if len(chosen) == max(1, a.top):
+            break
+        p = out / f"best-{len(chosen) + 1:02d}-at-{c['time']:.2f}s.png"
+        try:
+            extract(ff, video, c["time"], p)
+        except subprocess.CalledProcessError:
+            pass
+        if not p.is_file() or p.stat().st_size == 0:
+            continue                                  # this moment could not be read: take the next candidate
         c["file"] = str(p)
+        chosen.append(c)
         paths.append(p)
+    if not chosen:
+        sys.exit("the frames could not be saved - the video file may be damaged")
     sheet = out / "contact-sheet.jpg"
     contact_sheet(paths, [f"#{i} {c['time']:.2f}s score {c['score']:.2f}" for i, c in enumerate(chosen, 1)], sheet)
     note = (f"only {len(chosen)} different-looking frames found (asked for {a.top})" if len(chosen) < a.top

@@ -100,3 +100,42 @@ def test_edit_crop_focus_and_bad_values(tmp_path):
         args += bad if bad[0] == "-o" else ["-o", str(tmp_path / "x.png"), *bad]
         res = subprocess.run(args, capture_output=True, text=True)
         assert res.returncode != 0 and "Traceback" not in res.stderr
+
+
+@needs_ffmpeg
+def test_damaged_video_does_not_hang(tmp_path):
+    good = _make(tmp_path, "g.ts", "-f", "lavfi", "-i", "testsrc=s=320x240:d=6:r=25", "-pix_fmt", "yuv420p")
+    data = bytearray(good.read_bytes())
+    for k in range(4000, len(data), 997):           # scribble over the file: lots of decoder warnings
+        data[k] = (data[k] + 91) % 256
+    bad = tmp_path / "bad.ts"
+    bad.write_bytes(bytes(data))
+    res = subprocess.run([sys.executable, str(SKILL / "frames.py"), str(bad), "--out", str(tmp_path / "o")],
+                         capture_output=True, text=True, timeout=120)
+    assert "Traceback" not in res.stderr                     # finishes (frames or a clear message), never hangs
+
+
+@needs_ffmpeg
+def test_rerun_cleans_only_its_own_files_and_short_video_notes(tmp_path):
+    v = _make(tmp_path, "short.mp4", "-f", "lavfi", "-i", "testsrc=s=160x120:d=0.6:r=10", "-pix_fmt", "yuv420p")
+    out_dir = tmp_path / "o"
+    out_dir.mkdir()
+    (out_dir / "best-09-at-99.00s.png").write_bytes(b"old")
+    (out_dir / "mine.png").write_bytes(b"keep")
+    out = json.loads(run("frames.py", v, "--out", out_dir, "--top", "5"))
+    assert not (out_dir / "best-09-at-99.00s.png").exists() and (out_dir / "mine.png").read_bytes() == b"keep"
+    assert len(out["best"]) < 5 and "only" in out["note"]       # a 0.6 s clip has fewer different frames
+    res = subprocess.run([sys.executable, str(SKILL / "frames.py"), str(v), "--start", "10"],
+                         capture_output=True, text=True)
+    assert res.returncode != 0 and "after the end of the video" in res.stderr
+
+
+def test_focus_moves_the_crop(tmp_path):
+    src = tmp_path / "s.png"
+    im = Image.new("RGB", (1600, 900), (0, 0, 0))
+    im.paste((255, 0, 0), (1500, 0, 1600, 900))                  # a red stripe on the right edge
+    im.save(src)
+    run("edit_image.py", src, "-o", tmp_path / "left.png", "--aspect", "1:1", "--focus", "0,0.5")
+    run("edit_image.py", src, "-o", tmp_path / "right.png", "--aspect", "1:1", "--focus", "1,0.5")
+    assert Image.open(tmp_path / "left.png").getpixel((899, 450)) == (0, 0, 0)
+    assert Image.open(tmp_path / "right.png").getpixel((899, 450)) == (255, 0, 0)
