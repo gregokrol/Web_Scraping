@@ -41,7 +41,7 @@ def ffmpeg_exe() -> str:
 
 def video_info(ff: str, video: Path) -> tuple[int, int, float]:
     """(width, height, duration seconds) read from ffmpeg's own report - works without ffprobe."""
-    err = subprocess.run([ff, "-hide_banner", "-i", str(video)], capture_output=True, text=True,
+    err = subprocess.run([ff, "-hide_banner", "-i", _ff_path(video)], capture_output=True, text=True,
                          encoding="utf-8", errors="replace").stderr
     m = re.search(r"Video:.*?(\d{2,5})x(\d{2,5})", err)
     d = re.search(r"Duration: (\d+):(\d+):([\d.]+)", err)
@@ -55,20 +55,48 @@ def video_info(ff: str, video: Path) -> tuple[int, int, float]:
     return w, h, dur
 
 
-def sample_gray(ff: str, video: Path, fps: float, w: int, h: int, start: float, end: float):
+def sample_frames(ff: str, video: Path, fps: float, w: int, h: int, start: float, end: float):
+    """Reads the video as a stream, ONE small gray frame at a time, and keeps only its numbers and a tiny
+    thumbnail - a long video does not fill the memory. Returns (metrics dict of arrays, thumbs, times)."""
     sh = max(2, int(round(h * SCORE_W / w / 2)) * 2)
     cmd = [ff, "-v", "error"]
     if start:
         cmd += ["-ss", f"{start}"]
-    cmd += ["-i", str(video)]
+    cmd += ["-i", _ff_path(video)]
     if end:
-        cmd += ["-t", f"{max(0.1, end - start)}"]
+        cmd += ["-t", f"{end - start}"]
     cmd += ["-vf", f"fps={fps},scale={SCORE_W}:{sh},format=gray", "-f", "rawvideo", "-"]
-    raw = subprocess.run(cmd, capture_output=True).stdout
-    n = len(raw) // (SCORE_W * sh)
-    frames = np.frombuffer(raw[: n * SCORE_W * sh], dtype=np.uint8).reshape(n, sh, SCORE_W).astype(np.float32)
-    times = start + np.arange(n) / fps
-    return frames, times
+    size = SCORE_W * sh
+    sharp, mean, contrast, clipped, step, thumbs = [], [], [], [], [], []
+    prev = None
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    while True:
+        buf = proc.stdout.read(size)
+        if len(buf) < size:
+            break
+        f = np.frombuffer(buf, dtype=np.uint8).reshape(sh, SCORE_W)
+        ff32 = f.astype(np.float32)
+        sharp.append(laplacian_var(ff32))
+        mean.append(ff32.mean() / 255)
+        contrast.append(ff32.std() / 255)
+        clipped.append(float(((f < 6) | (f > 249)).mean()))
+        step.append(0.0 if prev is None else float(np.abs(ff32 - prev).mean() / 255))
+        prev = ff32
+        thumbs.append(f[::4, ::4].copy())          # 80 px wide: enough to tell two shots apart
+    err = proc.stderr.read().decode("utf-8", "replace").strip()
+    proc.wait()
+    n = len(sharp)
+    if n == 0:
+        sys.exit("no frames could be read" + (f": {err[-300:]}" if err else
+                                              " - is --start inside the video?"))
+    motion = np.zeros(n)
+    st = np.array(step)
+    if n > 1:                                         # change to the frame before OR after
+        motion[:-1] = st[1:]
+        motion[1:] = np.maximum(motion[1:], st[1:])
+    m = {"sharp": np.array(sharp), "mean": np.array(mean), "contrast": np.array(contrast),
+         "clipped": np.array(clipped), "motion": motion}
+    return m, thumbs, start + np.arange(n) / fps
 
 
 def laplacian_var(img: np.ndarray) -> float:
@@ -76,22 +104,12 @@ def laplacian_var(img: np.ndarray) -> float:
     return float(lap.var())
 
 
-def score_frames(frames: np.ndarray) -> list[dict]:
-    if len(frames) == 0:
-        return []
-    sharp = np.array([laplacian_var(f) for f in frames])
-    mean = frames.mean(axis=(1, 2)) / 255
-    contrast = frames.std(axis=(1, 2)) / 255
-    clipped = ((frames < 6) | (frames > 249)).mean(axis=(1, 2))
-    diff = np.zeros(len(frames))
-    if len(frames) > 1:
-        d = np.abs(np.diff(frames, axis=0)).mean(axis=(1, 2)) / 255
-        diff[0], diff[-1] = d[0], d[-1]
-        diff[1:-1] = np.maximum(d[:-1], d[1:])
+def score_frames(m: dict) -> list[dict]:
+    sharp, mean, contrast, clipped, diff = m["sharp"], m["mean"], m["contrast"], m["clipped"], m["motion"]
 
     def norm(x):                         # 0..1 against this video's own range (robust to outliers)
         lo, hi = np.percentile(x, 5), np.percentile(x, 95)
-        return np.clip((x - lo) / (hi - lo), 0, 1) if hi > lo else np.full_like(x, 0.5)
+        return np.clip((x - lo) / (hi - lo), 0, 1) if hi > lo else np.full_like(x, 0.5, dtype=float)
 
     exposure = 1 - np.clip(np.abs(mean - 0.5) / 0.4, 0, 1)
     steady = 1 - norm(diff)
@@ -100,7 +118,7 @@ def score_frames(frames: np.ndarray) -> list[dict]:
     total[mean < 0.06] = -1              # black frames (fades, start/end) never win
     return [{"i": i, "score": round(float(total[i]), 3), "sharp": round(float(sharp[i]), 1),
              "brightness": round(float(mean[i]), 2), "contrast": round(float(contrast[i]), 2),
-             "motion": round(float(diff[i]), 3)} for i in range(len(frames))]
+             "motion": round(float(diff[i]), 3)} for i in range(len(sharp))]
 
 
 def pick(scored: list[dict], times: np.ndarray, top: int, min_gap: float, frames=None,
@@ -112,8 +130,9 @@ def pick(scored: list[dict], times: np.ndarray, top: int, min_gap: float, frames
         t = float(times[s["i"]])
         if s["score"] < 0 or any(abs(t - c["time"]) < min_gap for c in chosen):
             continue
-        if frames is not None and any(np.abs(frames[s["i"]] - frames[c["i"]]).mean() / 255 < min_diff
-                                      for c in chosen):
+        if frames is not None and any(
+                np.abs(frames[s["i"]].astype(np.float32) - frames[c["i"]].astype(np.float32)).mean() / 255
+                < min_diff for c in chosen):
             continue
         chosen.append({**s, "time": round(t, 3)})
         if len(chosen) == top:
@@ -121,9 +140,14 @@ def pick(scored: list[dict], times: np.ndarray, top: int, min_gap: float, frames
     return chosen
 
 
+def _ff_path(p: Path) -> str:
+    """A path ffmpeg cannot mistake for a protocol ("a:b.mp4") or an option ("-x.mp4")."""
+    return "file:" + str(p.resolve())
+
+
 def extract(ff: str, video: Path, t: float, out: Path) -> None:
-    subprocess.run([ff, "-v", "error", "-y", "-ss", f"{t}", "-i", str(video), "-frames:v", "1", str(out)],
-                   check=True)
+    subprocess.run([ff, "-v", "error", "-y", "-ss", f"{t}", "-i", _ff_path(video), "-frames:v", "1",
+                    _ff_path(out)], check=True)
 
 
 def contact_sheet(paths: list[Path], labels: list[str], out: Path, cell_w: int = 360) -> None:
@@ -141,6 +165,11 @@ def contact_sheet(paths: list[Path], labels: list[str], out: Path, cell_w: int =
 
 
 def main(argv=None) -> int:
+    for stream in (sys.stdout, sys.stderr):           # Windows: Hebrew paths print even on a non-UTF-8 console
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("video")
     ap.add_argument("--out", default=None, help="folder for the images (default: <video name>-frames next to it)")
@@ -153,14 +182,20 @@ def main(argv=None) -> int:
     video = Path(a.video)
     if not video.is_file():
         sys.exit(f"no such file: {video}")
+    if a.start < 0 or a.end < 0 or (a.end and a.end <= a.start):
+        sys.exit("--start must be 0 or more, and --end later than --start")
     ff = ffmpeg_exe()
     w, h, dur = video_info(ff, video)
-    frames, times = sample_gray(ff, video, a.fps, w, h, a.start, a.end)
-    if len(frames) == 0:
-        sys.exit("no frames could be read from the video")
-    chosen = pick(score_frames(frames), times, max(1, a.top), a.min_gap, frames)
+    if dur and a.start >= dur:
+        sys.exit(f"--start {a.start:g} is after the end of the video ({dur:.1f} s)")
+    metrics, thumbs, times = sample_frames(ff, video, a.fps, w, h, a.start, a.end)
+    chosen = pick(score_frames(metrics), times, max(1, a.top), a.min_gap, thumbs)
+    if not chosen:
+        sys.exit("no usable frame: the video (or the part asked for) is black or almost black")
     out = Path(a.out) if a.out else video.with_name(video.stem + "-frames")
     out.mkdir(parents=True, exist_ok=True)
+    for old in out.glob("best-*-at-*s.png"):         # results of an earlier run in the same folder
+        old.unlink()
     paths = []
     for rank, c in enumerate(chosen, 1):
         p = out / f"best-{rank:02d}-at-{c['time']:.2f}s.png"
@@ -169,8 +204,11 @@ def main(argv=None) -> int:
         paths.append(p)
     sheet = out / "contact-sheet.jpg"
     contact_sheet(paths, [f"#{i} {c['time']:.2f}s score {c['score']:.2f}" for i, c in enumerate(chosen, 1)], sheet)
+    note = (f"only {len(chosen)} different-looking frames found (asked for {a.top})" if len(chosen) < a.top
+            else "")
     print(json.dumps({"video": str(video), "size": f"{w}x{h}", "duration_s": round(dur, 2),
-                      "frames_checked": int(len(frames)), "best": chosen, "contact_sheet": str(sheet)},
+                      "frames_checked": int(len(times)), "best": chosen, "contact_sheet": str(sheet),
+                      **({"note": note} if note else {})},
                      ensure_ascii=False, indent=2))
     return 0
 

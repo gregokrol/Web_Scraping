@@ -6,7 +6,8 @@ Options, applied in this order:
   --crop X,Y,W,H          cut out this rectangle (pixels)
   --aspect 4:5            center-crop to a ratio (1:1, 4:5, 9:16, 16:9, 3:2 ...); --focus 0.5,0.4 moves the
                           center (0..1 from the left / top), e.g. to keep a face that is above the middle
-  --rotate 90             degrees, counter-clockwise;   --flip   mirror left-right
+  --rotate 90             degrees, counter-clockwise (not a multiple of 90: the corners fill black);
+                          --flip   mirror left-right
   --resize 1080           width in pixels (height follows), or 1080x1350 (crop first to keep the ratio)
   --auto                  automatic fix: stretch the contrast a little, then a light sharpen
   --brightness 1.1        1 = unchanged, 0.9 darker, 1.2 brighter
@@ -62,6 +63,8 @@ def edit(im: Image.Image, a) -> tuple[Image.Image, list[str]]:
     im = ImageOps.exif_transpose(im)        # phone photos: upright as they were taken
     if a.crop:
         x, y, w, h = (int(v) for v in a.crop.split(","))
+        if w <= 0 or h <= 0 or x < 0 or y < 0 or x + w > im.width or y + h > im.height:
+            raise ValueError(f"--crop {a.crop} is outside the image ({im.width}x{im.height})")
         im = im.crop((x, y, x + w, y + h))
         done.append(f"crop {w}x{h} at {x},{y}")
     if a.aspect:
@@ -99,6 +102,11 @@ def edit(im: Image.Image, a) -> tuple[Image.Image, list[str]]:
 
 
 def main(argv=None) -> int:
+    for stream in (sys.stdout, sys.stderr):           # Windows: Hebrew paths print even on a non-UTF-8 console
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("image")
     ap.add_argument("-o", "--out", required=True, help="the new file (.jpg .png .webp)")
@@ -113,6 +121,8 @@ def main(argv=None) -> int:
     src, out = Path(a.image), Path(a.out)
     if not src.is_file():
         sys.exit(f"no such file: {src}")
+    if out.suffix.lower() not in (".jpg", ".jpeg", ".png", ".webp"):
+        sys.exit("the output name must end with .jpg, .png or .webp")
     if out.resolve() == src.resolve():
         sys.exit("the output must be a new file - the source is never overwritten")
     try:
